@@ -4,28 +4,48 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#F6F1E7">
-  <meta name="robots" content="noindex, nofollow">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="googlebot" content="noindex, nofollow">
   <title>Les Coquelicots — prototype</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Outils de démonstration : ne font pas partie de l'interface. -->
   <div class="demo" role="region" aria-label="Outils de démonstration">
     <div class="demo-bandeau">
       <span class="demo-etiquette">Prototype — données fictives</span>
-      <button type="button" class="demo-bouton" id="demo-ouvrir" aria-expanded="false" aria-controls="demo-menu">Écrans</button>
+      <a class="demo-retour" id="demo-retour" href="#aujourdhui" hidden>Espace bureau</a>
+      <button type="button" class="demo-bouton" id="demo-ouvrir" aria-expanded="false" aria-controls="demo-menu">Démo</button>
     </div>
-    <nav class="demo-menu" id="demo-menu" aria-label="Écrans de la démo" hidden>
-      <ol>
-        <li><a href="#accueil" data-ecran="accueil">Accueil du bureau</a></li>
-        <li><a href="#evenement/vide-grenier" data-ecran="evenement">Fiche du vide-grenier</a></li>
-        <li><a href="#coups-de-main/vide-grenier" data-ecran="coups-de-main">Coups de main, vus par un parent</a></li>
-        <li><a href="#bilan/fete-juin" data-ecran="bilan">Bilan du soir</a></li>
-      </ol>
-      <button type="button" class="demo-reinit" id="demo-reinit">Réinitialiser la démo</button>
-    </nav>
+    <div class="demo-menu" id="demo-menu" hidden>
+      <label class="demo-ligne" for="demo-utilisateur">Je suis
+        <select id="demo-utilisateur"></select>
+      </label>
+      <a class="demo-ligne" href="#inscription/vide-grenier">Voir l'espace parent (vide-grenier)</a>
+      <button type="button" class="demo-ligne demo-reinit" data-reinitialiser>Réinitialiser la démo</button>
+    </div>
   </div>
 
   <main id="vue" class="vue" tabindex="-1"></main>
+
+  <nav class="onglets" id="onglets" aria-label="Espace bureau">
+    <a href="#aujourdhui" data-onglet="aujourdhui">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>
+      <span>Aujourd'hui</span>
+    </a>
+    <a href="#evenements" data-onglet="evenements">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+      <span>Événements</span>
+    </a>
+    <a href="#reunions" data-onglet="reunions">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14v15H5z"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/></svg>
+      <span>Réunions</span><span class="onglet-bientot">Bientôt</span>
+    </a>
+    <a href="#asso" data-onglet="asso">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 4l8.5 6.5"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5.5h4V20"/></svg>
+      <span>L'asso</span>
+    </a>
+  </nav>
 
   <noscript><p class="vue">Ce prototype a besoin de JavaScript pour fonctionner.</p></noscript>
 

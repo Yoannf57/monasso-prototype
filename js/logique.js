@@ -189,19 +189,133 @@
     return true;
   }
 
+  // ---------- Vue d'ensemble (espace bureau) ----------
+
+  function estPasse(evenement, reference) {
+    return joursJusqua(dateEvenement(evenement, reference), reference) < 0;
+  }
+
+  function evenementsAVenir(etat, reference) {
+    return etat.evenements
+      .filter(function (e) { return !estPasse(e, reference); })
+      .sort(function (a, b) { return dateEvenement(a, reference) - dateEvenement(b, reference); });
+  }
+
+  function evenementsPasses(etat, reference) {
+    return etat.evenements
+      .filter(function (e) { return estPasse(e, reference); })
+      .sort(function (a, b) { return dateEvenement(b, reference) - dateEvenement(a, reference); });
+  }
+
+  // Actions à surveiller sur tous les événements à venir ; referent = null pour « toutes ».
+  function actionsASurveiller(etat, referent, reference) {
+    var r = { enRetard: [], cetteSemaine: [] };
+    evenementsAVenir(etat, reference).forEach(function (e) {
+      e.actions.forEach(function (a) {
+        if (referent && a.referent !== referent) { return; }
+        if (estEnRetard(a, e, reference)) { r.enRetard.push({ action: a, evenement: e }); }
+        else if (estCetteSemaine(a, e, reference)) { r.cetteSemaine.push({ action: a, evenement: e }); }
+      });
+    });
+    var parDate = function (x, y) { return dateLimite(x.action, x.evenement, reference) - dateLimite(y.action, y.evenement, reference); };
+    r.enRetard.sort(parDate);
+    r.cetteSemaine.sort(parDate);
+    return r;
+  }
+
+  // Créneaux à venir remplis à moins de la moitié.
+  function creneauxEnManque(etat, reference) {
+    var liste = [];
+    evenementsAVenir(etat, reference).forEach(function (e) {
+      e.creneaux.forEach(function (c) {
+        if (c.inscrits.length < c.places / 2) { liste.push({ creneau: c, evenement: e, manque: placesRestantes(c) }); }
+      });
+    });
+    return liste;
+  }
+
+  function compterInscrits(evenement) {
+    return evenement.creneaux.reduce(function (n, c) { return n + c.inscrits.length; }, 0);
+  }
+
+  function compterPlaces(evenement) {
+    return evenement.creneaux.reduce(function (n, c) { return n + c.places; }, 0);
+  }
+
+  // ---------- Envoi du lien et agenda (espace parent) ----------
+
+  function lienEnvoi(contact, sujet, corps) {
+    var c = analyserContact(contact);
+    if (!c) { return null; }
+    if (c.type === "email") {
+      return "mailto:" + c.valeur + "?subject=" + encodeURIComponent(sujet) + "&body=" + encodeURIComponent(corps);
+    }
+    // « ?&body= » est compris par iPhone et Android.
+    return "sms:" + c.valeur.replace(/[\s.\-()]/g, "") + "?&body=" + encodeURIComponent(corps);
+  }
+
+  function deuxChiffres(n) { return (n < 10 ? "0" : "") + n; }
+
+  function horodatageLocal(date, hhmm) {
+    var p = hhmm.split(":");
+    return date.getFullYear() + deuxChiffres(date.getMonth() + 1) + deuxChiffres(date.getDate()) +
+      "T" + p[0] + p[1] + "00";
+  }
+
+  function echapperIcs(t) {
+    return String(t).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+  }
+
+  // Les lignes d'un .ics ne doivent pas dépasser 75 octets : on les replie.
+  function plierLigneIcs(ligne) {
+    var morceaux = [];
+    while (ligne.length > 60) { morceaux.push(ligne.slice(0, 60)); ligne = " " + ligne.slice(60); }
+    morceaux.push(ligne);
+    return morceaux.join("\r\n");
+  }
+
+  // Fichier .ics (agenda du téléphone) pour un coup de main.
+  function fichierAgenda(association, evenement, creneau, lienAnnulation, maintenant, uid) {
+    var jour = ajouterJours(dateEvenement(evenement, maintenant), creneau.jour || 0);
+    var m = maintenant ? new Date(maintenant) : new Date();
+    var stamp = m.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    return [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//MonAsso//Prototype//FR",
+      "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      "UID:" + (uid || "coup-de-main") + "@monasso-prototype",
+      "DTSTAMP:" + stamp,
+      "DTSTART:" + horodatageLocal(jour, creneau.debut),
+      "DTEND:" + horodatageLocal(jour, creneau.fin),
+      "SUMMARY:" + echapperIcs("Coup de main : " + creneau.titre + " (" + evenement.titre + ")"),
+      "LOCATION:" + echapperIcs(evenement.lieu + ", " + association.ecole),
+      "DESCRIPTION:" + echapperIcs(association.nom + ". Un empêchement ? Annulez avec votre lien : " + lienAnnulation),
+      "BEGIN:VALARM",
+      "TRIGGER:-P1D",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:" + echapperIcs("Demain : " + creneau.titre),
+      "END:VALARM",
+      "END:VEVENT",
+      "END:VCALENDAR"
+    ].map(plierLigneIcs).join("\r\n") + "\r\n";
+  }
+
   // ---------- Bilan ----------
 
-  function texteBilan(association, bilan) {
-    return "Merci à tous pour la " + bilan.titre.toLowerCase() + " : " +
-      bilan.benevoles + " parents ont donné un coup de main, " +
-      bilan.heures + " heures en tout, " +
-      formaterEuros(bilan.recetteBuvette) + " à la buvette et " +
-      bilan.exposants + " " + bilan.exposantsLibelle + ". " +
-      bilan.ceQueCaFinance + " — " + association.nom;
+  function texteBilan(association, evenement) {
+    var b = evenement.bilan;
+    return "Merci à tous pour la " + evenement.titre.toLowerCase() + " : " +
+      b.benevoles + " parents ont donné un coup de main, " +
+      b.heures + " heures en tout, " +
+      formaterEuros(b.recetteBuvette) + " à la buvette et " +
+      b.exposants + " " + b.exposantsLibelle + ". " +
+      b.ceQueCaFinance + " — " + association.nom;
   }
 
   function formaterEuros(n) {
-    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €";
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F") + "\u00A0€";
   }
 
   var Logique = {
@@ -229,6 +343,15 @@
     inscrire: inscrire,
     trouverInscription: trouverInscription,
     annuler: annuler,
+    estPasse: estPasse,
+    evenementsAVenir: evenementsAVenir,
+    evenementsPasses: evenementsPasses,
+    actionsASurveiller: actionsASurveiller,
+    creneauxEnManque: creneauxEnManque,
+    compterInscrits: compterInscrits,
+    compterPlaces: compterPlaces,
+    lienEnvoi: lienEnvoi,
+    fichierAgenda: fichierAgenda,
     texteBilan: texteBilan,
     formaterEuros: formaterEuros
   };
