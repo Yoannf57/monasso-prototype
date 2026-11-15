@@ -224,6 +224,100 @@
   }
 
   // Créneaux à venir remplis à moins de la moitié.
+  // Toutes les actions pas encore faites, pour la liste « Mes actions » :
+  // en retard, cette semaine, puis plus tard.
+  function actionsAFaire(etat, referent, reference) {
+    var r = { enRetard: [], cetteSemaine: [], plusTard: [] };
+    evenementsAVenir(etat, reference).forEach(function (e) {
+      e.actions.forEach(function (a) {
+        if (a.statut === "fait" || (referent && a.referent !== referent)) { return; }
+        var x = { action: a, evenement: e };
+        if (estEnRetard(a, e, reference)) { r.enRetard.push(x); }
+        else if (estCetteSemaine(a, e, reference)) { r.cetteSemaine.push(x); }
+        else { r.plusTard.push(x); }
+      });
+    });
+    var parDate = function (x, y) { return dateLimite(x.action, x.evenement, reference) - dateLimite(y.action, y.evenement, reference); };
+    r.enRetard.sort(parDate);
+    r.cetteSemaine.sort(parDate);
+    r.plusTard.sort(parDate);
+    r.total = r.enRetard.length + r.cetteSemaine.length + r.plusTard.length;
+    return r;
+  }
+
+  // ---------- Couleurs (charte) ----------
+  // La couleur principale vient de la fiche association : on en déduit
+  // la couleur du texte posé dessus et une teinte assez foncée pour écrire avec,
+  // de façon à rester au niveau AA (contraste 4,5:1) quelle que soit la couleur choisie.
+
+  var TEXTE_FONCE = "#2A211C";
+
+  function versRgb(hex) {
+    var h = String(hex).replace("#", "");
+    if (h.length === 3) { h = h.replace(/(.)/g, "$1$1"); }
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) { return null; }
+    return [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); });
+  }
+
+  function versHex(rgb) {
+    return "#" + rgb.map(function (v) { return ("0" + Math.round(Math.max(0, Math.min(255, v))).toString(16)).slice(-2); }).join("").toUpperCase();
+  }
+
+  function luminance(hex) {
+    var c = versRgb(hex).map(function (v) {
+      v /= 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+
+  function contraste(a, b) {
+    var la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+
+  function melanger(a, b, part) {
+    var x = versRgb(a), y = versRgb(b);
+    return versHex(x.map(function (v, i) { return v + (y[i] - v) * part; }));
+  }
+
+  // Texte foncé ou blanc : celui qui se lit le mieux sur ce fond.
+  function texteSur(fond) {
+    return contraste(fond, TEXTE_FONCE) >= contraste(fond, "#FFFFFF") ? TEXTE_FONCE : "#FFFFFF";
+  }
+
+  // Assombrit la couleur jusqu'à atteindre le contraste voulu sur le fond.
+  function teinteLisible(couleur, fond, ratio) {
+    var r = ratio || 4.5;
+    for (var i = 0; i <= 20; i++) {
+      var c = melanger(couleur, "#000000", i / 20);
+      if (contraste(c, fond) >= r) { return c; }
+    }
+    return "#000000";
+  }
+
+  // principale : la couleur telle quelle (aplats, repères, illustrations) ;
+  // principaleFond + surPrincipale : bouton principal lisible (texte foncé ou blanc) ;
+  // principaleTexte : pour écrire en couleur sur le fond crème ou la teinte pâle.
+  function paletteAssociation(couleur, fond) {
+    var principale = versRgb(couleur) ? versHex(versRgb(couleur)) : "#F2613F";
+    var pale = melanger(principale, fond, 0.85);
+    var fondBouton = principale;
+    var sur = texteSur(principale);
+    if (contraste(sur, principale) < 4.5) {
+      fondBouton = teinteLisible(principale, "#FFFFFF");
+      sur = "#FFFFFF";
+    }
+    return {
+      principale: principale,
+      principaleFond: fondBouton,
+      surPrincipale: sur,
+      principaleTexte: teinteLisible(principale, pale),
+      principalePale: pale
+    };
+  }
+
+
   function creneauxEnManque(etat, reference) {
     var liste = [];
     evenementsAVenir(etat, reference).forEach(function (e) {
@@ -347,6 +441,13 @@
     evenementsAVenir: evenementsAVenir,
     evenementsPasses: evenementsPasses,
     actionsASurveiller: actionsASurveiller,
+    actionsAFaire: actionsAFaire,
+    TEXTE_FONCE: TEXTE_FONCE,
+    contraste: contraste,
+    melanger: melanger,
+    texteSur: texteSur,
+    teinteLisible: teinteLisible,
+    paletteAssociation: paletteAssociation,
     creneauxEnManque: creneauxEnManque,
     compterInscrits: compterInscrits,
     compterPlaces: compterPlaces,

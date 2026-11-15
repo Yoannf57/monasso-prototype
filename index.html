@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#F6F1E7">
+  <meta name="theme-color" content="#FFF7EC">
   <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="googlebot" content="noindex, nofollow">
   <title>Les Coquelicots — prototype</title>
@@ -14,7 +14,7 @@
   <div class="demo" role="region" aria-label="Outils de démonstration">
     <div class="demo-bandeau">
       <span class="demo-etiquette">Prototype — données fictives</span>
-      <a class="demo-retour" id="demo-retour" href="#aujourdhui" hidden>Espace bureau</a>
+      <a class="demo-retour" id="demo-retour" href="#accueil" hidden>Espace bureau</a>
       <button type="button" class="demo-bouton" id="demo-ouvrir" aria-expanded="false" aria-controls="demo-menu">Démo</button>
     </div>
     <div class="demo-menu" id="demo-menu" hidden>
@@ -28,22 +28,22 @@
 
   <main id="vue" class="vue" tabindex="-1"></main>
 
-  <nav class="onglets" id="onglets" aria-label="Espace bureau">
-    <a href="#aujourdhui" data-onglet="aujourdhui">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>
-      <span>Aujourd'hui</span>
+  <nav class="onglets" id="onglets" aria-label="Menu principal">
+    <a href="#accueil" data-onglet="accueil">
+      <span class="icone"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 4l8.5 6.5"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5.5h4V20"/></svg></span>
+      <span>Accueil</span>
     </a>
     <a href="#evenements" data-onglet="evenements">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+      <span class="icone"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span>
       <span>Événements</span>
     </a>
-    <a href="#reunions" data-onglet="reunions">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14v15H5z"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/></svg>
-      <span>Réunions</span><span class="onglet-bientot">Bientôt</span>
+    <a href="#association" data-onglet="association">
+      <span class="icone"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5c.6-3.4 3-5.3 6-5.3s5.4 1.9 6 5.3"/><circle cx="17" cy="9.5" r="2.5"/><path d="M16.5 14.3c2.4.1 4.1 1.8 4.5 4.7"/></svg></span>
+      <span>Association</span>
     </a>
-    <a href="#asso" data-onglet="asso">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 4l8.5 6.5"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5.5h4V20"/></svg>
-      <span>L'asso</span>
+    <a href="#aide" data-onglet="aide">
+      <span class="icone"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.3c-.8.4-1.2 1-1.2 1.8v.6"/><path d="M12 17.2v.1"/></svg></span>
+      <span>Aide</span>
     </a>
   </nav>
 

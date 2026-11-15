@@ -1,7 +1,9 @@
 /*
   Affichage du prototype. Deux espaces bien séparés :
-  - espace bureau : barre fixe en bas (Aujourd'hui, Événements, Réunions, L'asso) ;
+  - espace bureau : menu fixe en bas (Accueil, Événements, Association, Aide) ;
   - espace parent : arrivée par le lien ou le QR code, aucune navigation.
+  Règle de la charte : chaque écran montre une liste courte ou un résumé,
+  le détail s'ouvre au toucher, et il y a au plus un bouton principal par écran.
   Ce qu'un testeur saisit est gardé dans le navigateur (localStorage).
 */
 (function () {
@@ -9,10 +11,16 @@
 
   var L = window.Logique;
   var CLE = "monasso-prototype";
+  var FOND = "#FFF7EC"; // même valeur que --fond dans style.css
   var etat = charger();
   var creneauOuvert = null;   // créneau dont le formulaire est déplié (espace parent)
   var annulationFaite = null; // dernière inscription annulée
   var qrVisible = false;      // encart QR code (espace bureau)
+
+  // Couleurs proposées sur la page Charte pour essayer une autre couleur d'association.
+  var COULEURS_ESSAI = [
+    ["Corail", "#F2613F"], ["Bleu", "#2563EB"], ["Vert", "#16A34A"], ["Violet", "#7C3AED"], ["Jaune", "#FACC15"]
+  ];
 
   // ---------- Mémoire du navigateur ----------
 
@@ -45,10 +53,23 @@
     creneauOuvert = null;
     annulationFaite = null;
     qrVisible = false;
+    appliquerCouleur();
   }
 
   function membre(prenom) {
     return etat.bureau.filter(function (m) { return m.prenom === prenom; })[0] || etat.bureau[0];
+  }
+
+  // La couleur principale de l'association remplace celle de la charte.
+  function appliquerCouleur() {
+    var p = L.paletteAssociation(etat.association.couleur, FOND);
+    var s = document.documentElement.style;
+    s.setProperty("--principale", p.principale);
+    s.setProperty("--principale-fond", p.principaleFond);
+    s.setProperty("--sur-principale", p.surPrincipale);
+    s.setProperty("--principale-texte", p.principaleTexte);
+    s.setProperty("--principale-pale", p.principalePale);
+    return p;
   }
 
   // ---------- Outils de texte ----------
@@ -68,7 +89,7 @@
   var fmtMois = new Intl.DateTimeFormat("fr-FR", { month: "short" });
 
   function dateLongue(d) { return majuscule(fmtLong.format(d)); }
-  function dateCourte(d) { return fmtCourt.format(d); }
+  function dateCourte(d) { return fmtCourt.format(d).replace(/\.$/, ""); }
 
   function quandEvenement(e) {
     var j = L.joursJusqua(L.dateEvenement(e));
@@ -87,7 +108,7 @@
     if (j === -1) { return "en retard depuis hier"; }
     if (j === 0) { return "pour aujourd'hui"; }
     if (j === 1) { return "pour demain"; }
-    return "pour le " + dateCourte(L.dateLimite(action, evenement)).replace(/\.$/, "");
+    return "pour le " + dateCourte(L.dateLimite(action, evenement));
   }
 
   function pluriel(n, un, plusieurs) { return n + " " + (n > 1 ? plusieurs : un); }
@@ -97,22 +118,48 @@
       '</span><span class="pastille-mois">' + esc(fmtMois.format(d).replace(".", "")) + "</span></span>";
   }
 
-  function lienParent(evenementId) {
-    return location.href.split("#")[0] + "#inscription/" + evenementId;
+  function lienParent(evenementId) { return location.href.split("#")[0] + "#inscription/" + evenementId; }
+  function lienPersonnel(jeton) { return location.href.split("#")[0] + "#annuler/" + jeton; }
+
+  function entete(surtitre, titre, sousTitre) {
+    return '<header class="entete">' + (surtitre ? '<p class="surtitre">' + esc(surtitre) + "</p>" : "") +
+      '<h1 tabindex="-1">' + esc(titre) + "</h1>" +
+      (sousTitre ? '<p class="sous-titre">' + sousTitre + "</p>" : "") + "</header>";
   }
 
-  function lienPersonnel(jeton) {
-    return location.href.split("#")[0] + "#annuler/" + jeton;
+  function retour(href, libelle) { return '<a class="retour" href="' + href + '">' + esc(libelle) + "</a>"; }
+
+  // Illustrations légères des écrans vides (dessinées avec les couleurs de la charte).
+  function illustration(nom) {
+    var dessins = {
+      calme: '<circle cx="60" cy="52" r="34" fill="var(--principale-pale)"/>' +
+        '<circle cx="60" cy="52" r="16" fill="var(--principale)"/>' +
+        '<path d="M60 10v8M60 86v8M18 52h8M94 52h8M30 22l6 6M84 76l6 6M30 82l6-6M84 28l6-6" stroke="var(--principale)" stroke-width="4" stroke-linecap="round"/>' +
+        '<path d="M22 100h76" stroke="var(--trait)" stroke-width="4" stroke-linecap="round"/>',
+      panneau: '<rect x="20" y="18" width="80" height="62" rx="10" fill="var(--principale-pale)"/>' +
+        '<rect x="32" y="32" width="38" height="8" rx="4" fill="var(--principale)"/>' +
+        '<rect x="32" y="48" width="56" height="6" rx="3" fill="var(--trait)"/><rect x="32" y="60" width="44" height="6" rx="3" fill="var(--trait)"/>' +
+        '<circle cx="60" cy="18" r="6" fill="var(--accent)"/><path d="M44 80l-8 22M76 80l8 22" stroke="var(--texte-doux)" stroke-width="4" stroke-linecap="round"/>',
+      chemin: '<path d="M60 104V30" stroke="var(--texte-doux)" stroke-width="5" stroke-linecap="round"/>' +
+        '<path d="M60 26h34l10 10-10 10H60z" fill="var(--principale)"/><path d="M60 54H28l-10 10 10 10h32z" fill="var(--accent-pale)"/>' +
+        '<path d="M30 104h60" stroke="var(--trait)" stroke-width="4" stroke-linecap="round"/>'
+    };
+    return '<svg class="illustration" viewBox="0 0 120 110" aria-hidden="true" focusable="false">' + dessins[nom] + "</svg>";
   }
 
-  // ---------- Ligne d'action (réutilisée par Aujourd'hui et la fiche événement) ----------
+  function etatVide(nom, titre, texte, suite) {
+    return '<div class="vide">' + illustration(nom) + "<p><strong>" + esc(titre) + "</strong></p>" +
+      (texte ? '<p class="discret">' + texte + "</p>" : "") + (suite || "") + "</div>";
+  }
+
+  // ---------- Ligne d'action (Mes actions et fiche événement) ----------
 
   function ligneAction(a, e, contexte) {
     var retard = L.estEnRetard(a, e);
     var suivant = L.statutSuivant(a.statut);
     var meta = [];
-    if (contexte === "aujourdhui" || contexte === "aujourdhui-miennes") { meta.push(esc(e.titre)); }
-    if (contexte !== "aujourdhui-miennes") { meta.push(esc(a.referent)); }
+    if (contexte === "mes-actions" || contexte === "toutes") { meta.push(esc(e.titre)); }
+    if (contexte !== "mes-actions") { meta.push(esc(a.referent)); }
     meta.push('<span class="action-quand">' + esc(quandAction(a, e)) + "</span>");
     return '<li class="action action--' + a.statut + (retard ? " action--retard" : "") + '" id="action-' + a.id + '" data-contexte="' + contexte + '">' +
       '<div class="action-texte"><p class="action-libelle">' + esc(a.libelle) + "</p>" +
@@ -136,100 +183,134 @@
     if (av) {
       av.innerHTML = texteAvancement(e);
       document.getElementById("barre").style.width = pourcentage(e) + "%";
+      var g = L.grouperParEcheance(e).filter(function (x) { return x.joursAvant === a.joursAvant; })[0];
+      var meta = document.getElementById("groupe-meta-" + a.joursAvant);
+      if (g && meta) { meta.innerHTML = metaGroupe(g, e); }
     }
   }
 
-  // ---------- Espace bureau : Aujourd'hui ----------
+  // ---------- Accueil : trois blocs au plus, chacun ouvre son détail ----------
 
-  function ecranAujourdhui(toutes) {
+  function ecranAccueil() {
     var moi = membre(etat.utilisateur);
-    var s = L.actionsASurveiller(etat, toutes ? null : moi.prenom);
-    var contexte = toutes ? "aujourdhui" : "aujourdhui-miennes";
-    var html = '<header class="entete">' +
-      '<p class="surtitre">' + esc(etat.association.nom) + "</p>" +
-      '<h1 tabindex="-1">Aujourd\'hui</h1>' +
-      '<p class="sous-titre">' + esc(dateLongue(L.aujourdhui())) + " · " + esc(moi.prenom) + ", " + esc(minuscule(moi.role)) + "</p>" +
-      "</header>" +
-      '<div class="bascule" role="group" aria-label="Quelles actions afficher">' +
-      '<a href="#aujourdhui"' + (toutes ? "" : ' aria-current="true"') + ">Mes actions</a>" +
-      '<a href="#aujourdhui/toutes"' + (toutes ? ' aria-current="true"' : "") + ">Toutes les actions</a>" +
-      "</div>";
-
-    html += '<section class="bloc"><h2 class="rubrique rubrique--retard">En retard <span class="compte">' + s.enRetard.length + "</span></h2>";
-    html += s.enRetard.length
-      ? '<ul class="actions">' + s.enRetard.map(function (x) { return ligneAction(x.action, x.evenement, contexte); }).join("") + "</ul>"
-      : '<p class="calme">Rien en retard.</p>';
-    html += "</section>";
-
-    html += '<section class="bloc"><h2 class="rubrique">Cette semaine <span class="compte">' + s.cetteSemaine.length + "</span></h2>";
-    html += s.cetteSemaine.length
-      ? '<ul class="actions">' + s.cetteSemaine.map(function (x) { return ligneAction(x.action, x.evenement, contexte); }).join("") + "</ul>"
-      : '<p class="calme">Rien de prévu dans les 7 jours.</p>';
-    html += "</section>";
-
-    var manque = L.creneauxEnManque(etat);
-    if (manque.length) {
-      html += '<section class="bloc"><h2 class="rubrique">Il manque du monde</h2><ul class="liens-liste">';
-      manque.slice(0, 3).forEach(function (m) {
-        html += '<li><a href="#evenement/' + m.evenement.id + '/coups-de-main">' +
-          '<span class="liens-liste-titre">' + esc(m.creneau.titre) + ", " + esc(m.creneau.horaire) + "</span>" +
-          '<span class="liens-liste-meta">' + esc(m.evenement.titre) + " · " + m.creneau.inscrits.length + " sur " + m.creneau.places + "</span></a></li>";
-      });
-      html += "</ul>";
-      if (manque.length > 3) {
-        html += '<a class="lien-suite" href="#evenement/' + manque[0].evenement.id + '/coups-de-main">Voir tous les créneaux</a>';
-      }
-      html += "</section>";
-    }
+    var html = entete(etat.association.nom, "Bonjour " + moi.prenom, esc(dateLongue(L.aujourdhui())));
 
     var prochain = L.evenementsAVenir(etat)[0];
     if (prochain) {
-      html += '<section class="bloc"><h2 class="rubrique">Prochain événement</h2>' + carteEvenement(prochain, true) + "</section>";
+      var retards = prochain.actions.filter(function (a) { return L.estEnRetard(a, prochain); }).length;
+      var infos = [];
+      if (retards) { infos.push('<span class="texte-alerte">' + pluriel(retards, "action en retard", "actions en retard") + "</span>"); }
+      if (prochain.creneaux.length) { infos.push(L.compterInscrits(prochain) + " coups de main sur " + L.compterPlaces(prochain)); }
+      html += '<a class="carte" id="bloc-prochain" href="#evenement/' + prochain.id + '">' +
+        '<span class="carte-etiquette">Prochain événement</span>' +
+        '<span class="carte-ligne">' + pastilleDate(L.dateEvenement(prochain)) +
+        '<span><span class="carte-titre">' + esc(prochain.titre) + "</span>" +
+        '<span class="carte-quand">' + esc(quandEvenement(prochain)) + " · " + esc(prochain.lieu) + "</span></span></span>" +
+        (infos.length ? '<span class="carte-infos">' + infos.join(" · ") + "</span>" : "") + "</a>";
     }
-    return { titre: "Aujourd'hui", onglet: "aujourdhui", html: html };
+
+    var m = L.actionsAFaire(etat, moi.prenom);
+    var premiere = m.enRetard[0] || m.cetteSemaine[0] || m.plusTard[0];
+    html += '<a class="carte" id="bloc-actions" href="#mes-actions">' +
+      '<span class="carte-etiquette">Mes actions à faire</span>' +
+      '<span class="bloc-chiffre"><span class="grand-nombre">' + m.total + "</span><span>" +
+      (m.total ? (m.enRetard.length ? '<span class="texte-alerte">dont ' + m.enRetard.length + " en retard</span>" : "rien en retard") : "tout est fait") +
+      "</span></span>" +
+      (premiere ? '<span class="carte-infos">' + esc(premiere.action.libelle) + "</span>" : "") + "</a>";
+
+    var manque = L.creneauxEnManque(etat);
+    html += '<a class="carte" id="bloc-rappels" href="#rappels">' +
+      '<span class="carte-etiquette">Rappels</span>' +
+      (manque.length
+        ? '<span class="carte-titre">' + pluriel(manque.length, "créneau manque", "créneaux manquent") + " de monde</span>" +
+          '<span class="carte-infos">' + esc(manque[0].creneau.titre) + " · " + esc(manque[0].evenement.titre) + "</span>"
+        : '<span class="carte-titre">Rien à signaler</span>') + "</a>";
+
+    return { titre: "Accueil", onglet: "accueil", html: html };
   }
 
-  // Carte d'un événement avec accès direct à ses onglets.
-  function carteEvenement(e, grande) {
+  // ---------- Détail : mes actions (ou toutes) ----------
+
+  function ecranMesActions(toutes) {
+    var moi = membre(etat.utilisateur);
+    var r = L.actionsAFaire(etat, toutes ? null : moi.prenom);
+    var contexte = toutes ? "toutes" : "mes-actions";
+    var html = retour("#accueil", "Accueil") +
+      entete(null, toutes ? "Toutes les actions" : "Mes actions", toutes ? "Celles du bureau, pour les 7 jours à venir" : esc(moi.prenom) + ", " + esc(minuscule(moi.role))) +
+      '<div class="bascule" role="group" aria-label="Quelles actions afficher">' +
+      '<a href="#mes-actions"' + (toutes ? "" : ' aria-current="true"') + ">Mes actions</a>" +
+      '<a href="#mes-actions/toutes"' + (toutes ? ' aria-current="true"' : "") + ">Toutes</a></div>";
+
+    function section(titre, liste, alerte) {
+      return '<section class="section"><h2 class="section-titre"><span' + (alerte ? ' class="texte-alerte"' : "") + ">" + titre +
+        '</span><span class="compte">' + liste.length + "</span></h2>" +
+        '<ul class="actions">' + liste.map(function (x) { return ligneAction(x.action, x.evenement, contexte); }).join("") + "</ul></section>";
+    }
+    var groupes = [["En retard", r.enRetard, true], ["Cette semaine", r.cetteSemaine, false]];
+    if (!toutes) { groupes.push(["Plus tard", r.plusTard, false]); }
+    groupes = groupes.filter(function (g) { return g[1].length; });
+    if (!groupes.length) {
+      html += '<div class="section">' + etatVide("calme", toutes ? "Rien en retard ni cette semaine." : "Tout est fait.", "Les nouvelles actions apparaîtront ici.") + "</div>";
+    } else {
+      groupes.forEach(function (g) { html += section(g[0], g[1], g[2]); });
+    }
+    html += '<p class="discret note-bas">Touchez l\'étiquette d\'une action pour changer son statut.' + (toutes ? " Les autres actions sont dans chaque événement." : "") + "</p>";
+    return { titre: toutes ? "Toutes les actions" : "Mes actions", onglet: "accueil", html: html };
+  }
+
+  // ---------- Détail : rappels ----------
+
+  function ecranRappels() {
+    var manque = L.creneauxEnManque(etat);
+    var html = retour("#accueil", "Accueil") + entete(null, "Rappels", "Les créneaux remplis à moins de la moitié");
+    if (!manque.length) {
+      html += etatVide("calme", "Rien à signaler.", "Tous les créneaux ont au moins la moitié de leurs coups de main.");
+    } else {
+      manque.forEach(function (m) {
+        html += '<a class="carte" href="#evenement/' + m.evenement.id + '/coups-de-main">' +
+          '<span class="carte-titre">' + esc(m.creneau.titre) + "</span>" +
+          '<span class="carte-quand">' + esc(m.evenement.titre) + " · " + esc(m.creneau.horaire) + "</span>" +
+          '<span class="carte-infos"><span class="etiquette etiquette--alerte">' + m.creneau.inscrits.length + " sur " + m.creneau.places + "</span></span></a>";
+      });
+      html += '<p class="discret note-bas">Envoyez le lien aux parents depuis l\'onglet « Coups de main » de l\'événement.</p>';
+    }
+    return { titre: "Rappels", onglet: "accueil", html: html };
+  }
+
+  // ---------- Événements : liste courte, un toucher ouvre l'événement ----------
+
+  function carteEvenement(e) {
     var passe = L.estPasse(e);
-    var retards = e.actions.filter(function (a) { return L.estEnRetard(a, e); }).length;
     var infos = [];
     if (!passe) {
+      var retards = e.actions.filter(function (a) { return L.estEnRetard(a, e); }).length;
       infos.push(L.compterFaites(e) + " sur " + pluriel(e.actions.length, "action faite", "actions faites"));
-      if (retards) { infos.push('<span class="texte-retard">' + retards + " en retard</span>"); }
-      if (e.creneaux.length) { infos.push(L.compterInscrits(e) + " sur " + L.compterPlaces(e) + " coups de main"); }
+      if (retards) { infos.push('<span class="texte-alerte">' + retards + " en retard</span>"); }
     } else if (e.bilan) {
       infos.push(e.bilan.benevoles + " parents ont aidé");
     }
-    var raccourcis = passe
-      ? (e.bilan ? [["bilan", "Bilan"]] : [["actions", "Actions"]])
-      : [["actions", "Actions"]].concat(e.creneaux.length ? [["coups-de-main", "Coups de main"]] : []);
-    return '<article class="carte' + (grande ? " carte--grande" : "") + '">' +
-      '<a class="carte-tete" href="#evenement/' + e.id + '">' + pastilleDate(L.dateEvenement(e)) +
-      '<span class="carte-titres"><span class="carte-titre">' + esc(e.titre) + "</span>" +
-      '<span class="carte-quand">' + esc(quandEvenement(e)) + " · " + esc(e.lieu) + "</span></span></a>" +
-      (infos.length ? '<p class="carte-infos">' + infos.join(" · ") + "</p>" : "") +
-      '<p class="raccourcis">' + raccourcis.map(function (r) {
-        return '<a href="#evenement/' + e.id + "/" + r[0] + '">' + r[1] + "</a>";
-      }).join("") + "</p></article>";
+    return '<a class="carte' + (passe ? " carte--passee" : "") + '" id="carte-' + e.id + '" href="#evenement/' + e.id + '">' +
+      '<span class="carte-ligne">' + pastilleDate(L.dateEvenement(e)) +
+      '<span><span class="carte-titre">' + esc(e.titre) + "</span>" +
+      '<span class="carte-quand">' + esc(quandEvenement(e)) + "</span>" +
+      (infos.length ? '<span class="carte-quand">' + infos.join(" · ") + "</span>" : "") +
+      "</span></span></a>";
   }
-
-  // ---------- Espace bureau : Événements ----------
 
   function ecranEvenements() {
     var avenir = L.evenementsAVenir(etat);
     var passes = L.evenementsPasses(etat);
-    var html = '<header class="entete"><p class="surtitre">' + esc(etat.association.nom) + "</p>" +
-      '<h1 tabindex="-1">Événements</h1>' +
-      '<p class="sous-titre">' + avenir.length + " à venir · " + pluriel(passes.length, "passé", "passés") + "</p></header>";
-    html += '<section class="bloc"><h2 class="rubrique">À venir</h2>' + avenir.map(function (e) { return carteEvenement(e); }).join("") + "</section>";
+    var html = entete(etat.association.nom, "Événements", avenir.length + " à venir · " + pluriel(passes.length, "passé", "passés"));
+    html += avenir.length
+      ? '<section><h2 class="section-titre">À venir</h2>' + avenir.map(carteEvenement).join("") + "</section>"
+      : etatVide("panneau", "Aucun événement à venir.", "");
     if (passes.length) {
-      html += '<section class="bloc"><h2 class="rubrique">Passés</h2>' + passes.map(function (e) { return carteEvenement(e); }).join("") + "</section>";
+      html += '<section class="section"><h2 class="section-titre">Passés</h2>' + passes.map(carteEvenement).join("") + "</section>";
     }
     return { titre: "Événements", onglet: "evenements", html: html };
   }
 
-  // ---------- Espace bureau : un événement (3 onglets) ----------
+  // ---------- Un événement (3 onglets) ----------
 
   function ecranEvenement(id, onglet) {
     var e = L.trouverEvenement(etat, id);
@@ -239,10 +320,8 @@
       onglet = passe && e.bilan ? "bilan" : "actions";
     }
     var date = L.dateEvenement(e);
-    var html = '<a class="retour" href="#evenements">Événements</a>' +
-      '<header class="entete entete--serre">' +
-      '<p class="surtitre">' + esc(dateLongue(date)) + (passe ? " " + date.getFullYear() : "") + " · " + esc(e.lieu) + "</p>" +
-      '<h1 tabindex="-1">' + esc(e.titre) + "</h1></header>" +
+    var html = retour("#evenements", "Événements") +
+      entete(dateLongue(date) + (passe ? " " + date.getFullYear() : "") + " · " + e.lieu, e.titre) +
       '<nav class="sous-onglets" aria-label="Rubriques de l\'événement">' +
       sousOnglet(e, "actions", "Actions", onglet) +
       sousOnglet(e, "coups-de-main", "Coups de main", onglet) +
@@ -262,91 +341,98 @@
 
   function texteAvancement(e) {
     var nbRetard = e.actions.filter(function (a) { return L.estEnRetard(a, e); }).length;
-    var t = L.compterFaites(e) + " faites sur " + e.actions.length;
-    if (nbRetard) { t += ' · <span class="texte-retard">' + nbRetard + " en retard</span>"; }
+    var t = "<strong>" + L.compterFaites(e) + " sur " + e.actions.length + "</strong> actions faites";
+    if (nbRetard) { t += ' · <span class="texte-alerte">' + nbRetard + " en retard</span>"; }
     return t;
   }
 
-  function pourcentage(e) {
-    return Math.round(100 * L.compterFaites(e) / Math.max(1, e.actions.length));
+  function pourcentage(e) { return Math.round(100 * L.compterFaites(e) / Math.max(1, e.actions.length)); }
+
+  function metaGroupe(g, e) {
+    var faites = g.actions.filter(function (a) { return a.statut === "fait"; }).length;
+    var retards = g.actions.filter(function (a) { return L.estEnRetard(a, e); }).length;
+    return esc(dateCourte(L.ajouterJours(L.dateEvenement(e), -g.joursAvant))) + " · " + faites + " sur " + g.actions.length +
+      (retards ? ' · <span class="texte-alerte">' + retards + " en retard</span>" : "");
   }
 
+  // Les échéances sont repliées ; on ouvre d'office celles qui ont du retard,
+  // ou la première qui n'est pas terminée.
   function ongletActions(e) {
-    if (!e.actions.length) { return '<p class="calme">Aucune action pour cet événement.</p>'; }
+    if (!e.actions.length) { return etatVide("panneau", "Aucune action pour cet événement.", ""); }
+    var groupes = L.grouperParEcheance(e);
+    var aOuvrir = groupes.filter(function (g) { return g.actions.some(function (a) { return L.estEnRetard(a, e); }); });
+    if (!aOuvrir.length) {
+      aOuvrir = groupes.filter(function (g) { return g.actions.some(function (a) { return a.statut !== "fait"; }); }).slice(0, 1);
+    }
     var html = '<p class="avancement" id="avancement">' + texteAvancement(e) + "</p>" +
-      '<div class="barre" aria-hidden="true"><span id="barre" style="width:' + pourcentage(e) + '%"></span></div>' +
-      '<p class="astuce">Touchez l\'étiquette d\'une action pour changer son statut.</p>';
-    var date = L.dateEvenement(e);
-    L.grouperParEcheance(e).forEach(function (g) {
-      var limite = L.ajouterJours(date, -g.joursAvant);
-      html += '<section class="groupe">' +
-        '<h2 class="groupe-titre"><span>' + esc(g.echeance) + '</span><span class="groupe-date">' + esc(dateCourte(limite)) + "</span></h2>" +
-        '<ul class="actions">' + g.actions.map(function (a) { return ligneAction(a, e, "evenement"); }).join("") + "</ul></section>";
+      '<div class="barre" aria-hidden="true"><span id="barre" style="width:' + pourcentage(e) + '%"></span></div>';
+    groupes.forEach(function (g) {
+      html += '<details class="repli" id="groupe-' + g.joursAvant + '"' + (aOuvrir.indexOf(g) >= 0 ? " open" : "") + ">" +
+        '<summary><span class="repli-titres"><span class="repli-titre">' + esc(g.echeance) + "</span>" +
+        '<span class="repli-meta" id="groupe-meta-' + g.joursAvant + '">' + metaGroupe(g, e) + "</span></span></summary>" +
+        '<div class="repli-corps"><ul class="actions">' + g.actions.map(function (a) { return ligneAction(a, e, "evenement"); }).join("") + "</ul></div></details>";
     });
+    html += '<p class="discret note-bas">Touchez une échéance pour voir ses actions, puis l\'étiquette d\'une action pour changer son statut.</p>';
     return html;
   }
 
   function ongletCoupsDeMain(e) {
     if (!e.creneaux.length) {
-      return '<p class="calme">Pas de tableau de coups de main pour cet événement.</p>';
+      return etatVide("panneau", "Pas de tableau de coups de main pour cet événement.", "");
     }
     var lien = lienParent(e.id);
     var texteWhatsapp = "Bonjour, on cherche des parents pour le " + minuscule(e.titre) + " (" + fmtLong.format(L.dateEvenement(e)) +
       "). Même une heure aide beaucoup, sans créer de compte : " + lien;
-    var inscrits = L.compterInscrits(e), places = L.compterPlaces(e);
     var html = '<section class="partage" aria-labelledby="titre-partage">' +
-      '<h2 class="partage-titre" id="titre-partage">Lien à envoyer aux parents</h2>' +
+      '<h2 id="titre-partage">Lien à envoyer aux parents</h2>' +
       '<p class="discret">Les parents choisissent un créneau avec ce lien, sans créer de compte.</p>' +
       '<p class="lien-adresse" id="lien-parent">' + esc(lien) + "</p>" +
       '<button type="button" class="bouton bouton--principal" data-copier="lien-parent">Copier le lien</button>' +
-      '<p class="discret copie-ok" id="copie-lien-parent" role="status"></p>' +
+      '<p class="copie-ok" id="copie-lien-parent" role="status"></p>' +
       '<div class="boutons-ligne">' +
-      '<a class="bouton bouton--secondaire" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(texteWhatsapp) + '">WhatsApp</a>' +
-      '<button type="button" class="bouton bouton--secondaire" data-qr aria-expanded="' + qrVisible + '" aria-controls="qr">QR code</button>' +
+      '<a class="bouton bouton--secondaire" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(texteWhatsapp) + '">Envoyer sur WhatsApp</a>' +
+      '<button type="button" class="bouton bouton--secondaire" data-qr aria-expanded="' + qrVisible + '" aria-controls="qr">Afficher le QR code</button>' +
       "</div>" +
-      '<div class="qr" id="qr"' + (qrVisible ? "" : " hidden") + '>' +
+      '<div class="qr" id="qr"' + (qrVisible ? "" : " hidden") + ">" +
       '<div class="qr-image" aria-hidden="true"></div>' +
       "<p>Dans la vraie application, ce QR code s'imprime sur l'affiche et dans le cahier de liaison. Le prototype ne le fabrique pas.</p></div>" +
-      '<a class="lien-suite" href="#inscription/' + e.id + '">Voir comme un parent</a>' +
+      '<a class="lien-suite" href="#inscription/' + e.id + '">Voir la page des parents</a>' +
       "</section>";
 
-    html += '<h2 class="rubrique">Qui vient <span class="compte">' + inscrits + " sur " + places + "</span></h2>" +
-      '<ul class="equipe">';
+    html += '<h2 class="section-titre">Qui vient <span class="compte">' + L.compterInscrits(e) + " sur " + L.compterPlaces(e) + "</span></h2>";
     e.creneaux.forEach(function (c) {
       var reste = L.placesRestantes(c);
       var etiquette = reste === 0
         ? '<span class="etiquette etiquette--ok">Complet</span>'
-        : '<span class="etiquette' + (c.inscrits.length < c.places / 2 ? " etiquette--manque" : "") + '">' + (reste === 1 ? "Manque 1" : "Manquent " + reste) + "</span>";
-      html += '<li class="equipe-creneau" id="equipe-' + c.id + '">' +
-        '<div class="equipe-tete"><div><p class="equipe-titre">' + esc(c.titre) + "</p>" +
-        '<p class="equipe-horaire">' + esc(c.horaire) + " · " + c.inscrits.length + " sur " + c.places + "</p></div>" + etiquette + "</div>" +
+        : '<span class="etiquette' + (c.inscrits.length < c.places / 2 ? " etiquette--alerte" : "") + '">' + (reste === 1 ? "Manque 1" : "Manquent " + reste) + "</span>";
+      html += '<details class="repli" id="equipe-' + c.id + '">' +
+        '<summary><span class="repli-titres"><span class="repli-titre">' + esc(c.titre) + "</span>" +
+        '<span class="repli-meta">' + esc(c.horaire) + ' · <span class="insecable">' + c.inscrits.length + " sur " + c.places + "</span></span></span>" + etiquette + "</summary>" +
+        '<div class="repli-corps">' +
         (c.inscrits.length
-          ? '<ul class="equipe-noms">' + c.inscrits.map(function (v) {
+          ? '<ul class="noms">' + c.inscrits.map(function (v) {
             var ct = L.analyserContact(v.contact);
             var href = ct ? (ct.type === "email" ? "mailto:" + ct.valeur : "tel:" + ct.valeur.replace(/[\s.\-()]/g, "")) : "";
             return "<li><span>" + esc(L.nomPublic(v)) + "</span>" +
               (href ? '<a href="' + esc(href) + '">' + esc(v.contact) + "</a>" : "") + "</li>";
           }).join("") + "</ul>"
           : '<p class="calme">Personne pour l\'instant.</p>') +
-        "</li>";
+        "</div></details>";
     });
-    html += "</ul>" +
-      '<p class="discret">Les coordonnées ne sont visibles que du bureau. Les parents ne voient que les prénoms et initiales.</p>';
+    html += '<p class="discret note-bas">Touchez un créneau pour voir qui vient. Les coordonnées ne sont visibles que du bureau ; les parents ne voient que les prénoms et initiales.</p>';
     return html;
   }
 
   function ongletBilan(e) {
     if (!e.bilan) {
       var exemple = etat.evenements.filter(function (x) { return x.bilan; })[0];
-      return '<div class="vide"><p><strong>Le bilan se remplit le soir de l\'événement.</strong></p>' +
-        "<p>Quelques chiffres (parents venus, heures données, recette de la buvette, exposants) deviennent une image de remerciement à partager.</p>" +
-        (exemple ? '<a class="lien-suite" href="#evenement/' + exemple.id + '/bilan">Voir le bilan de la ' + esc(minuscule(exemple.titre)) + "</a>" : "") +
-        "</div>";
+      return etatVide("panneau", "Le bilan se remplit le soir de l'événement.",
+        "Quelques chiffres (parents venus, heures données, recette de la buvette, exposants) deviennent une image de remerciement à partager.",
+        exemple ? '<a class="lien-suite" href="#evenement/' + exemple.id + '/bilan">Voir le bilan de la ' + esc(minuscule(exemple.titre)) + "</a>" : "");
     }
     var b = e.bilan;
     var texte = L.texteBilan(etat.association, e);
     return '<figure class="affichette" aria-label="Image de remerciement à partager">' +
-      '<span class="scotch" aria-hidden="true"></span>' +
       '<p class="affichette-asso">' + esc(etat.association.nom) + "</p>" +
       '<p class="affichette-merci">Merci à vous.</p>' +
       '<p class="chiffre-vedette"><span class="nombre">' + b.benevoles + '</span> parents ont donné un coup de main</p>' +
@@ -362,52 +448,55 @@
       '<p class="discret note-bas">WhatsApp reçoit le message en texte. Pour envoyer l\'affichette, enregistrez l\'image puis joignez-la.</p>';
   }
 
-  // Dessine l'affichette dans une image PNG (1080 × 1350).
+  // Dessine l'affichette dans une image PNG (1080 × 1350), aux couleurs de l'association.
   function enregistrerImage(id) {
     var e = L.trouverEvenement(etat, id);
     if (!e || !e.bilan) { return; }
     var b = e.bilan;
+    var p = L.paletteAssociation(etat.association.couleur, FOND);
     var pret = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
     pret.then(function () {
       var W = 1080, H = 1350, M = 96;
       var c = document.createElement("canvas");
       c.width = W; c.height = H;
       var g = c.getContext("2d");
-      var encre = "#1E2F5C", texte = "#1F1D1A", crayon = "#5E5A52", jaune = "#F4D35E";
-      g.fillStyle = "#FBF8F1"; g.fillRect(0, 0, W, H);
-      g.fillStyle = jaune; g.fillRect(0, 0, W, 24);
+      var texte = "#2A211C", doux = "#6B5D52", accent = "#0B6E77";
+      g.fillStyle = FOND; g.fillRect(0, 0, W, H);
+      g.fillStyle = p.principale; g.fillRect(0, 0, W, 32);
 
-      g.fillStyle = crayon; g.font = "600 34px Lexend";
-      g.fillText(etat.association.nom.toUpperCase(), M, 150);
-      g.fillStyle = encre; g.font = "112px 'Young Serif'";
-      g.fillText("Merci à vous.", M, 290);
-      g.fillStyle = crayon; g.font = "38px Lexend";
-      g.fillText(e.titre + " · " + fmtLongAnnee.format(L.dateEvenement(e)).replace(/^\S+ /, ""), M, 360);
+      g.fillStyle = doux; g.font = "800 36px Nunito";
+      g.fillText(etat.association.nom, M, 160);
+      g.fillStyle = texte; g.font = "900 120px Nunito";
+      g.fillText("Merci à vous.", M, 300);
+      g.fillStyle = doux; g.font = "600 40px Nunito";
+      g.fillText(e.titre + " · " + fmtLongAnnee.format(L.dateEvenement(e)).replace(/^\S+ /, ""), M, 370);
 
-      g.font = "200px 'Young Serif'";
+      g.font = "900 200px Nunito";
       var lv = g.measureText(String(b.benevoles)).width;
-      g.fillStyle = jaune; g.fillRect(M - 12, 480, lv + 24, 110);
-      g.fillStyle = encre;
-      g.fillText(String(b.benevoles), M, 590);
-      g.fillStyle = texte; g.font = "600 44px Lexend";
-      g.fillText("parents ont donné", M + lv + 40, 520);
-      g.fillText("un coup de main", M + lv + 40, 576);
+      g.fillStyle = p.principalePale; g.beginPath();
+      if (g.roundRect) { g.roundRect(M - 20, 430, lv + 40, 200, 28); } else { g.rect(M - 20, 430, lv + 40, 200); }
+      g.fill();
+      g.fillStyle = texte;
+      g.fillText(String(b.benevoles), M, 600);
+      g.font = "800 46px Nunito";
+      g.fillText("parents ont donné", M + lv + 48, 515);
+      g.fillText("un coup de main", M + lv + 48, 575);
 
-      var y = 770;
+      var y = 780;
       [[String(b.heures), "heures données"], [L.formaterEuros(b.recetteBuvette), "à la buvette"], [String(b.exposants), b.exposantsLibelle]]
         .forEach(function (l) {
-          g.strokeStyle = "#D9CFBB"; g.lineWidth = 2;
-          g.beginPath(); g.moveTo(M, y - 80); g.lineTo(W - M, y - 80); g.stroke();
-          g.fillStyle = encre; g.font = "84px 'Young Serif'";
+          g.strokeStyle = "#EADCC8"; g.lineWidth = 3;
+          g.beginPath(); g.moveTo(M, y - 84); g.lineTo(W - M, y - 84); g.stroke();
+          g.fillStyle = accent; g.font = "900 88px Nunito";
           g.fillText(l[0], M, y + 10);
           var largeur = g.measureText(l[0]).width;
-          g.fillStyle = texte; g.font = "40px Lexend";
+          g.fillStyle = texte; g.font = "700 42px Nunito";
           g.fillText(l[1], M + largeur + 28, y);
           y += 140;
         });
 
-      g.fillStyle = texte; g.font = "38px Lexend";
-      ecrireLignes(g, b.ceQueCaFinance, M, 1190, W - 2 * M, 54);
+      g.fillStyle = texte; g.font = "600 40px Nunito";
+      ecrireLignes(g, b.ceQueCaFinance, M, 1200, W - 2 * M, 56);
       telecharger("merci-" + e.id + ".png", c.toDataURL("image/png"));
     });
   }
@@ -431,35 +520,114 @@
     a.remove();
   }
 
-  // ---------- Espace bureau : Réunions et L'asso ----------
+  // ---------- Association ----------
 
-  function ecranReunions() {
-    return {
-      titre: "Réunions", onglet: "reunions",
-      html: '<header class="entete"><p class="surtitre">' + esc(etat.association.nom) + "</p>" +
-        '<h1 tabindex="-1">Réunions <span class="badge-bientot">Bientôt</span></h1></header>' +
-        '<div class="vide"><p><strong>Cet espace arrive plus tard.</strong></p>' +
-        '<ul class="liste-puces"><li>Trouver une date de réunion avec un sondage</li>' +
-        "<li>Rédiger le compte rendu pas à pas, avec les actions décidées</li>" +
-        "<li>Préparer l'assemblée générale</li></ul></div>"
-    };
-  }
-
-  function ecranAsso() {
+  function ecranAssociation() {
     var a = etat.association;
-    var html = '<header class="entete"><p class="surtitre">Fiche de l\'association</p>' +
-      '<h1 tabindex="-1">' + esc(a.nom) + "</h1>" +
-      '<p class="sous-titre">' + esc(a.ecole) + " · " + esc(a.ville) + "</p></header>" +
-      '<section class="bloc"><h2 class="rubrique">Le bureau <span class="compte">' + etat.bureau.length + "</span></h2>" +
+    var html = entete("Association", a.nom, esc(a.ecole) + " · " + esc(a.ville)) +
+      '<section class="section"><h2 class="section-titre">Le bureau <span class="compte">' + etat.bureau.length + "</span></h2>" +
       '<ul class="membres">' + etat.bureau.map(function (m) {
         var moi = m.prenom === etat.utilisateur;
-        return "<li><span class=\"membre-nom\">" + esc(m.prenom) + (moi ? ' <span class="discret">(vous)</span>' : "") + "</span>" +
+        return '<li><span class="membre-nom">' + esc(m.prenom) + (moi ? ' <span class="discret">(vous)</span>' : "") + "</span>" +
           '<span class="membre-role">' + esc(m.role) + "</span></li>";
       }).join("") + "</ul></section>" +
-      '<section class="bloc"><h2 class="rubrique">Démonstration</h2>' +
+      '<section class="section"><h2 class="section-titre">Apparence</h2>' +
+      '<p class="discret">Couleurs, tailles de texte et composants de l\'application.</p>' +
+      '<a class="lien-suite" href="#charte">Voir la charte graphique</a></section>' +
+      '<section class="section"><h2 class="section-titre">Démonstration</h2>' +
       '<p class="discret">Efface ce qui a été saisi pendant les essais et remet les données d\'origine.</p>' +
       '<button type="button" class="bouton bouton--secondaire" data-reinitialiser>Réinitialiser la démo</button></section>';
-    return { titre: "L'asso", onglet: "asso", html: html };
+    return { titre: "Association", onglet: "association", html: html };
+  }
+
+  // ---------- Charte (page interne) ----------
+
+  function ecranCharte() {
+    var p = L.paletteAssociation(etat.association.couleur, FOND);
+    function ratio(a, b) { return L.contraste(a, b).toFixed(1).replace(".", ",") + ":1"; }
+    var nuances = [
+      ["Couleur principale", p.principale, "Aplats, repères, illustrations. Remplaçable par celle de l'association."],
+      ["Bouton principal", p.principaleFond, "Texte " + (p.surPrincipale === "#FFFFFF" ? "blanc" : "foncé") + " : contraste " + ratio(p.surPrincipale, p.principaleFond)],
+      ["Principale pour écrire", p.principaleTexte, "Liens et titres de carte : " + ratio(p.principaleTexte, p.principalePale) + " sur la teinte pâle"],
+      ["Principale pâle", p.principalePale, "Fonds légers (encadrés, pastilles)"],
+      ["Accent bleu canard", "#0B6E77", "« En cours », chiffres, informations : " + ratio("#0B6E77", FOND)],
+      ["Alerte", "#B8322A", "Retards et annulation : " + ratio("#B8322A", FOND)],
+      ["Fond crème", FOND, "Fond de toutes les pages"],
+      ["Texte", "#2A211C", "Texte courant : " + ratio("#2A211C", FOND)],
+      ["Texte doux", "#6B5D52", "Informations secondaires : " + ratio("#6B5D52", FOND)]
+    ];
+    var html = retour("#association", "Association") + entete("Page interne", "Charte graphique", "Ce que chaque écran doit respecter") +
+      '<section class="section"><h2 class="section-titre">Règles</h2><ul class="regles">' +
+      "<li>Une liste courte ou un résumé par écran ; le détail s'ouvre au toucher.</li>" +
+      "<li>Un seul bouton principal par écran.</li>" +
+      "<li>Boutons nommés par un verbe et son objet, jamais une icône seule.</li>" +
+      "<li>Texte de 16 px minimum, contraste AA (4,5:1).</li>" +
+      "<li>Aucun défilement de côté sur un téléphone de 360 px.</li>" +
+      "<li>« Actions » côté bureau, « coups de main » côté parents.</li></ul></section>" +
+
+      '<section class="section"><h2 class="section-titre">Couleurs</h2><ul class="nuancier">' +
+      nuances.map(function (n) {
+        return '<li class="nuance"><span class="nuance-carre" style="background:' + n[1] + '"></span>' +
+          '<span><span class="nuance-nom">' + esc(n[0]) + " · " + esc(n[1]) + '</span><span class="nuance-detail">' + esc(n[2]) + "</span></span></li>";
+      }).join("") + "</ul></section>" +
+
+      '<section class="section"><h2 class="section-titre">Couleur de l\'association</h2>' +
+      '<p class="discret">Essayez une autre couleur principale : tout l\'affichage suit, en restant lisible.</p>' +
+      '<div class="choix-couleurs" style="margin-top:10px">' + COULEURS_ESSAI.map(function (c) {
+        var choisi = c[1].toUpperCase() === p.principale;
+        return '<button type="button" class="choix-couleur" data-couleur="' + c[1] + '" aria-pressed="' + choisi + '">' +
+          '<span style="background:' + c[1] + '" aria-hidden="true"></span>Choisir ' + esc(minuscule(c[0])) + "</button>";
+      }).join("") + "</div></section>" +
+
+      '<section class="section"><h2 class="section-titre">Textes</h2><ul class="echelle">' +
+      '<li><span style="font-size:2rem;font-weight:850;line-height:1.15">Titre de page</span><span class="discret">32 px, Nunito très gras</span></li>' +
+      '<li><span style="font-size:1.25rem;font-weight:800">Titre de section</span><span class="discret">20 px, gras</span></li>' +
+      "<li><span>Texte courant : phrases simples, mots du quotidien.</span><span class=\"discret\">17 px, normal</span></li>" +
+      '<li><span class="discret" style="display:inline">Texte secondaire</span><span class="discret">16 px, le minimum</span></li></ul></section>' +
+
+      '<section class="section exemples"><h2 class="section-titre">Composants</h2>' +
+      '<button type="button" class="bouton bouton--principal" data-exemple>Créer un événement</button>' +
+      '<button type="button" class="bouton bouton--secondaire" data-exemple>Inviter un membre</button>' +
+      '<p><a class="lien-suite" href="#charte">Voir le détail</a></p>' +
+      '<a class="carte" href="#charte"><span class="carte-etiquette">Carte</span><span class="carte-titre">Un résumé qui s\'ouvre au toucher</span></a>' +
+      '<p><span class="etiquette">Manquent 2</span> <span class="etiquette etiquette--alerte">En retard</span> <span class="etiquette etiquette--ok">Complet</span></p>' +
+      '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">Statut d\'une action</p><p class="action-meta">On touche l\'étiquette pour avancer</p></div>' +
+      '<span class="statut statut--en-cours" style="display:inline-flex;align-items:center;justify-content:center">En cours</span></li></ul>' +
+      etatVide("calme", "État vide", "Une petite illustration et une phrase qui dit quoi faire.") +
+      "</section>";
+    return { titre: "Charte graphique", onglet: "association", html: html };
+  }
+
+  function choisirCouleur(couleur) {
+    etat.association.couleur = couleur;
+    sauver();
+    appliquerCouleur();
+    rendre({ garderDefilement: true });
+  }
+
+  // ---------- Aide ----------
+
+  function ecranAide() {
+    var questions = [
+      ["Comment changer le statut d'une action ?",
+        "<p>Ouvrez l'événement, touchez l'échéance, puis l'étiquette de l'action : « À faire » passe à « En cours », puis à « Fait ».</p>"],
+      ["Comment trouver des parents pour aider ?",
+        "<p>Dans l'événement, ouvrez l'onglet « Coups de main » et touchez « Copier le lien ». Collez-le dans le groupe de la classe ou envoyez-le sur WhatsApp.</p>"],
+      ["Que voient les parents ?",
+        "<p>Seulement le tableau des créneaux, avec le prénom et l'initiale de ceux qui viennent. Ils n'ont pas besoin de compte et ne voient jamais les coordonnées.</p>"],
+      ["Comment partager le bilan de la fête ?",
+        "<p>Dans l'événement passé, onglet « Bilan », touchez « Partager sur WhatsApp » ou « Enregistrer l'image ».</p>"],
+      ["Un parent veut annuler, que faire ?",
+        "<p>Rien : il a reçu un lien personnel pour annuler lui-même. La place se libère toute seule.</p>"]
+    ];
+    var html = entete(etat.association.nom, "Aide", "Les questions les plus fréquentes") +
+      '<div class="questions">' + questions.map(function (q, i) {
+        return '<details class="repli" id="question-' + (i + 1) + '"><summary><span class="repli-titres">' + esc(q[0]) + "</span></summary>" +
+          '<div class="repli-corps">' + q[1] + "</div></details>";
+      }).join("") + "</div>" +
+      '<section class="section">' + etatVide("chemin", "Une autre question ?",
+        "Demandez à un membre du bureau. Dans la vraie application, un bouton permettra d'écrire à l'équipe MonAsso.") + "</section>";
+    return { titre: "Aide", onglet: "aide", html: html };
   }
 
   // ---------- Espace parent : tableau des coups de main ----------
@@ -469,7 +637,6 @@
     if (!e || !e.creneaux.length || L.estPasse(e)) { return lienInconnu(); }
     var date = L.dateEvenement(e);
     var html = '<header class="affiche">' +
-      '<span class="punaise" aria-hidden="true"></span>' +
       '<p class="surtitre">' + esc(etat.association.nom) + " · " + esc(etat.association.ecole) + "</p>" +
       '<h1 tabindex="-1">' + esc(e.titre) + "</h1>" +
       '<p class="affiche-date">' + esc(dateLongue(date)) + " · " + esc(e.lieu) + "</p>" +
@@ -486,10 +653,10 @@
         '<p class="creneau-titre">' + esc(c.titre) + "</p>" +
         '<p class="creneau-places">' + jauge(c) + '<span class="creneau-reste">' + esc(textePlaces(reste)) + "</span></p></div>" +
         (complet
-          ? '<span class="tampon-complet">Complet</span>'
-          : (ouvert ? "" : '<button type="button" class="bouton bouton--petit" data-ouvrir="' + c.id + '" aria-label="Je viens : ' + esc(c.titre) + ", " + esc(c.horaire) + '">Je viens</button>')) +
+          ? '<span class="etiquette">Complet</span>'
+          : (ouvert ? "" : '<button type="button" class="bouton bouton--secondaire bouton--petit" data-ouvrir="' + c.id + '" aria-label="Je viens : ' + esc(c.titre) + ", " + esc(c.horaire) + '">Je viens</button>')) +
         "</div>" +
-        (c.inscrits.length ? '<p class="creneau-noms">Avec ' + esc(c.inscrits.map(L.nomPublic).join(", ")) + "</p>" : '<p class="creneau-noms creneau-noms--vide">Personne pour l\'instant.</p>') +
+        (c.inscrits.length ? '<p class="creneau-noms">Avec ' + esc(c.inscrits.map(L.nomPublic).join(", ")) + "</p>" : '<p class="creneau-noms">Personne pour l\'instant.</p>') +
         (ouvert ? formulaire(e, c) : "") +
         "</li>";
     });
@@ -580,20 +747,20 @@
       fmtLong.format(L.dateEvenement(t.evenement)) + ", " + t.creneau.horaire + ". Pour annuler : " + lien;
     var envoi = L.lienEnvoi(t.volontaire.contact, "Mon coup de main — " + t.evenement.titre, corps);
     var html = '<section class="confirmation">' +
-      '<span class="tampon-ok" aria-hidden="true">Inscrit</span>' +
+      '<span class="tampon-ok">Inscrit</span>' +
       '<h1 tabindex="-1">C\'est noté, ' + esc(t.volontaire.prenom) + ".</h1>" +
       '<p class="confirmation-quoi"><strong>' + esc(t.creneau.titre) + "</strong><br>" +
       esc(dateLongue(L.dateEvenement(t.evenement))) + " · " + esc(t.creneau.horaire) + "<br>" + esc(t.evenement.lieu) + "</p>" +
       '<p>Merci. Sur le tableau, les autres parents voient seulement « <strong>' + esc(L.nomPublic(t.volontaire)) + "</strong> ».</p>" +
-      '<div class="lien-perso"><p class="lien-perso-titre">Gardez votre lien pour annuler</p>' +
+      '<div class="lien-perso"><h2>Gardez votre lien pour annuler</h2>' +
       '<p class="discret">Il sert à vous désinscrire si vous avez un empêchement. Il est à vous seul.</p>' +
-      (envoi ? '<a class="bouton bouton--principal" id="envoyer-lien" href="' + esc(envoi) + '">' + (parSms ? "Me l'envoyer par SMS" : "Me l'envoyer par e-mail") + "</a>" : "") +
+      (envoi ? '<a class="bouton bouton--principal" id="envoyer-lien" href="' + esc(envoi) + '">' + (parSms ? "M'envoyer le lien par SMS" : "M'envoyer le lien par e-mail") + "</a>" : "") +
       '<button type="button" class="bouton bouton--secondaire" data-agenda="' + esc(jeton) + '">Ajouter à mon agenda</button>' +
-      '<p class="discret note-bas">L\'agenda vous le rappelle la veille, avec le lien pour annuler.</p>' +
+      '<p class="note-bas">L\'agenda vous le rappelle la veille, avec le lien pour annuler.</p>' +
       '<details class="lien-details"><summary>Voir ou copier le lien</summary>' +
       '<p class="lien-adresse" id="lien-perso">' + esc(lien) + "</p>" +
       '<button type="button" class="lien-bouton" data-copier="lien-perso">Copier le lien</button>' +
-      '<p class="discret copie-ok" id="copie-lien-perso" role="status"></p></details>' +
+      '<p class="copie-ok" id="copie-lien-perso" role="status"></p></details>' +
       "</div>" +
       '<a class="lien-suite" href="#inscription/' + t.evenement.id + '">Revenir au tableau</a>' +
       "</section>";
@@ -629,7 +796,7 @@
       esc(dateLongue(L.dateEvenement(t.evenement))) + " · " + esc(t.creneau.horaire) + "<br>" + esc(t.evenement.titre) + "</p>" +
       "<p>Inscrit au nom de <strong>" + esc(L.nomPublic(t.volontaire)) + "</strong>.</p>" +
       "<p>Un empêchement ? Annulez ici : la place sera libérée pour un autre parent.</p>" +
-      '<button type="button" class="bouton bouton--danger" data-annuler="' + esc(jeton) + '">Annuler mon inscription</button>' +
+      '<button type="button" class="bouton bouton--alerte" data-annuler="' + esc(jeton) + '">Annuler mon inscription</button>' +
       '<a class="lien-suite" href="#inscription/' + t.evenement.id + '">Garder mon inscription</a>' +
       "</section>";
     return { titre: "Mon coup de main", parent: true, html: html };
@@ -648,7 +815,7 @@
     return {
       titre: "Lien inconnu", parent: true,
       html: '<section class="confirmation"><h1 tabindex="-1">Ce lien ne mène à aucune inscription.</h1>' +
-        "<p>L'inscription a peut-être déjà été annulée. Le bureau de l'association peut vous aider.</p></section>"
+        etatVide("chemin", "L'inscription a peut-être déjà été annulée.", "Le bureau de l'association peut vous aider.") + "</section>"
     };
   }
 
@@ -656,17 +823,19 @@
     return {
       titre: "Page introuvable", onglet: null,
       html: '<section class="confirmation"><h1 tabindex="-1">Cette page n\'existe pas.</h1>' +
-        '<a class="lien-suite" href="#aujourdhui">Revenir à Aujourd\'hui</a></section>'
+        etatVide("chemin", "Le lien est peut-être incomplet.", "", '<a class="lien-suite" href="#accueil">Revenir à l\'accueil</a>') + "</section>"
     };
   }
 
   // ---------- Aiguillage ----------
 
-  // Anciennes adresses du prototype 001, gardées pour les liens déjà envoyés.
+  // Anciennes adresses (prototypes 001 et 002), gardées pour les liens déjà envoyés.
   function adresseActuelle() {
     var h = location.hash.replace(/^#/, "");
     var m;
-    if (!h || h === "accueil") { return "aujourdhui"; }
+    if (!h || h === "aujourdhui" || h === "reunions") { return "accueil"; }
+    if (h === "aujourdhui/toutes") { return "mes-actions/toutes"; }
+    if (h === "asso") { return "association"; }
     if ((m = h.match(/^coups-de-main\/(.+)$/))) { return "inscription/" + m[1]; }
     if (h === "bilan/fete-juin") { return "evenement/fete-ecole/bilan"; }
     return h;
@@ -676,11 +845,14 @@
     var morceaux = adresseActuelle().split("/").map(decodeURIComponent);
     var r;
     switch (morceaux[0]) {
-      case "aujourdhui": r = ecranAujourdhui(morceaux[1] === "toutes"); break;
+      case "accueil": r = ecranAccueil(); break;
+      case "mes-actions": r = ecranMesActions(morceaux[1] === "toutes"); break;
+      case "rappels": r = ecranRappels(); break;
       case "evenements": r = ecranEvenements(); break;
       case "evenement": r = ecranEvenement(morceaux[1], morceaux[2]); break;
-      case "reunions": r = ecranReunions(); break;
-      case "asso": r = ecranAsso(); break;
+      case "association": r = ecranAssociation(); break;
+      case "charte": r = ecranCharte(); break;
+      case "aide": r = ecranAide(); break;
       case "inscription": r = ecranInscription(morceaux[1]); break;
       case "merci": r = ecranMerci(morceaux[1]); break;
       case "annuler": r = ecranAnnuler(morceaux[1]); break;
@@ -693,13 +865,16 @@
     document.getElementById("demo-retour").hidden = !parent;
 
     var vue = document.getElementById("vue");
+    var defilement = window.scrollY;
     vue.innerHTML = r.html;
     document.title = r.titre + " — prototype";
     Array.prototype.forEach.call(document.querySelectorAll("[data-onglet]"), function (a) {
       if (a.getAttribute("data-onglet") === r.onglet) { a.setAttribute("aria-current", "page"); }
       else { a.removeAttribute("aria-current"); }
     });
-    if (!(options && options.garderDefilement)) {
+    if (options && options.garderDefilement) {
+      window.scrollTo(0, defilement);
+    } else {
       window.scrollTo(0, 0);
       var h1 = vue.querySelector("h1");
       if (h1 && options && options.focus) { h1.focus({ preventScroll: true }); }
@@ -754,10 +929,13 @@
     if (cible.hasAttribute("data-agenda")) { ajouterAgenda(cible.getAttribute("data-agenda")); return; }
     if (cible.hasAttribute("data-annuler")) { annulerInscription(cible.getAttribute("data-annuler")); return; }
     if (cible.hasAttribute("data-image")) { enregistrerImage(cible.getAttribute("data-image")); return; }
+    if (cible.hasAttribute("data-couleur")) { choisirCouleur(cible.getAttribute("data-couleur")); return; }
+    if (cible.hasAttribute("data-exemple")) { return; }
     if (cible.hasAttribute("data-qr")) {
       qrVisible = !qrVisible;
       document.getElementById("qr").hidden = !qrVisible;
       cible.setAttribute("aria-expanded", String(qrVisible));
+      cible.textContent = qrVisible ? "Masquer le QR code" : "Afficher le QR code";
       return;
     }
     if (cible.id === "demo-ouvrir") { basculerMenu(); return; }
@@ -766,7 +944,7 @@
         reinitialiser();
         remplirUtilisateurs();
         basculerMenu(false);
-        if (location.hash === "#aujourdhui") { rendre(); } else { location.hash = "#aujourdhui"; }
+        if (location.hash === "#accueil") { rendre(); } else { location.hash = "#accueil"; }
       }
       return;
     }
@@ -777,7 +955,7 @@
     etat.utilisateur = ev.target.value;
     sauver();
     basculerMenu(false);
-    if (document.body.classList.contains("espace-parent")) { location.hash = "#aujourdhui"; }
+    if (document.body.classList.contains("espace-parent")) { location.hash = "#accueil"; }
     else { rendre(); }
   });
 
@@ -794,6 +972,7 @@
     rendre({ focus: true });
   });
 
+  appliquerCouleur();
   remplirUtilisateurs();
   rendre();
 })();

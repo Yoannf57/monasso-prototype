@@ -18,7 +18,7 @@
   les téléphones qui ont déjà ouvert la démo repartiront des nouvelles données.
 */
 var DONNEES = {
-  version: 2,
+  version: 3,
 
   // Utilisateur fictif au démarrage (changeable dans le menu de démo).
   utilisateurParDefaut: "Claire",
@@ -26,7 +26,10 @@ var DONNEES = {
   association: {
     nom: "APE Les Coquelicots",
     ecole: "École élémentaire des Tilleuls",
-    ville: "Saint-Aubin-sur-Loire"
+    ville: "Saint-Aubin-sur-Loire",
+    // Couleur principale de l'association (code couleur). Le texte posé dessus
+    // et les teintes de lecture sont calculés pour rester lisibles.
+    couleur: "#F2613F"
   },
 
   bureau: [
