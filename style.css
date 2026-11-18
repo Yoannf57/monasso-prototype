@@ -27,6 +27,14 @@
   --alerte: #B8322A;
   --alerte-pale: #FBE3DE;
 
+  /* Code couleur de préparation (calendrier) : toujours accompagné d'un mot. */
+  --vert: #2F8A3E;
+  --vert-pale: #DDF1DF;
+  --vert-texte: #1F6B2C;
+  --orange: #E08A1E;
+  --orange-pale: #FDEBD3;
+  --orange-texte: #8A4A0A;
+
   /* Neutres chauds */
   --fond: #FFF7EC;
   --surface: #FFFFFF;
@@ -251,6 +259,36 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 .barre span { display: block; height: 100%; background: var(--principale); border-radius: 999px; }
 .astuce { margin-bottom: 14px; padding: 10px 14px; background: var(--accent-pale); border-radius: var(--rayon-petit); color: var(--texte); }
 
+/* ---------- Calendrier ---------- */
+
+.calendrier { margin-bottom: 28px; padding: 16px 12px 14px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); }
+.calendrier-titre { margin: 0 4px 10px; }
+.calendrier-grille { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; }
+.calendrier-grille th { font-size: 1rem; font-weight: 700; color: var(--texte-doux); padding-bottom: 4px; }
+.calendrier-grille td { padding: 0; text-align: center; }
+.jour {
+  display: flex; align-items: center; justify-content: center; width: 100%; max-width: 46px; height: 44px; margin: 0 auto;
+  border-radius: 12px; color: var(--texte); font-weight: 600; text-decoration: none; border: 3px solid transparent;
+}
+a.jour { font-weight: 900; }
+/* Trois formes en plus des couleurs, pour qui distingue mal le rouge du vert. */
+.jour--a-jour { background: var(--vert-pale); border-color: var(--vert); border-radius: 50%; }
+.jour--en-cours { background: var(--orange-pale); border-color: var(--orange); border-style: dashed; }
+.jour--retard { background: var(--alerte-pale); border-color: var(--alerte); border-style: double; border-width: 5px; }
+.jour--passe { background: var(--surface-douce); }
+.jour--aujourdhui { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 3px; font-weight: 900; }
+.calendrier-mois { margin-top: 12px; }
+.calendrier-mois .bouton { width: 100%; }
+.legende { margin-top: 14px; }
+.legende li { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+.legende .jour { flex-shrink: 0; width: 34px; height: 34px; margin: 0; }
+.etiquette--retard { background: var(--alerte-pale); color: var(--alerte); }
+.etiquette--en-cours { background: var(--orange-pale); color: var(--orange-texte); }
+.etiquette--a-jour { background: var(--vert-pale); color: var(--vert-texte); }
+.carte-statut { display: block; margin-top: 6px; }
+.carte-etiquette .etiquette { margin-left: 6px; vertical-align: 1px; }
+.entete .sous-titre .etiquette { margin-top: 2px; }
+
 /* ---------- Événement : onglets ---------- */
 
 .sous-onglets { display: flex; gap: 4px; padding: 4px; margin: 0 0 20px; background: var(--surface-douce); border-radius: var(--rayon); }
@@ -344,6 +382,65 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 .exemples > * + * { margin-top: 14px; }
 .regles { list-style: disc; padding-left: 1.2em; }
 .regles li { padding: 3px 0; }
+
+/* ---------- Lien « Aide » en haut de chaque écran (demande 005) ---------- */
+
+.lien-aide {
+  float: right; display: inline-flex; align-items: center; min-height: 44px; margin: -6px -4px 4px 12px; padding: 0 4px;
+  font-weight: 800; color: var(--principale-texte);
+}
+
+/* ---------- Groupes, personnes, équipes (demande 005) ---------- */
+
+.message-ok {
+  margin: 0 0 16px; padding: 12px 14px; border-radius: var(--rayon-petit);
+  background: var(--accent-pale); color: var(--texte); font-weight: 700; border-left: 6px solid var(--accent);
+}
+.message-ok[hidden] { display: none; }
+.section .message-ok { margin-top: 14px; }
+.avertissement {
+  margin: -8px 0 18px; padding: 8px 12px; border-radius: var(--rayon-petit);
+  background: var(--surface-douce); color: var(--texte-doux); font-size: var(--taille-petit); font-weight: 700;
+}
+
+.personnes { margin-top: 16px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); padding: 0 14px; }
+.personnes li + li { border-top: 1px solid var(--trait); }
+.personne { display: block; padding: 12px 0; color: var(--texte); text-decoration: none; }
+.personne--lien { position: relative; padding-right: 28px; }
+.personne--lien::after {
+  content: ""; position: absolute; right: 6px; top: 50%; width: 9px; height: 9px; margin-top: -5px;
+  border-right: 3px solid var(--texte-doux); border-top: 3px solid var(--texte-doux); transform: rotate(45deg); border-radius: 1px;
+}
+.personne-nom { display: block; font-weight: 800; }
+.personne-vous { color: var(--texte-doux); font-weight: 600; }
+.personne-detail { display: block; color: var(--texte-doux); }
+.personne-contact { color: var(--texte); }
+
+.form-personne, .form-equipe, .form-groupe { margin-top: 4px; }
+.choix { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; }
+.choix legend { font-weight: 800; margin-bottom: 6px; padding: 0; }
+.choix-option {
+  display: flex; align-items: flex-start; gap: 12px; min-height: var(--geste); padding: 10px 12px; margin-bottom: 8px;
+  background: var(--surface); border: 2px solid var(--trait); border-radius: var(--rayon-petit); cursor: pointer;
+}
+.choix-option:has(input:checked) { border-color: var(--texte); }
+.choix-option input { flex-shrink: 0; width: 24px; height: 24px; margin: 1px 0 0; accent-color: var(--accent); }
+.choix-texte { min-width: 0; }
+.choix-titre { display: flex; align-items: center; gap: 8px; font-weight: 800; }
+.choix-detail { display: block; color: var(--texte-doux); }
+.choix--couleurs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.choix--couleurs legend { grid-column: 1 / -1; }
+.choix--couleurs .champ-erreur { grid-column: 1 / -1; }
+.choix--couleurs .choix-option { align-items: center; gap: 8px; min-width: 0; padding: 8px 8px; }
+.choix--couleurs .choix-titre { gap: 6px; min-width: 0; }
+.choix--liste .choix-option { margin-bottom: 6px; align-items: center; }
+.pastille-couleur { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(42, 33, 28, 0.25); }
+.lien-bouton--alerte { color: var(--alerte); margin-top: 12px; }
+.visuellement-cache {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.visuellement-cache:focus-visible + .bouton { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- Espace parent ---------- */
 

@@ -245,6 +245,45 @@
     return r;
   }
 
+  // Où en est la préparation d'un événement (code couleur du calendrier) :
+  // "retard" : au moins une action a dépassé sa date (rouge) ;
+  // "en-cours" : rien en retard, mais des actions à faire dans les 7 jours (orange) ;
+  // "a-jour" : rien en retard ni d'urgent (vert) ; "passe" : événement terminé (gris).
+  var LIBELLES_PREPARATION = { retard: "En retard", "en-cours": "En cours", "a-jour": "À jour", passe: "Passé" };
+
+  function etatPreparation(evenement, reference) {
+    if (estPasse(evenement, reference)) { return "passe"; }
+    var actions = evenement.actions;
+    if (actions.some(function (a) { return estEnRetard(a, evenement, reference); })) { return "retard"; }
+    if (actions.some(function (a) { return estCetteSemaine(a, evenement, reference); })) { return "en-cours"; }
+    return "a-jour";
+  }
+
+  // Grille d'un mois, semaines du lundi au dimanche : null pour les cases hors du mois.
+  function grilleMois(annee, mois) {
+    var premier = new Date(annee, mois, 1);
+    var decalage = (premier.getDay() + 6) % 7;
+    var nbJours = new Date(annee, mois + 1, 0).getDate();
+    var cases = [];
+    for (var i = 0; i < decalage; i++) { cases.push(null); }
+    for (var j = 1; j <= nbJours; j++) { cases.push(new Date(annee, mois, j)); }
+    while (cases.length % 7) { cases.push(null); }
+    var semaines = [];
+    for (var k = 0; k < cases.length; k += 7) { semaines.push(cases.slice(k, k + 7)); }
+    return semaines;
+  }
+
+  function memeJour(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+
+  function evenementsDuMois(etat, annee, mois, reference) {
+    return etat.evenements.filter(function (e) {
+      var d = dateEvenement(e, reference);
+      return d.getFullYear() === annee && d.getMonth() === mois;
+    }).sort(function (a, b) { return dateEvenement(a, reference) - dateEvenement(b, reference); });
+  }
+
   // ---------- Couleurs (charte) ----------
   // La couleur principale vient de la fiche association : on en déduit
   // la couleur du texte posé dessus et une teinte assez foncée pour écrire avec,
@@ -442,6 +481,11 @@
     evenementsPasses: evenementsPasses,
     actionsASurveiller: actionsASurveiller,
     actionsAFaire: actionsAFaire,
+    LIBELLES_PREPARATION: LIBELLES_PREPARATION,
+    etatPreparation: etatPreparation,
+    grilleMois: grilleMois,
+    memeJour: memeJour,
+    evenementsDuMois: evenementsDuMois,
     TEXTE_FONCE: TEXTE_FONCE,
     contraste: contraste,
     melanger: melanger,
