@@ -66,14 +66,17 @@
   }
 
   // Regroupe les actions par échéance, de la plus lointaine au jour J.
-  function grouperParEcheance(evenement) {
+  // titre(action) donne le nom de l'échéance ; sans lui, c'est le texte noté sur l'action.
+  function grouperParEcheance(evenement, titre) {
     var groupes = [];
-    var parNom = {};
+    var parNom = Object.create(null);
+    var nom = titre || function (a) { return a.echeance; };
     evenement.actions.forEach(function (a) {
-      var g = parNom[a.echeance];
+      var cle = String(nom(a));
+      var g = parNom[cle];
       if (!g) {
-        g = { echeance: a.echeance, joursAvant: a.joursAvant, actions: [] };
-        parNom[a.echeance] = g;
+        g = { echeance: cle, joursAvant: a.joursAvant, actions: [] };
+        parNom[cle] = g;
         groupes.push(g);
       }
       g.joursAvant = Math.max(g.joursAvant, a.joursAvant);
@@ -207,12 +210,28 @@
       .sort(function (a, b) { return dateEvenement(b, reference) - dateEvenement(a, reference); });
   }
 
+  // À qui est une action ? « qui » est la personne (on compare alors les identifiants :
+  // renommer quelqu'un ne change rien) ; un simple prénom reste accepté pour les anciens appels.
+  // Une action confiée à une équipe (equipeId) est celle de chaque personne de l'équipe :
+  // il faut alors le groupe, pour savoir qui en fait partie (« Le bureau » se forme d'office).
+  function estReferent(action, qui, groupe) {
+    if (typeof qui === "string") { return !action.equipeId && action.referent === qui; }
+    if (!qui) { return false; }
+    if (action.equipeId) {
+      if (!groupe) { return false; }
+      if (action.equipeId === "bureau") { return groupe.sorte === "association" && qui.role === "bureau"; }
+      var equipe = (groupe.equipes || []).filter(function (e) { return e.id === action.equipeId; })[0];
+      return !!equipe && equipe.personnes.indexOf(qui.id) >= 0;
+    }
+    return !!action.referentId && action.referentId === qui.id;
+  }
+
   // Actions à surveiller sur tous les événements à venir ; referent = null pour « toutes ».
   function actionsASurveiller(etat, referent, reference) {
     var r = { enRetard: [], cetteSemaine: [] };
     evenementsAVenir(etat, reference).forEach(function (e) {
       e.actions.forEach(function (a) {
-        if (referent && a.referent !== referent) { return; }
+        if (referent && !estReferent(a, referent, etat)) { return; }
         if (estEnRetard(a, e, reference)) { r.enRetard.push({ action: a, evenement: e }); }
         else if (estCetteSemaine(a, e, reference)) { r.cetteSemaine.push({ action: a, evenement: e }); }
       });
@@ -230,7 +249,7 @@
     var r = { enRetard: [], cetteSemaine: [], plusTard: [] };
     evenementsAVenir(etat, reference).forEach(function (e) {
       e.actions.forEach(function (a) {
-        if (a.statut === "fait" || (referent && a.referent !== referent)) { return; }
+        if (a.statut === "fait" || (referent && !estReferent(a, referent, etat))) { return; }
         var x = { action: a, evenement: e };
         if (estEnRetard(a, e, reference)) { r.enRetard.push(x); }
         else if (estCetteSemaine(a, e, reference)) { r.cetteSemaine.push(x); }
@@ -423,7 +442,7 @@
       "DTSTART:" + horodatageLocal(jour, creneau.debut),
       "DTEND:" + horodatageLocal(jour, creneau.fin),
       "SUMMARY:" + echapperIcs("Coup de main : " + creneau.titre + " (" + evenement.titre + ")"),
-      "LOCATION:" + echapperIcs(evenement.lieu + ", " + association.ecole),
+      "LOCATION:" + echapperIcs([evenement.lieu, association.ecole].filter(Boolean).join(", ")),
       "DESCRIPTION:" + echapperIcs(association.nom + ". Un empêchement ? Annulez avec votre lien : " + lienAnnulation),
       "BEGIN:VALARM",
       "TRIGGER:-P1D",
@@ -479,6 +498,7 @@
     estPasse: estPasse,
     evenementsAVenir: evenementsAVenir,
     evenementsPasses: evenementsPasses,
+    estReferent: estReferent,
     actionsASurveiller: actionsASurveiller,
     actionsAFaire: actionsAFaire,
     LIBELLES_PREPARATION: LIBELLES_PREPARATION,
@@ -496,6 +516,8 @@
     compterInscrits: compterInscrits,
     compterPlaces: compterPlaces,
     lienEnvoi: lienEnvoi,
+    echapperIcs: echapperIcs,
+    plierLigneIcs: plierLigneIcs,
     fichierAgenda: fichierAgenda,
     texteBilan: texteBilan,
     formaterEuros: formaterEuros

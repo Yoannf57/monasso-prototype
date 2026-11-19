@@ -19,6 +19,9 @@
   var FORMAT_ESSAI = "monasso-essai";
   var ID_VALIDE = /^[A-Za-z0-9_-]{1,64}$/;
   var COULEUR_VALIDE = /^#[0-9A-Fa-f]{6}$/;
+  var DATE_VALIDE = /^\d{4}-\d\d-\d\d$/;
+  var HEURE_VALIDE = /^\d\d:\d\d$/;
+  var STATUTS_ACTION = ["a-faire", "en-cours", "fait"]; // les mêmes que dans logique.js
 
   function nettoyer(t) { return String(t == null ? "" : t).replace(/\s+/g, " ").trim(); }
 
@@ -159,6 +162,30 @@
     return { ok: true, personne: p };
   }
 
+  // ---------- Actions rattachées à la personne (demande 005b) ----------
+  // Une action tient à sa personne par l'identifiant (referentId), plus par le prénom :
+  // renommer quelqu'un ne lui retire donc aucune action.
+  // Reprise des anciennes données (donnees.js écrit à la main, état gardé dans le navigateur,
+  // essais déjà enregistrés) : une action qui n'a qu'un prénom est rattachée à la première
+  // personne du groupe qui porte ce prénom. Sans effet sur une action déjà rattachée.
+  function rattacherActions(etat) {
+    (etat.groupes || []).forEach(function (g) {
+      (g.evenements || []).forEach(function (e) {
+        (e.actions || []).forEach(function (a) {
+          if (a.referentId || a.equipeId || !a.referent) { return; } // equipeId : action confiée à une équipe (demande 006)
+          var p = g.personnes.filter(function (x) { return x.prenom === a.referent; })[0];
+          if (p) { a.referentId = p.id; }
+        });
+      });
+    });
+    return etat;
+  }
+
+  // La personne d'une action, ou null si elle n'est plus dans le groupe.
+  function referentAction(groupe, action) {
+    return action.referentId ? trouverPersonne(groupe, action.referentId) : null;
+  }
+
   // ---------- Équipes ----------
 
   // Toutes les équipes à afficher : dans une association, « Le bureau » d'abord, formée d'office.
@@ -227,29 +254,100 @@
   }
 
   // Le fichier vient de l'extérieur : on vérifie sa forme avant de s'en servir
-  // (identifiants sans caractère spécial, couleurs valides, listes là où on les attend).
+  // (identifiants sans caractère spécial, couleurs valides, listes là où on les attend,
+  // un texte là où on attend un texte, un nombre là où on attend un nombre).
+  // Un seul champ qui ne va pas fait refuser tout le fichier.
+  function estTexte(v) { return typeof v === "string"; }
+  function texteOuRien(v) { return v === undefined || v === null || typeof v === "string"; }
+  function estNombre(v) { return typeof v === "number" && isFinite(v); }
+  function nombreOuRien(v) { return v === undefined || v === null || estNombre(v); }
+  function estId(v) { return typeof v === "string" && ID_VALIDE.test(v); }
+  function idOuRien(v) { return v === undefined || v === null || estId(v); }
+  function liste(v, chacun) { return Array.isArray(v) && v.every(function (x) { return !!x && typeof x === "object" && chacun(x); }); }
+
+  function dateOuRien(v) { return v === undefined || v === null || (estTexte(v) && DATE_VALIDE.test(v) && !isNaN(new Date(v + "T00:00:00").getTime())); }
+  function heureOuRien(v) { return v === undefined || v === null || v === "" || (estTexte(v) && HEURE_VALIDE.test(v)); }
+
+  // equipeId, dateLimite : actions créées à la main (demande 006).
+  function actionValide(a) {
+    return estId(a.id) && estTexte(a.libelle) && texteOuRien(a.referent) && idOuRien(a.referentId) && idOuRien(a.equipeId) &&
+      texteOuRien(a.echeance) && estNombre(a.joursAvant) && dateOuRien(a.dateLimite) && STATUTS_ACTION.indexOf(a.statut) >= 0;
+  }
+
+  function creneauValide(c) {
+    return estId(c.id) && estTexte(c.titre) && estTexte(c.horaire) &&
+      estTexte(c.debut) && HEURE_VALIDE.test(c.debut) && estTexte(c.fin) && HEURE_VALIDE.test(c.fin) &&
+      nombreOuRien(c.jour) &&
+      estNombre(c.places) && c.places >= 0 && Math.floor(c.places) === c.places &&
+      liste(c.inscrits, function (v) { return estTexte(v.prenom) && estTexte(v.initiale) && texteOuRien(v.contact) && estId(v.jeton); });
+  }
+
+  function bilanValide(b) {
+    return !!b && typeof b === "object" &&
+      estNombre(b.benevoles) && estNombre(b.heures) && estNombre(b.recetteBuvette) && estNombre(b.exposants) &&
+      estTexte(b.exposantsLibelle) && estTexte(b.ceQueCaFinance);
+  }
+
+  function evenementValide(e) {
+    var quand = e.date === undefined || e.date === null
+      ? estNombre(e.dansJours)
+      : estTexte(e.date) && DATE_VALIDE.test(e.date) && !isNaN(new Date(e.date + "T00:00:00").getTime()) && nombreOuRien(e.dansJours);
+    // debut, fin : horaires d'un événement créé à la main (demande 006), "HH:MM" ou vide.
+    return estId(e.id) && estTexte(e.titre) && estTexte(e.lieu) && quand && heureOuRien(e.debut) && heureOuRien(e.fin) &&
+      liste(e.actions, actionValide) && liste(e.creneaux, creneauValide) &&
+      (e.bilan === undefined || e.bilan === null || bilanValide(e.bilan));
+  }
+
+  // Une question (demande 007) : ses listes de personnes sont des identifiants, ses dates de vraies dates.
+  var SORTES_A = ["tous", "gestion", "equipe", "personnes"];
+  function listeIds(v) { return Array.isArray(v) && v.every(estId); }
+  function messageValide(m) {
+    return estId(m.id) && m.sorte === "question" && estTexte(m.texte) && estId(m.auteurId) && texteOuRien(m.auteur) &&
+      dateOuRien(m.creeLe) && nombreOuRien(m.creeDansJours) && dateOuRien(m.closeLe) && nombreOuRien(m.closeDansJours) &&
+      dateOuRien(m.jour) && nombreOuRien(m.jourDansJours) && nombreOuRien(m.jourSemaine) && heureOuRien(m.heure) &&
+      dateOuRien(m.avantLe) && nombreOuRien(m.avantLeDansJours) && nombreOuRien(m.avantLeJoursAvant) &&
+      (m.attendus === undefined || m.attendus === null || (estNombre(m.attendus) && m.attendus >= 1 && Math.floor(m.attendus) === m.attendus)) &&
+      idOuRien(m.evenementId) &&
+      !!m.a && typeof m.a === "object" && SORTES_A.indexOf(m.a.sorte) >= 0 && idOuRien(m.a.equipeId) && texteOuRien(m.a.nom) &&
+      listeIds(m.destinataires) && listeIds(m.oui) && listeIds(m.non);
+  }
+
+  function reglagesValides(r) {
+    return r === undefined || r === null || (typeof r === "object" && !Array.isArray(r) &&
+      (r.membresToutLeGroupe === undefined || r.membresToutLeGroupe === null || typeof r.membresToutLeGroupe === "boolean"));
+  }
+
+  function groupeValide(g) {
+    return SORTES.indexOf(g.sorte) >= 0 && estId(g.id) && estTexte(g.nom) && estTexte(g.couleur) && COULEUR_VALIDE.test(g.couleur) &&
+      texteOuRien(g.ecole) && texteOuRien(g.ville) && idOuRien(g.personneParDefaut) &&
+      liste(g.personnes, function (p) {
+        return estId(p.id) && estTexte(p.prenom) && texteOuRien(p.nom) && texteOuRien(p.contact) && texteOuRien(p.fonction) &&
+          ROLES[g.sorte].indexOf(p.role) >= 0;
+      }) &&
+      liste(g.equipes, function (e) { return estId(e.id) && estTexte(e.nom) && Array.isArray(e.personnes) && e.personnes.every(estId); }) &&
+      (g.sorte === "simple" ? g.evenements === undefined || g.evenements === null || liste(g.evenements, evenementValide) : liste(g.evenements, evenementValide)) &&
+      (g.messages === undefined || g.messages === null || liste(g.messages, messageValide)) && reglagesValides(g.reglages) &&
+      gestionnaires(g).length >= 1;
+  }
+
   function formeValide(etat) {
     function idsSains(o) {
       if (Array.isArray(o)) { return o.every(idsSains); }
       if (o && typeof o === "object") {
         return Object.keys(o).every(function (k) {
           var v = o[k];
-          if ((k === "id" || k === "jeton") && !(typeof v === "string" && ID_VALIDE.test(v))) { return false; }
+          if ((k === "id" || k === "jeton") && !estId(v)) { return false; }
           return idsSains(v);
         });
       }
       return true;
     }
-    if (!etat || !Array.isArray(etat.groupes) || !etat.groupes.length) { return false; }
-    var ok = etat.groupes.every(function (g) {
-      return g && SORTES.indexOf(g.sorte) >= 0 && typeof g.nom === "string" && COULEUR_VALIDE.test(g.couleur) &&
-        Array.isArray(g.personnes) && Array.isArray(g.equipes) &&
-        g.personnes.every(function (p) { return p && typeof p.prenom === "string" && ROLES[g.sorte].indexOf(p.role) >= 0; }) &&
-        g.equipes.every(function (e) { return e && typeof e.nom === "string" && Array.isArray(e.personnes) && e.personnes.every(function (x) { return ID_VALIDE.test(x); }); }) &&
-        (g.sorte === "simple" || Array.isArray(g.evenements)) &&
-        gestionnaires(g).length >= 1;
-    });
-    return ok && idsSains(etat) && (!etat.groupeActif || ID_VALIDE.test(etat.groupeActif));
+    if (!etat || !estNombre(etat.version) || !Array.isArray(etat.groupes) || !etat.groupes.length) { return false; }
+    var pa = etat.personneActive;
+    var personnesActives = pa === undefined || pa === null ||
+      (typeof pa === "object" && !Array.isArray(pa) && Object.keys(pa).every(function (k) { return estId(k) && estId(pa[k]); }));
+    return liste(etat.groupes, groupeValide) && idsSains(etat) && idOuRien(etat.groupeParDefaut) &&
+      (!etat.groupeActif || estId(etat.groupeActif)) && personnesActives;
   }
 
   function lireEssai(texte, versionAttendue) {
@@ -296,6 +394,8 @@
     creerEquipe: creerEquipe,
     modifierEquipe: modifierEquipe,
     supprimerEquipe: supprimerEquipe,
+    rattacherActions: rattacherActions,
+    referentAction: referentAction,
     exporterEssai: exporterEssai,
     lireEssai: lireEssai,
     nomFichierEssai: nomFichierEssai

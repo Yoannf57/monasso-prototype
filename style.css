@@ -93,6 +93,13 @@ strong { font-weight: 800; }
   font: inherit; color: #F2EFE8; text-decoration: none; text-align: left; background: none; font-weight: 500;
 }
 .demo-ligne select { font: inherit; font-size: 1rem; padding: 6px 8px; border-radius: 6px; border: 1px solid #8C877D; background: #3A3936; color: #F2EFE8; }
+/* « Changer de groupe » et « Changer de personne » : le libellé au-dessus, la liste dessous,
+   sur toute la largeur du menu et jamais plus ; un nom trop long est coupé par des points de suspension. */
+.demo-ligne--liste { flex-direction: column; align-items: stretch; justify-content: center; gap: 4px; min-width: 0; }
+.demo-ligne--liste select {
+  display: block; width: 100%; max-width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .demo-reinit { color: #D8D3C9; text-decoration: underline; cursor: pointer; border-bottom: 0; }
 
 /* ---------- Mise en page ---------- */
@@ -133,6 +140,10 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 .bouton--petit { width: auto; min-height: 48px; padding: 8px 16px; flex-shrink: 0; }
 .bouton + .bouton, .bouton + .boutons-ligne, .boutons-ligne + .bouton { margin-top: 12px; }
 .bouton:active { transform: translateY(2px); box-shadow: none; }
+/* Un bouton d'ajout placé avant une liste, ou après elle (demande 006). */
+.bouton + .calendrier, .bouton + .avancement, .bouton + .vide { margin-top: 16px; }
+.repli + .bouton { margin-top: 14px; }
+.vide .bouton { margin-top: 6px; }
 
 .lien-suite { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; margin-top: 8px; }
 .lien-suite::after { content: ""; width: 8px; height: 8px; border-right: 3px solid currentColor; border-top: 3px solid currentColor; transform: rotate(45deg); border-radius: 1px; }
@@ -221,6 +232,14 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 .action--retard .action-quand { color: var(--alerte); font-weight: 800; }
 .action--fait .action-libelle { color: var(--texte-doux); font-weight: 500; }
 
+/* Libellé qui s'ouvre (demande 006, bureau) : tout le texte de l'action est la zone à toucher,
+   le libellé garde sa couleur et sa graisse et gagne un soulignement. */
+.action-texte--lien {
+  display: flex; flex-direction: column; justify-content: center; flex: 1 1 auto; min-height: 44px;
+  color: inherit; font-weight: inherit; text-decoration: none;
+}
+.action-texte--lien .action-libelle { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
 /* Statut d'une action : on touche pour le faire avancer */
 .statut {
   flex-shrink: 0; min-width: 104px; min-height: 48px; padding: 6px 12px;
@@ -235,6 +254,9 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 }
 .action--retard .statut--a-faire { border-color: var(--alerte); color: var(--alerte); }
 .statut:active { transform: scale(0.96); }
+/* État qui se lit sans se toucher (ni référent de l'action, ni bureau) : même étiquette, même mot, même forme. */
+.statut--lecture { display: inline-flex; align-items: center; justify-content: center; cursor: default; }
+.statut--lecture:active { transform: none; }
 
 /* Groupes repliables (échéances d'un événement, créneaux) */
 .repli { margin-bottom: 10px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); }
@@ -251,6 +273,12 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 .repli-titre { display: block; font-weight: 800; }
 .repli-meta { display: block; color: var(--texte-doux); }
 .insecable { white-space: nowrap; }
+/* Suite de mentions séparées par un point médian : le point ouvre chaque mention et tombe hors du cadre
+   quand la mention commence une ligne. Aucun point seul en bout ni en début de ligne. */
+.suite { display: flex; flex-wrap: wrap; overflow: hidden; }
+.suite-part { padding-left: 1em; margin-left: -1em; margin-right: 1em; }
+.suite-part:last-child { margin-right: 0; }
+.suite-point { display: inline-block; width: 1em; margin-left: -1em; text-align: center; white-space: pre; }
 .repli-corps { padding: 0 14px 6px; border-top: 1px solid var(--trait); }
 .repli .actions { border: 0; padding: 0; background: none; }
 
@@ -416,7 +444,7 @@ a.jour { font-weight: 900; }
 .personne-detail { display: block; color: var(--texte-doux); }
 .personne-contact { color: var(--texte); }
 
-.form-personne, .form-equipe, .form-groupe { margin-top: 4px; }
+.form-personne, .form-equipe, .form-groupe, .form-evenement, .form-action, .form-creneau { margin-top: 4px; }
 .choix { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; }
 .choix legend { font-weight: 800; margin-bottom: 6px; padding: 0; }
 .choix-option {
@@ -434,6 +462,10 @@ a.jour { font-weight: 900; }
 .choix--couleurs .choix-option { align-items: center; gap: 8px; min-width: 0; padding: 8px 8px; }
 .choix--couleurs .choix-titre { gap: 6px; min-width: 0; }
 .choix--liste .choix-option { margin-bottom: 6px; align-items: center; }
+/* Choix unique replié (référent d'une action) : le repli montre le choix en cours, la liste est dedans. */
+.choix--replie .repli { margin-bottom: 0; }
+.choix--replie .repli-corps { padding-top: 12px; }
+.choix--replie .surtitre { margin: 10px 0 6px; }
 .pastille-couleur { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(42, 33, 28, 0.25); }
 .lien-bouton--alerte { color: var(--alerte); margin-top: 12px; }
 .visuellement-cache {
@@ -441,6 +473,65 @@ a.jour { font-weight: 900; }
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 .visuellement-cache:focus-visible + .bouton { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Messages (demande 007) ---------- */
+
+/* N1 · Paire de réponse « Oui » / « Non » : seule exception à « un seul bouton principal par écran ».
+   Avant la réponse, deux boutons pleins de même taille, sans vert ni rouge. Après, le bouton choisi reste plein
+   et porte une coche (le dessin de .statut--fait) ; l'autre passe en contour. */
+.bouton--choisi::before {
+  content: ""; flex-shrink: 0; width: 12px; height: 6px; margin-bottom: 4px;
+  border-left: 3px solid currentColor; border-bottom: 3px solid currentColor; transform: rotate(-45deg);
+}
+.ma-reponse { margin-bottom: 4px; }
+.paire-reponse + .message-ok { margin: 12px 0 0; }
+
+/* N2 · Bloc « À répondre » de l'accueil : l'aspect d'une carte, sans flèche, car ce n'est pas un lien entier. */
+.bloc-reponse {
+  padding: 16px; margin-bottom: 12px;
+  background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); box-shadow: var(--ombre);
+}
+.bloc-reponse .carte-etiquette { line-height: 1.5; }
+.bloc-reponse a.carte-titre {
+  padding: 4px 0; color: var(--texte);
+  text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px;
+}
+.bloc-reponse .carte-quand { margin-bottom: 12px; }
+.bloc-reponse .calme { padding: 4px 0; }
+.bloc-reponse .message-ok { margin: 4px 0 14px; }
+.bloc-reponse .message-ok:focus { outline: none; }
+/* Chaque lien de fin de bloc sur sa ligne, jamais côte à côte. */
+.bloc-reponse .lien-suite { display: flex; width: fit-content; }
+.message-ok a { display: inline-block; padding: 4px 0; color: var(--texte); }
+
+/* N3 · Repère « Rendez-vous » d'un jour du calendrier : carré aux coins arrondis, trait plein. */
+.jour--rendez-vous { background: var(--accent-pale); border-color: var(--accent); }
+.rendez-vous { margin-bottom: 28px; }
+
+/* N5 · Les huit choix du jour sur deux colonnes (les règles de .choix--couleurs), et la case qui ne se coche plus. */
+.choix--deux-colonnes { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.choix--deux-colonnes legend { grid-column: 1 / -1; }
+.choix--deux-colonnes .champ-erreur { grid-column: 1 / -1; }
+.choix--deux-colonnes .choix-option { align-items: center; gap: 8px; min-width: 0; padding: 8px 8px; }
+.choix--deux-colonnes .choix-titre { gap: 6px; min-width: 0; }
+.choix-option--bloquee { background: var(--surface-douce); color: var(--texte-doux); cursor: default; }
+/* La phrase de la limite reste sous les yeux pendant qu'on fait défiler la liste des personnes. */
+.limite-personnes:not(:empty) { position: sticky; top: 36px; z-index: 1; margin: 0 0 6px; padding: 6px 0; background: var(--fond); }
+
+/* N6 · Réglage allumé : l'aspect de « En cours ». Le mot change avec l'état, la couleur n'est jamais seule. */
+.statut[aria-pressed="true"] { background: var(--accent-pale); border-color: var(--accent); color: var(--accent); }
+
+/* Nouvelle question, écran du message, listes */
+.form-question { margin-top: 4px; }
+.compte-question { margin-top: 4px; }
+.repli-corps--formulaire { padding-top: 12px; }
+.form-question .repli { margin-bottom: 16px; }
+.entete--message .sous-titre + .sous-titre { margin-top: 2px; }
+.entete--message .surtitre { margin-bottom: 6px; }
+.confirmation-quoi + .bouton { margin-top: 16px; }
+.calme + .bouton { margin-top: 16px; }
+.suite-liste[hidden] { display: none; }
+#section-rappels > .discret { margin: -4px 0 10px; }
 
 /* ---------- Espace parent ---------- */
 
@@ -480,6 +571,11 @@ a.jour { font-weight: 900; }
 }
 .champ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-pale); }
 .champ input.champ-court { width: 5.5rem; text-align: center; text-transform: uppercase; }
+/* Dates et heures : la largeur et la hauteur d'un champ de texte, vide comme rempli (iPhone compris). */
+.champ input[type="date"], .champ input[type="time"] {
+  -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; height: calc(1.5em + 24px); text-align: left;
+}
+.champ input[type="date"]::-webkit-date-and-time-value, .champ input[type="time"]::-webkit-date-and-time-value { text-align: left; min-height: 1.5em; }
 .champ input[aria-invalid="true"] { border-color: var(--alerte); }
 .champ-erreur, .erreur-generale { color: var(--alerte); font-weight: 800; }
 .champ-erreur:not(:empty) { margin-top: 6px; }

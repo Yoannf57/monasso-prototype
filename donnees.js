@@ -23,11 +23,24 @@
 
   Statuts possibles : "a-faire", "en-cours", "fait".
 
+  Actions : « referent » est le prénom d'une personne du groupe, tel qu'on l'écrit ici.
+  À l'ouverture, chaque action est rattachée à cette personne par son identifiant (referentId) :
+  si on la renomme ensuite dans le prototype, elle garde ses actions.
+
+  Messages (demande 007) : des questions « Qui est partant ? » à différents états, toutes fictives.
+  « a » dit à qui la question a été posée ("tous", "gestion" : le bureau ou les organisateurs,
+  "equipe", "personnes") ; « destinataires » est la liste des personnes, « oui » et « non » celles
+  qui ont répondu. Les dates sont écrites « dans N jours » (un nombre négatif : il y a N jours) :
+  creeDansJours, closeDansJours (question close à la main), jourDansJours (rendez-vous),
+  avantLeDansJours (réponse avant le). jourSemaine: 4 avance le rendez-vous au jeudi ;
+  avantLeJoursAvant: 1 place la date limite la veille du rendez-vous.
+  Une question se clôt d'elle-même après sa date limite, à défaut après son rendez-vous.
+
   Après une modification, changez le numéro de « version » ci-dessous :
   les téléphones qui ont déjà ouvert la démo repartiront des nouvelles données.
 */
 var DONNEES = {
-  version: 5,
+  version: 6,
 
   // Groupe ouvert au démarrage (changeable dans le menu de démo).
   groupeParDefaut: "coquelicots",
@@ -63,6 +76,45 @@ var DONNEES = {
       equipes: [
         { id: "e-buvette", nom: "Buvette", personnes: ["p-malik", "p-nadia", "p-karim", "p-yasmine"] },
         { id: "e-communication", nom: "Communication", personnes: ["p-sophie", "p-julien", "p-elodie"] }
+      ],
+
+      // Réglage « Les membres peuvent écrire à tout le groupe » : éteint par défaut.
+      reglages: { membresToutLeGroupe: false },
+
+      messages: [
+        {
+          id: "q-ape-lots", sorte: "question", texte: "Qui vient préparer les lots de la tombola ?",
+          auteurId: "p-thomas", auteur: "Thomas Girard", creeDansJours: -2,
+          a: { sorte: "tous" }, destinataires: ["p-claire", "p-malik", "p-sophie", "p-thomas", "p-nadia", "p-julien", "p-karim", "p-elodie", "p-paul", "p-aurelie", "p-yasmine", "p-hugo", "p-helene", "p-bastien"],
+          jourDansJours: 5, heure: "18:30", attendus: 6, avantLeDansJours: 3, evenementId: "marche-noel",
+          oui: ["p-thomas", "p-nadia", "p-elodie"], non: ["p-julien", "p-hugo"]
+        },
+        {
+          id: "q-ape-cle", sorte: "question", texte: "Qui peut me prêter la clé du local ?",
+          auteurId: "p-karim", auteur: "Karim Bouzid", creeDansJours: -1,
+          a: { sorte: "gestion" }, destinataires: ["p-claire", "p-malik", "p-sophie", "p-thomas", "p-nadia", "p-julien"],
+          oui: [], non: ["p-julien"]
+        },
+        {
+          id: "q-ape-reunion", sorte: "question", texte: "Qui est partant pour une réunion la semaine prochaine ?",
+          auteurId: "p-claire", auteur: "Claire Morel", creeDansJours: -3,
+          a: { sorte: "gestion" }, destinataires: ["p-claire", "p-malik", "p-sophie", "p-thomas", "p-nadia", "p-julien"],
+          jourDansJours: 8, heure: "20:30", attendus: 4,
+          oui: ["p-claire", "p-malik", "p-sophie"], non: ["p-julien"]
+        },
+        {
+          id: "q-ape-buvette", sorte: "question", texte: "Qui peut tenir la buvette le matin ?",
+          auteurId: "p-malik", auteur: "Malik Benali", creeDansJours: -1,
+          a: { sorte: "equipe", equipeId: "e-buvette", nom: "Buvette" }, destinataires: ["p-malik", "p-nadia", "p-karim", "p-yasmine"],
+          attendus: 2, evenementId: "vide-grenier",
+          oui: ["p-nadia", "p-yasmine"], non: []
+        },
+        {
+          id: "q-ape-photos", sorte: "question", texte: "Qui a gardé des photos de la fête de l'école ?",
+          auteurId: "p-sophie", auteur: "Sophie Lambert", creeDansJours: -20, closeDansJours: -3,
+          a: { sorte: "tous" }, destinataires: ["p-claire", "p-malik", "p-sophie", "p-thomas", "p-nadia", "p-julien", "p-karim", "p-elodie", "p-paul", "p-aurelie", "p-yasmine", "p-hugo", "p-helene", "p-bastien"],
+          oui: ["p-sophie", "p-karim", "p-aurelie", "p-helene"], non: ["p-claire", "p-thomas", "p-paul"]
+        }
       ],
 
       evenements: [
@@ -228,6 +280,54 @@ var DONNEES = {
       equipes: [
         { id: "e-jaunes", nom: "Chasubles jaunes", personnes: ["j-samir-ouali", "j-antoine-robin", "j-kevin-lefevre", "j-nicolas-faure", "j-damien-colin", "j-alexandre-roche", "j-florian-marie", "j-maxime-brun", "j-ibrahim-toure", "j-julie-mercier"] },
         { id: "e-bleues", nom: "Chasubles bleues", personnes: ["j-lucie-bernard", "j-mehdi-saidi", "j-sebastien-gauthier", "j-rachid-amrani", "j-jeremy-vidal", "j-mamadou-diallo", "j-youssef-cherif", "j-vincent-perret", "j-cedric-blanc", "j-romain-dupuis"] }
+      ],
+
+      // Réglage « Les membres peuvent écrire à tout le groupe » : éteint par défaut.
+      reglages: { membresToutLeGroupe: false },
+
+      messages: [
+        {
+          id: "q-foot-jeudi", sorte: "question", texte: "Qui pour jouer jeudi 20 h ?",
+          auteurId: "j-lucie-bernard", auteur: "Lucie Bernard", creeDansJours: -1,
+          a: { sorte: "tous" }, destinataires: ["j-samir-ouali", "j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-damien-colin", "j-jeremy-vidal", "j-alexandre-roche", "j-mamadou-diallo", "j-florian-marie", "j-youssef-cherif", "j-maxime-brun", "j-vincent-perret", "j-ibrahim-toure", "j-cedric-blanc", "j-julie-mercier", "j-romain-dupuis", "j-anthony-lopez", "j-bruno-guerin", "j-thibault-muller", "j-karim-mansouri", "j-laurent-barbier", "j-hamza-belkacem", "j-olivier-renaud", "j-pierre-arnaud", "j-david-meunier", "j-aissa-ndiaye"],
+          jourDansJours: 1, jourSemaine: 4, heure: "20:00", attendus: 10, avantLeJoursAvant: 1,
+          oui: ["j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-nicolas-faure", "j-rachid-amrani", "j-julie-mercier", "j-hamza-belkacem"],
+          non: ["j-damien-colin", "j-florian-marie", "j-olivier-renaud"]
+        },
+        {
+          id: "q-foot-tournoi", sorte: "question", texte: "Qui est partant pour inscrire le groupe au tournoi du printemps ?",
+          auteurId: "j-antoine-robin", auteur: "Antoine Robin", creeDansJours: -2,
+          a: { sorte: "gestion" }, destinataires: ["j-samir-ouali", "j-lucie-bernard"],
+          oui: [], non: []
+        },
+        {
+          id: "q-foot-chasubles", sorte: "question", texte: "Qui peut laver les chasubles ce mois-ci ?",
+          auteurId: "j-samir-ouali", auteur: "Samir Ouali", creeDansJours: -4,
+          a: { sorte: "equipe", equipeId: "e-jaunes", nom: "Chasubles jaunes" }, destinataires: ["j-samir-ouali", "j-antoine-robin", "j-kevin-lefevre", "j-nicolas-faure", "j-damien-colin", "j-alexandre-roche", "j-florian-marie", "j-maxime-brun", "j-ibrahim-toure", "j-julie-mercier"],
+          attendus: 2,
+          oui: ["j-antoine-robin"], non: ["j-samir-ouali", "j-maxime-brun"]
+        },
+        {
+          id: "q-foot-repas", sorte: "question", texte: "Qui vient au repas de fin d'année ?",
+          auteurId: "j-samir-ouali", auteur: "Samir Ouali", creeDansJours: -5,
+          a: { sorte: "equipe", equipeId: "e-bleues", nom: "Chasubles bleues" }, destinataires: ["j-lucie-bernard", "j-mehdi-saidi", "j-sebastien-gauthier", "j-rachid-amrani", "j-jeremy-vidal", "j-mamadou-diallo", "j-youssef-cherif", "j-vincent-perret", "j-cedric-blanc", "j-romain-dupuis"],
+          jourDansJours: 12, heure: "19:30", attendus: 5,
+          oui: ["j-lucie-bernard", "j-mehdi-saidi", "j-rachid-amrani", "j-jeremy-vidal", "j-cedric-blanc"], non: ["j-romain-dupuis"]
+        },
+        {
+          id: "q-foot-retour", sorte: "question", texte: "Qui peut me ramener après le match ?",
+          auteurId: "j-lucie-bernard", auteur: "Lucie Bernard", creeDansJours: -1,
+          a: { sorte: "personnes" }, destinataires: ["j-mehdi-saidi", "j-rachid-amrani", "j-youssef-cherif"],
+          oui: ["j-mehdi-saidi"], non: []
+        },
+        {
+          id: "q-foot-dernier", sorte: "question", texte: "Qui jouait jeudi dernier ?",
+          auteurId: "j-samir-ouali", auteur: "Samir Ouali", creeDansJours: -9,
+          a: { sorte: "tous" }, destinataires: ["j-samir-ouali", "j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-damien-colin", "j-jeremy-vidal", "j-alexandre-roche", "j-mamadou-diallo", "j-florian-marie", "j-youssef-cherif", "j-maxime-brun", "j-vincent-perret", "j-ibrahim-toure", "j-cedric-blanc", "j-julie-mercier", "j-romain-dupuis", "j-anthony-lopez", "j-bruno-guerin", "j-thibault-muller", "j-karim-mansouri", "j-laurent-barbier", "j-hamza-belkacem", "j-olivier-renaud", "j-pierre-arnaud", "j-david-meunier", "j-aissa-ndiaye"],
+          jourDansJours: -6, heure: "20:00", attendus: 10,
+          oui: ["j-samir-ouali", "j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-jeremy-vidal", "j-julie-mercier"],
+          non: ["j-damien-colin", "j-mamadou-diallo", "j-bruno-guerin", "j-pierre-arnaud"]
+        }
       ]
     }
   ]
