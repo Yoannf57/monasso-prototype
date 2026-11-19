@@ -327,6 +327,8 @@
       liste(g.equipes, function (e) { return estId(e.id) && estTexte(e.nom) && Array.isArray(e.personnes) && e.personnes.every(estId); }) &&
       (g.sorte === "simple" ? g.evenements === undefined || g.evenements === null || liste(g.evenements, evenementValide) : liste(g.evenements, evenementValide)) &&
       (g.messages === undefined || g.messages === null || liste(g.messages, messageValide)) && reglagesValides(g.reglages) &&
+      // jetonsSupprimes : jetons des inscrits d'un événement supprimé (demande 006b), des identifiants et rien d'autre.
+      (g.jetonsSupprimes === undefined || g.jetonsSupprimes === null || listeIds(g.jetonsSupprimes)) &&
       gestionnaires(g).length >= 1;
   }
 

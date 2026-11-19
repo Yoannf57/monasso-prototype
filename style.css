@@ -254,9 +254,7 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 }
 .action--retard .statut--a-faire { border-color: var(--alerte); color: var(--alerte); }
 .statut:active { transform: scale(0.96); }
-/* État qui se lit sans se toucher (ni référent de l'action, ni bureau) : même étiquette, même mot, même forme. */
-.statut--lecture { display: inline-flex; align-items: center; justify-content: center; cursor: default; }
-.statut--lecture:active { transform: none; }
+/* État qui se lit sans se toucher (ni référent de l'action, ni bureau) : une étiquette (.etiquette), pas un bouton (demande 006b). */
 
 /* Groupes repliables (échéances d'un événement, créneaux) */
 .repli { margin-bottom: 10px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); }
@@ -468,6 +466,10 @@ a.jour { font-weight: 900; }
 .choix--replie .surtitre { margin: 10px 0 6px; }
 .pastille-couleur { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(42, 33, 28, 0.25); }
 .lien-bouton--alerte { color: var(--alerte); margin-top: 12px; }
+/* Le même, quand il mène à un écran (« Supprimer cet événement », demande 006b) : le texte reste centré dans la zone. */
+a.lien-bouton { display: flex; align-items: center; justify-content: center; text-align: center; }
+/* Écran « Refaire cet événement » : entre le paragraphe et le champ, l'écart qui sépare deux champs. */
+p + .form-evenement { margin-top: 16px; }
 .visuellement-cache {
   position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -504,16 +506,17 @@ a.jour { font-weight: 900; }
 .bloc-reponse .lien-suite { display: flex; width: fit-content; }
 .message-ok a { display: inline-block; padding: 4px 0; color: var(--texte); }
 
+/* N12 · Un bloc, deux liens (demande 007c) : l'aspect d'une carte, sans marge intérieure. En haut, une carte sans cadre,
+   avec sa flèche ; un trait ; en bas, un lien sur toute la largeur, sa flèche sur le même axe. Deux liens au plus, jamais de bouton. */
+.bloc-liens { margin-bottom: 12px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); box-shadow: var(--ombre); }
+.bloc-liens .carte { margin-bottom: 0; background: none; border: 0; box-shadow: none; }
+.bloc-liens .lien-suite { display: flex; justify-content: space-between; min-height: var(--geste); margin-top: 0; padding: 8px 21px 8px 16px; border-top: 1px solid var(--trait); }
+
 /* N3 · Repère « Rendez-vous » d'un jour du calendrier : carré aux coins arrondis, trait plein. */
 .jour--rendez-vous { background: var(--accent-pale); border-color: var(--accent); }
 .rendez-vous { margin-bottom: 28px; }
 
-/* N5 · Les huit choix du jour sur deux colonnes (les règles de .choix--couleurs), et la case qui ne se coche plus. */
-.choix--deux-colonnes { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
-.choix--deux-colonnes legend { grid-column: 1 / -1; }
-.choix--deux-colonnes .champ-erreur { grid-column: 1 / -1; }
-.choix--deux-colonnes .choix-option { align-items: center; gap: 8px; min-width: 0; padding: 8px 8px; }
-.choix--deux-colonnes .choix-titre { gap: 6px; min-width: 0; }
+/* N5 · La case qui ne se coche plus. (Le choix sur deux colonnes est retiré par la demande 007b : le jour et l'heure sont en liste.) */
 .choix-option--bloquee { background: var(--surface-douce); color: var(--texte-doux); cursor: default; }
 /* La phrase de la limite reste sous les yeux pendant qu'on fait défiler la liste des personnes. */
 .limite-personnes:not(:empty) { position: sticky; top: 36px; z-index: 1; margin: 0 0 6px; padding: 6px 0; background: var(--fond); }
@@ -531,7 +534,6 @@ a.jour { font-weight: 900; }
 .confirmation-quoi + .bouton { margin-top: 16px; }
 .calme + .bouton { margin-top: 16px; }
 .suite-liste[hidden] { display: none; }
-#section-rappels > .discret { margin: -4px 0 10px; }
 
 /* ---------- Espace parent ---------- */
 

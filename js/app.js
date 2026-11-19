@@ -249,12 +249,13 @@
       (ouvre
         ? '<a class="action-texte action-texte--lien" href="#evenement/' + esc(e.id) + "/action/" + esc(a.id) + '">' + texte + "</a>"
         : '<div class="action-texte">' + texte + "</div>") +
-      // L'état se touche pour le référent de l'action et pour le bureau ; les autres le lisent seulement.
+      // L'état se touche pour le référent de l'action et pour le bureau ; les autres le lisent sur une étiquette,
+      // qui n'est pas un bouton (demande 006b).
       (peutChangerEtat(a)
         ? '<button type="button" class="statut statut--' + esc(a.statut) + '" data-action="' + esc(a.id) + '" data-evenement="' + esc(e.id) + '"' +
           ' aria-label="' + esc(a.libelle) + " : " + esc(L.LIBELLES_STATUT[a.statut]) + ". Touchez pour passer à « " + esc(L.LIBELLES_STATUT[suivant]) + " »." + '">' +
           esc(L.LIBELLES_STATUT[a.statut]) + "</button>"
-        : '<span class="statut statut--lecture statut--' + esc(a.statut) + '">' + esc(L.LIBELLES_STATUT[a.statut]) + "</span>") +
+        : '<span class="etiquette">' + esc(L.LIBELLES_STATUT[a.statut]) + "</span>") +
       "</li>";
   }
 
@@ -316,14 +317,19 @@
 
     var m = L.actionsAFaire(G(), p);
     var premiere = m.enRetard[0] || m.cetteSemaine[0] || m.plusTard[0];
-    html += '<a class="carte" id="bloc-actions" href="#mes-actions">' +
+    var blocActions = '<a class="carte" id="bloc-actions" href="#mes-actions">' +
       '<span class="carte-etiquette">Mes actions à faire</span>' +
       '<span class="bloc-chiffre"><span class="grand-nombre">' + m.total + "</span><span>" +
       (m.total ? (m.enRetard.length ? '<span class="texte-alerte">dont ' + m.enRetard.length + " en retard</span>" : "rien en retard") : "tout est fait") +
       "</span></span>" +
-      (premiere ? '<span class="carte-infos">' + esc(premiere.action.libelle) + "</span>" : "") +
-      // Les rappels ne sont plus un bloc de l'accueil : pour le bureau, une ligne de plus, qui mène à « Mes actions ».
-      (rappels().length ? '<span class="carte-infos" id="ligne-rappels">' + esc(Mn("accueilRappelsCreneaux", rappels().length)) + "</span>" : "") + "</a>";
+      (premiere ? '<span class="carte-infos">' + esc(premiere.action.libelle) + "</span>" : "") + "</a>";
+    // Demande 007c : pour le bureau, la ligne des créneaux est un lien à elle, vers la liste des créneaux en manque ;
+    // le reste du bloc ouvre toujours « Mes actions ». Sans la ligne, le bloc reste une carte.
+    var nbManque = rappels().length;
+    html += nbManque
+      ? '<div class="bloc-liens">' + blocActions +
+        '<a class="lien-suite" id="ligne-rappels" href="#creneaux-manquants">' + esc(Mn("accueilRappelsCreneaux", nbManque)) + "</a></div>"
+      : blocActions;
 
     return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
   }
@@ -361,48 +367,52 @@
         '</span><span class="compte">' + liste.length + "</span></h2>" +
         '<ul class="actions">' + liste.map(function (x) { return ligneAction(x.action, x.evenement, contexte); }).join("") + "</ul></section>";
     }
-    // Sections, dans cet ordre : « En retard », « Cette semaine », « Rappels » (bureau seulement), « Plus tard ».
+    // Sections, dans cet ordre : « En retard », « Cette semaine », « Plus tard ». Plus aucun créneau ici (décision du 2026-11-19, soir) :
+    // la section « Rappels » faisait doublon avec l'écran des créneaux en manque.
     var groupes = [["En retard", r.enRetard, true], ["Cette semaine", r.cetteSemaine, false]];
-    var manque = rappels();
-    if (manque.length) { groupes.push(["rappels", manque, false]); }
     if (!toutes) { groupes.push(["Plus tard", r.plusTard, false]); }
     groupes = groupes.filter(function (g) { return g[1].length; });
     if (!groupes.length) {
       html += '<div class="section">' + etatVide("calme", toutes ? "Rien en retard ni cette semaine." : "Tout est fait.", "Les nouvelles actions apparaîtront ici.") + "</div>";
     } else {
-      groupes.forEach(function (g) { html += g[0] === "rappels" ? sectionRappels(g[1]) : section(g[0], g[1], g[2]); });
+      groupes.forEach(function (g) { html += section(g[0], g[1], g[2]); });
     }
-    // Les rappels sont des créneaux, pas des actions : ils ne comptent pas pour la phrase sur l'étiquette.
-    groupes = groupes.filter(function (g) { return g[0] !== "rappels"; });
     // La phrase sur l'étiquette ne s'affiche que si la personne peut changer l'état d'une action de l'écran.
-    var touchable = (!groupes.length && !manque.length) || groupes.some(function (g) { return g[1].some(function (x) { return peutChangerEtat(x.action); }); });
+    var touchable = !groupes.length || groupes.some(function (g) { return g[1].some(function (x) { return peutChangerEtat(x.action); }); });
     var note = (touchable ? "Touchez l\'étiquette d\'une action pour changer son statut." : "") + (toutes ? " Les autres actions sont dans chaque événement." : "");
     if (note) { html += '<p class="discret note-bas">' + note.trim() + "</p>"; }
     return { titre: toutes ? "Toutes les actions" : "Mes actions", onglet: "accueil", html: html };
   }
 
-  // ---------- Rappels : une section de « Mes actions », pour le bureau seul (demande 007) ----------
+  // ---------- Créneaux en manque, pour le bureau seul ----------
 
   // Les créneaux remplis à moins de la moitié. Personne d'autre que le bureau ne les reçoit.
   function rappels() { return estAsso() && gere() ? L.creneauxEnManque(G()) : []; }
 
-  function carteRappel(m) {
+  // ---------- Créneaux en manque : la liste entière, sur un écran à part, pour le bureau seul (demande 007c) ----------
+
+  // Une ligne : le créneau, « événement · horaire », puis combien il manque. Un toucher ouvre les coups de main de l'événement.
+  function carteCreneauManquant(m) {
     return '<a class="carte" href="#evenement/' + esc(m.evenement.id) + '/coups-de-main">' +
       '<span class="carte-titre">' + esc(m.creneau.titre) + "</span>" +
-      '<span class="carte-quand">' + esc(m.evenement.titre) + " · " + esc(m.creneau.horaire) + "</span>" +
-      '<span class="carte-infos"><span class="etiquette etiquette--alerte">' + m.creneau.inscrits.length + " sur " + esc(m.creneau.places) + "</span></span></a>";
+      // Le point médian tient à l'horaire : si l'horaire passe à la ligne, le point est masqué (jamais seul en bout de ligne).
+      '<span class="carte-quand suite"><span class="suite-part">' + esc(m.evenement.titre) + "</span>" +
+      (m.creneau.horaire ? '<span class="suite-part insecable"><span class="suite-point"> · </span>' + esc(m.creneau.horaire) + "</span>" : "") + "</span>" +
+      '<span class="carte-infos"><span class="etiquette etiquette--alerte">' + esc(Mn("creneauManque", m.manque)) + "</span></span></a>";
   }
 
-  // Trois rappels au plus, le reste se déplie sur place. Un toucher ouvre les coups de main de l'événement.
-  function sectionRappels(manque) {
-    return '<section class="section" id="section-rappels"><h2 class="section-titre"><span>' + esc(M("accueilRappels")) +
-      '</span><span class="compte">' + manque.length + "</span></h2>" +
-      '<p class="discret">' + esc(M("accueilRappelsAide")) + "</p>" +
-      manque.slice(0, 3).map(carteRappel).join("") +
-      (manque.length > 3
-        ? '<div class="suite-liste" hidden>' + manque.slice(3).map(carteRappel).join("") + "</div>" +
-          '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("accueilRappelsVoirAutres", manque.length - 3)) + "</button>"
-        : "") + "</section>";
+  // Rien entre le titre et le premier créneau, sauf la ligne d'aide : le premier créneau se voit sans défiler.
+  function ecranCreneauxManquants() {
+    var manque = rappels();
+    var html = retour("#accueil", M("ongletAccueil"));
+    if (manque.length) {
+      html += entete(null, M("creneauxManqueTitre"), esc(M("accueilRappelsAide"))) +
+        '<div id="creneaux-manquants">' + manque.map(carteCreneauManquant).join("") + "</div>";
+    } else {
+      html += entete(null, M("creneauxManqueTitre")) +
+        etatVide("calme", M("creneauxManqueVide"), "", '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>");
+    }
+    return { titre: M("creneauxManqueTitre"), onglet: "accueil", html: html };
   }
 
   // ---------- Événements : liste courte, un toucher ouvre l'événement ----------
@@ -563,8 +573,12 @@
     if (id === "nouveau" && !onglet) { return gere() ? ecranCreerEvenement() : ecranEvenements(); }
     var e = L.trouverEvenement(G(), id);
     if (!e) { return introuvable(); }
-    // Modifier, supprimer et refaire l'événement : demande 006b, pas encore là.
-    if (["modifier", "supprimer", "refaire"].indexOf(onglet) >= 0) { return introuvable(); }
+    // Modifier, supprimer et refaire l'événement (demande 006b) : le bureau seul, événement à venir ou passé ;
+    // les autres retrouvent l'événement, sans message.
+    if (["modifier", "supprimer", "refaire"].indexOf(onglet) >= 0) {
+      if (gere()) { return onglet === "modifier" ? ecranModifierEvenement(e) : onglet === "supprimer" ? ecranSupprimerEvenement(e) : ecranRefaireEvenement(e); }
+      onglet = "actions";
+    }
     var passe = L.estPasse(e);
     // Ajouter ou modifier une action, un créneau : le bureau seul, événement à venir ; sinon, l'événement.
     if (onglet === "action") {
@@ -582,6 +596,8 @@
     var html = retour("#evenements", "Événements") +
       entete(quandOu(e, dateLongue(date) + (passe ? " " + date.getFullYear() : "")), e.titre, etiquettePreparation(e)) +
       bandeauMessage() +
+      // Rubrique Actions, bureau seulement : « Modifier l'événement », entre l'en-tête et les rubriques.
+      (onglet === "actions" && gere() ? '<p><a class="lien-suite" id="modifier-evenement" href="' + hrefEvenement(e, "modifier") + '">' + esc(M("modifierLEvenement")) + "</a></p>" : "") +
       '<nav class="sous-onglets" aria-label="Rubriques de l\'événement">' +
       sousOnglet(e, "actions", "Actions", onglet) +
       sousOnglet(e, "coups-de-main", "Coups de main", onglet) +
@@ -622,7 +638,9 @@
     var ajout = modifiable
       ? '<a class="bouton bouton--principal" id="ajouter-action" href="#evenement/' + esc(e.id) + '/action/nouvelle">' + esc(M("ajouterUneAction")) + "</a>"
       : "";
-    if (!e.actions.length) { return ajout + etatVide("panneau", M("aucuneAction"), modifiable ? esc(M("aucuneActionAide")) : ""); }
+    // Bureau seulement, événement à venir ou passé : « Refaire cet événement », tout en bas.
+    var refaire = gere() ? '<p><a class="lien-suite" id="refaire-evenement" href="' + hrefEvenement(e, "refaire") + '">' + esc(M("refaireCetEvenement")) + "</a></p>" : "";
+    if (!e.actions.length) { return ajout + etatVide("panneau", M("aucuneAction"), modifiable ? esc(M("aucuneActionAide")) : "") + refaire; }
     var groupes = groupesEcheance(e);
     var aOuvrir = groupes.filter(function (g) { return g.actions.some(function (a) { return L.estEnRetard(a, e); }); });
     if (!aOuvrir.length) {
@@ -639,7 +657,7 @@
     // Sans action dont elle puisse changer l'état, la personne lit la phrase courte.
     var touche = e.actions.some(peutChangerEtat);
     html += '<p class="discret note-bas">' + esc(M(modifiable ? "noteActionsBureau" : touche ? "noteActions" : "noteActionsLecture")) + "</p>";
-    return html;
+    return html + refaire;
   }
 
   function ongletCoupsDeMain(e) {
@@ -851,13 +869,40 @@
       var code = erreurs && erreurs[n];
       var texte = code ? textes[n + ":" + code] || textes[n] : "";
       var zone = form.querySelector("#erreur-" + n);
-      if (zone) { zone.textContent = texte; }
+      if (zone) {
+        zone.textContent = texte;
+        // Le code sert à savoir si la phrase porte sur deux champs (voir effacerErreur).
+        if (texte) { zone.setAttribute("data-code", code); } else { zone.removeAttribute("data-code"); }
+      }
       var el = form.querySelector("#champ-" + n);
       if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", texte ? "true" : "false"); }
       if (texte && !premier) { premier = el && el.tagName === "INPUT" ? el : form.querySelector("#champ-" + n + " input"); }
     });
     if (premier) { premier.focus(); }
     return !!premier;
+  }
+
+  // Une phrase d'erreur disparaît dès que le champ est corrigé (demande 006b), sur tous les formulaires du prototype,
+  // « Ajouter une personne » compris (décision du 2026-11-19, soir) : dès que le contenu du champ change, sa phrase
+  // et sa bordure d'erreur s'effacent, sans attendre l'enregistrement, qui refait le contrôle complet.
+  // Les phrases des autres champs restent.
+  // La phrase sous l'heure de fin porte aussi sur l'heure de début quand elle les compare : elle s'efface si l'une des deux change.
+  var ERREURS_A_DEUX = { "debut-evenement": "fin-evenement", "debut-creneau": "fin-creneau" };
+  var CODES_A_DEUX = ["sans-debut", "avant"];
+
+  function effacerErreur(c) {
+    var form = c.form;
+    if (!form || !c.name) { return; }
+    function effacer(nom, codes) {
+      var zone = form.querySelector("#erreur-" + nom);
+      if (!zone || !zone.textContent || (codes && codes.indexOf(zone.getAttribute("data-code")) < 0)) { return; }
+      zone.textContent = "";
+      zone.removeAttribute("data-code");
+      var el = form.querySelector("#champ-" + nom);
+      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", "false"); }
+    }
+    effacer(c.name);
+    if (ERREURS_A_DEUX[c.name]) { effacer(ERREURS_A_DEUX[c.name], CODES_A_DEUX); }
   }
 
   function erreurGenerale(form, texte) {
@@ -901,27 +946,141 @@
     return { titre: M("creerUnEvenement"), onglet: "evenements", html: html, champ: "nom-evenement" };
   }
 
-  function envoyerEvenement(form) {
-    if (!estAsso()) { return; }
-    var el = form.elements;
-    var r = Ev.creerEvenement(G(), moi(), {
-      titre: el["nom-evenement"].value, date: el["date-evenement"].value,
-      debut: el["debut-evenement"].value, fin: el["fin-evenement"].value, lieu: el["lieu-evenement"].value
-    });
+  // Les erreurs du formulaire d'événement (création et modification) ; rend vrai s'il y en a.
+  function erreursEvenement(form, r) {
     var e = r.erreurs || {};
-    if (montrerErreurs(form, ["nom-evenement", "date-evenement", "fin-evenement", "lieu-evenement"],
+    return montrerErreurs(form, ["nom-evenement", "date-evenement", "fin-evenement", "lieu-evenement"],
       { "nom-evenement": e.titre, "date-evenement": e.date, "fin-evenement": e.fin, "lieu-evenement": e.lieu }, {
         "nom-evenement:vide": M("erreurNomEvenementVide"), "nom-evenement:long": M("erreurNomGroupeLong"),
         "date-evenement:vide": M("erreurDateVide"), "date-evenement:passee": M("erreurDatePassee"),
         "fin-evenement:sans-debut": M("erreurFinSansDebut"), "fin-evenement:avant": M("erreurFinAvantDebut"),
         "lieu-evenement:long": M("erreurNomGroupeLong")
-      })) { return; }
+      });
+  }
+
+  function saisieEvenement(form) {
+    var el = form.elements;
+    return {
+      titre: el["nom-evenement"].value, date: el["date-evenement"].value,
+      debut: el["debut-evenement"].value, fin: el["fin-evenement"].value, lieu: el["lieu-evenement"].value
+    };
+  }
+
+  // Le calendrier s'ouvrira sur le mois de cet événement.
+  function montrerMoisDe(e) {
+    var d = L.dateEvenement(e);
+    moisAffiche = new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+
+  function envoyerEvenement(form) {
+    if (!estAsso()) { return; }
+    // Le même formulaire sert à modifier l'événement (écran 9) ; celui de la copie n'a qu'une date (écran 11).
+    if (form.hasAttribute("data-refaire")) { envoyerCopie(form); return; }
+    if (form.hasAttribute("data-evenement")) { envoyerModification(form); return; }
+    var r = Ev.creerEvenement(G(), moi(), saisieEvenement(form));
+    if (erreursEvenement(form, r)) { return; }
     if (!r.ok) { aller("#evenements"); return; }
     sauver();
-    // Le calendrier s'ouvrira sur le mois du nouvel événement.
-    var d = L.dateEvenement(r.evenement);
-    moisAffiche = new Date(d.getFullYear(), d.getMonth(), 1);
+    montrerMoisDe(r.evenement);
     message = M("evenementCree", { nom: r.evenement.titre });
+    aller("#evenement/" + r.evenement.id + "/actions");
+  }
+
+  // ---------- Demande 006b : modifier, supprimer et refaire l'événement ----------
+  // Le bureau seul, pour un événement à venir comme pour un événement passé (voir ecranEvenement) ;
+  // chaque geste est contrôlé une seconde fois par les règles (js/evenements.js).
+
+  // La date d'un événement dans une phrase : « vendredi 27 novembre », avec l'année s'il est passé.
+  function dateEnPhrase(e) {
+    return (L.estPasse(e) ? fmtLongAnnee : fmtLong).format(L.dateEvenement(e));
+  }
+
+  // « 3 actions, 2 créneaux et 4 personnes inscrites » : on ne cite que ce qui existe.
+  function listeDeComptes(comptes) {
+    var parts = comptes.filter(function (x) { return x[1] > 0; }).map(function (x) { return Mn(x[0], x[1]); });
+    if (parts.length < 2) { return parts.join(""); }
+    return M("listeEt", { debut: parts.slice(0, -1).join(M("listeVirgule")), dernier: parts[parts.length - 1] });
+  }
+
+  // Écran 9 : le formulaire de la création, rempli. « Supprimer cet événement » est sous le bouton.
+  function ecranModifierEvenement(e) {
+    var valeur = function (v) { return v ? ' value="' + esc(v) + '"' : ""; };
+    // Événement à venir : le téléphone ne propose pas de jour passé. Événement passé : sa date reste permise.
+    var min = L.estPasse(e) ? "" : 'min="' + esc(Ev.ecrireDate(L.aujourdhui())) + '"';
+    var html = retour(hrefEvenement(e, "actions"), e.titre) + entete(G().nom, M("modifierLEvenement")) +
+      '<form class="form-evenement" data-evenement="' + esc(e.id) + '" novalidate>' +
+      champ("nom-evenement", M("champNomEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"' + valeur(e.titre), M("champNomEvenementAide")) +
+      champ("date-evenement", M("champDateEvenement"), min + valeur(Ev.ecrireDate(L.dateEvenement(e))), "", "date") +
+      champ("debut-evenement", M("champDebutEvenement"), valeur(e.debut), "", "time") +
+      champ("fin-evenement", M("champFinEvenement"), valeur(e.fin), "", "time") +
+      champ("lieu-evenement", M("champLieuEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"' + valeur(e.lieu), "") +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M("enregistrerLEvenement")) + "</button>" +
+      '<a class="lien-bouton lien-bouton--alerte" id="supprimer-evenement" href="' + hrefEvenement(e, "supprimer") + '">' + esc(M("supprimerCetEvenement")) + "</a>" +
+      "</form>";
+    return { titre: M("modifierLEvenement"), onglet: "evenements", html: html };
+  }
+
+  function envoyerModification(form) {
+    var eid = form.getAttribute("data-evenement");
+    var r = Ev.modifierEvenement(G(), moi(), eid, saisieEvenement(form));
+    if (erreursEvenement(form, r)) { return; }
+    // Événement disparu entre-temps, ou droits perdus : l'écran se redessine et le dit.
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    if (r.dateChangee) { montrerMoisDe(r.evenement); }
+    message = M("evenementModifie", { nom: r.evenement.titre });
+    aller("#evenement/" + eid + "/actions");
+  }
+
+  // Écran 10 : un écran entier, écrit en toutes lettres, sans rien à taper. Le bouton rouge est le seul bouton.
+  function ecranSupprimerEvenement(e) {
+    var p = Ev.compterPertes(e);
+    var liste = listeDeComptes([["nActions", p.actions], ["nCreneaux", p.creneaux], ["nInscrits", p.inscrits]]);
+    var html = '<section class="confirmation">' +
+      '<h1 tabindex="-1">' + esc(M("supprimerEvenementTitre")) + "</h1>" +
+      '<p class="confirmation-quoi">' + esc(M("supprimerEvenementQuoi", { nom: e.titre, date: dateEnPhrase(e) })) + "</p>" +
+      (liste ? "<p>" + esc(M("supprimerEvenementPerte", { liste: liste })) + "</p>" : "") +
+      (p.inscrits ? "<p>" + esc(M("supprimerEvenementInscrits")) + "</p>" : "") +
+      '<p class="texte-alerte">' + esc(M("supprimerEvenementDefinitif")) + "</p>" +
+      '<button type="button" class="bouton bouton--alerte" data-supprimer-evenement="' + esc(e.id) + '">' + esc(M("supprimerLEvenement")) + "</button>" +
+      '<a class="lien-suite" href="' + hrefEvenement(e, "modifier") + '">' + esc(M("garderLEvenement")) + "</a>" +
+      "</section>";
+    return { titre: M("supprimerEvenementTitre"), onglet: "evenements", html: html };
+  }
+
+  // Après la suppression, rien n'est gardé des inscrits, sauf leurs jetons (voir js/evenements.js).
+  function supprimerEvenement(bouton) {
+    if (!estAsso()) { return; }
+    var r = Ev.supprimerEvenement(G(), moi(), bouton.getAttribute("data-supprimer-evenement"));
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    message = M("evenementSupprime", { nom: r.titre });
+    aller("#evenements");
+  }
+
+  // Écran 11 : une seule chose à donner, la nouvelle date.
+  function ecranRefaireEvenement(e) {
+    var liste = listeDeComptes([["nActions", e.actions.length], ["nCreneaux", e.creneaux.length]]);
+    var html = retour(hrefEvenement(e, "actions"), e.titre) + entete(G().nom, M("refaireCetEvenement")) +
+      "<p>" + esc(liste ? M("refaireTexte", { liste: liste, nom: e.titre }) : M("refaireTexteVide", { nom: e.titre })) + "</p>" +
+      '<form class="form-evenement" data-refaire="' + esc(e.id) + '" novalidate>' +
+      champ("nouvelle-date", M("champNouvelleDate"), 'min="' + esc(Ev.ecrireDate(L.aujourdhui())) + '"', "", "date") +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M("creerLaCopie")) + "</button>" +
+      "</form>";
+    return { titre: M("refaireCetEvenement"), onglet: "evenements", html: html, champ: "nouvelle-date" };
+  }
+
+  function envoyerCopie(form) {
+    var r = Ev.refaireEvenement(G(), moi(), form.getAttribute("data-refaire"), { date: form.elements["nouvelle-date"].value });
+    if (montrerErreurs(form, ["nouvelle-date"], { "nouvelle-date": (r.erreurs || {}).date }, {
+      "nouvelle-date:vide": M("erreurDateVide"), "nouvelle-date:passee": M("erreurDatePassee")
+    })) { return; }
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    montrerMoisDe(r.evenement);
+    message = M("evenementRefait", { nom: r.evenement.titre, date: dateEnPhrase(r.evenement) });
     aller("#evenement/" + r.evenement.id + "/actions");
   }
 
@@ -1095,7 +1254,20 @@
   // La question est le seul texte libre : elle passe partout par esc(), jamais écrite comme du HTML.
 
   var fmtJourMois = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
-  var fmtJourCourt = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric" });
+  var fmtJourNomme = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric" });
+
+  // « jeudi 26 » (demande 007b) : le nom du jour en toutes lettres et son numéro, tels que le téléphone les écrit.
+  function jourNomme(d) {
+    var morceaux = {};
+    fmtJourNomme.formatToParts(d).forEach(function (m) { morceaux[m.type] = m.value; });
+    return M("msgJourNomme", { jour: morceaux.weekday, numero: morceaux.day });
+  }
+  // Les sept prochains jours, de demain à dans sept jours : le même jour de la semaine suivante en fait toujours partie.
+  function joursProposes(aujourdhui) {
+    var jours = [];
+    for (var i = 1; i <= 7; i++) { jours.push(L.ajouterJours(aujourdhui, i)); }
+    return jours;
+  }
 
   function motReponse(r) { return M(r === "oui" ? "msgOui" : "msgNon"); }
 
@@ -1234,19 +1406,37 @@
       options.unshift({ valeur: "memes", titre: M("msgAvecCompte", { nom: M("msgAMemesPersonnes"), compte: Mn("nPersonnes", Msg.destinataires(g, origine).length) }) });
     }
 
-    // Les sept prochains jours en un toucher, puis « Autre date ».
-    var jours = [];
-    for (var i = 0; i < 7; i++) {
-      var d = L.ajouterJours(aujourdhui, i);
-      jours.push({ valeur: Ev.ecrireDate(d), titre: i === 0 ? M("msgJourAujourdhui") : i === 1 ? M("msgJourDemain") : fmtJourCourt.format(d) });
-    }
+    // Les sept prochains jours en un toucher, nommés (« jeudi 26 »), puis « Autre date ».
+    var prochains = joursProposes(aujourdhui);
+    var jours = prochains.map(function (d) { return { valeur: Ev.ecrireDate(d), titre: jourNomme(d) }; });
     jours.push({ valeur: "autre", titre: M("msgJourAutre") });
+    // Les heures courantes en un toucher, puis « Autre heure ».
+    var courantes = M("msgHeuresCourantes");
+    var heures = courantes.map(function (h) { return { valeur: h, titre: heureLisible(h) }; });
+    heures.push({ valeur: "autre", titre: M("msgHeureAutre") });
+
+    // Refaire : le même jour la semaine suivante, déjà choisi ; s'il est déjà passé (question ancienne), le prochain même jour
+    // de la semaine. Hors des sept jours : « Autre date », avec la date dans le champ. Question sans date : aucun jour choisi.
+    var jourChoisi = "", autreDate = "";
+    var rdvOrigine = origine ? Msg.dateRendezVous(origine) : null;
+    if (rdvOrigine) {
+      var suivant = L.ajouterJours(rdvOrigine, 7);
+      if (L.joursJusqua(suivant) < 0) {
+        suivant = prochains.filter(function (d) { return d.getDay() === rdvOrigine.getDay(); })[0];
+      }
+      var ecrit = Ev.ecrireDate(suivant);
+      if (jours.some(function (j) { return j.valeur === ecrit; })) { jourChoisi = ecrit; } else { jourChoisi = "autre"; autreDate = ecrit; }
+    }
+    // L'heure d'origine est gardée : l'une des quatre, ou telle quelle dans « Autre heure ».
+    var heureChoisie = !o.heure ? "" : courantes.indexOf(o.heure) >= 0 ? o.heure : "autre";
+    var autreHeure = heureChoisie === "autre" ? o.heure : "";
 
     var evenements = estAsso() ? L.evenementsAVenir(g) : [];
     var evenementChoisi = evenements.some(function (e) { return e.id === o.evenementId; }) ? o.evenementId : "";
     var titre = M(origine ? "msgRefaire" : "msgDemander");
     var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
-      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '" novalidate>' +
+      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '" data-aujourdhui="' + esc(Ev.ecrireDate(aujourdhui)) + '"' +
+      ' data-choisi-jour="' + esc(jourChoisi) + '" data-choisi-heure="' + esc(heureChoisie) + '" novalidate>' +
       // La question : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
       '<div class="champ"><label for="champ-question">' + esc(M("msgChampQuestion")) + "</label>" +
       '<p class="champ-aide" id="aide-question">' + esc(M("msgChampQuestionAide")) + "</p>" +
@@ -1265,9 +1455,15 @@
       // Les options, repliées (dépliées quand on refait une question).
       '<details class="repli" id="options-question"' + (origine ? " open" : "") + '><summary><span class="repli-titres"><span class="repli-titre">' +
       esc(M("msgOptions")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
-      choix("jour", M("msgChampJour"), jours, [], "radio", "choix--deux-colonnes") +
-      '<div id="zone-autre-date" hidden>' + champ("autre-date", M("msgJourAutre"), min, "", "date") + "</div>" +
-      champ("heure", M("msgChampHeure"), valeur(o.heure), "", "time") +
+      choix("jour", M("msgChampJour"), jours, [jourChoisi], "radio", "choix--liste") +
+      // « Autre date » : le champ arrive rempli avec la date du jour, et la phrase d'aide le dit (voir choisirJourOuHeure).
+      // Refaire avec une date hors des sept jours : le champ porte cette date, sans la phrase.
+      '<div id="zone-autre-date"' + (jourChoisi === "autre" ? "" : " hidden") + ">" +
+      champ("autre-date", M("msgJourAutre"), min + valeur(autreDate), M("msgJourAutreAide"), "date")
+        .replace('id="aide-autre-date"', 'id="aide-autre-date"' + (autreDate ? " hidden" : "")) + "</div>" +
+      choix("heure", M("msgChampHeure"), heures, [heureChoisie], "radio", "choix--liste") +
+      '<div id="zone-autre-heure"' + (heureChoisie === "autre" ? "" : " hidden") + ">" +
+      champ("autre-heure", M("msgHeureAutre"), valeur(autreHeure), "", "time") + "</div>" +
       champ("attendus", M("msgChampAttendus"), 'inputmode="numeric" autocomplete="off" maxlength="4" class="champ-court"' + valeur(o.attendus), "") +
       champ("avant-le", M("msgChampAvantLe"), min, "", "date") +
       (estAsso()
@@ -1290,20 +1486,45 @@
     else if (zone.textContent === M("msgErreurQuestionLongue")) { zone.textContent = ""; }
   }
 
-  // « Des personnes choisies » montre la liste des personnes ; « Autre date » montre le champ de date.
+  // « Des personnes choisies » montre la liste des personnes ; « Autre date » le champ de date ; « Autre heure » le champ d'heure.
   function montrerZonesQuestion(form) {
     form.querySelector("#zone-personnes").hidden = valeurRadio(form, "a-qui") !== "personnes";
     form.querySelector("#zone-autre-date").hidden = valeurRadio(form, "jour") !== "autre";
+    form.querySelector("#zone-autre-heure").hidden = valeurRadio(form, "heure") !== "autre";
+    montrerAideAutreDate(form);
   }
 
-  // Toucher le jour déjà choisi l'enlève : le rendez-vous est une option.
-  function basculerJour(radio) {
-    var form = radio.form;
-    if (radio.getAttribute("data-choisi") === "oui") { radio.checked = false; }
-    Array.prototype.forEach.call(form.querySelectorAll('input[name="jour"]'), function (x) {
-      if (x.checked) { x.setAttribute("data-choisi", "oui"); } else { x.removeAttribute("data-choisi"); }
-    });
+  // « Aujourd'hui est déjà choisi… » ne s'affiche que tant que le champ porte la date du jour.
+  function montrerAideAutreDate(form) {
+    var aide = form.querySelector("#aide-autre-date");
+    if (aide) { aide.hidden = form.elements["autre-date"].value !== form.getAttribute("data-aujourdhui"); }
+  }
+
+  // Le jour et l'heure, même règle : toucher un autre choix remplace le premier ; toucher le choix déjà fait l'enlève
+  // (le rendez-vous est une option). « Autre date » arrive rempli avec la date du jour, « Autre heure » arrive vide ;
+  // quitter l'un ou l'autre cache le champ, et ce qu'il contenait ne compte plus.
+  function choisirJourOuHeure(radio) {
+    var form = radio.form, nom = radio.name, cle = "data-choisi-" + nom;
+    if (form.getAttribute(cle) === radio.value) { radio.checked = false; }
+    var choisi = valeurRadio(form, nom);
+    if (choisi !== form.getAttribute(cle)) {
+      form.elements[nom === "jour" ? "autre-date" : "autre-heure"].value = nom === "jour" && choisi === "autre" ? form.getAttribute("data-aujourdhui") : "";
+    }
+    form.setAttribute(cle, choisi);
     montrerZonesQuestion(form);
+    effacerErreursRendezVous(form, nom);
+  }
+
+  // Une phrase d'erreur disparaît dès que le choix ou le champ est corrigé (comme depuis la demande 006b). Changer le jour
+  // efface aussi « Indiquez aussi le jour du rendez-vous. », écrite sous l'heure : elle porte sur les deux.
+  function effacerErreursRendezVous(form, nom) {
+    var jour = nom === "jour" || nom === "autre-date";
+    (jour ? ["jour", "autre-date", "heure"] : ["heure"]).forEach(function (n) {
+      var zone = form.querySelector("#erreur-" + n);
+      if (zone) { zone.textContent = ""; zone.removeAttribute("data-code"); }
+      var el = form.querySelector("#champ-" + n);
+      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", "false"); }
+    });
   }
 
   // Compteur des personnes cochées. Membre : « 3 sur 10 » ; à dix, les autres cases ne se cochent plus
@@ -1327,10 +1548,12 @@
     var g = G(), el = form.elements;
     var jour = valeurRadio(form, "jour");
     var autre = jour === "autre";
+    var heure = valeurRadio(form, "heure");
+    if (heure === "autre") { heure = el["autre-heure"] ? el["autre-heure"].value : ""; }
     var saisie = {
       texte: el.question.value, a: valeurRadio(form, "a-qui"), memesDe: form.getAttribute("data-refaire"),
       personnes: Array.prototype.map.call(form.querySelectorAll('input[name="personnes"]:checked'), function (x) { return x.value; }),
-      jour: autre ? el["autre-date"].value : jour, heure: el.heure.value, attendus: el.attendus.value, avantLe: el["avant-le"].value,
+      jour: autre ? el["autre-date"].value : jour, heure: heure, attendus: el.attendus.value, avantLe: el["avant-le"].value,
       evenementId: estAsso() ? valeurRadio(form, "evenement") : ""
     };
     var r = Msg.poserQuestion(g, moi(), saisie);
@@ -1571,7 +1794,8 @@
     reglageEnregistre = false;
     return '<section class="section" id="reglage-messages"><h2 class="section-titre">' + esc(M("msgReglageTitre")) + "</h2>" +
       '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("msgReglageToutLeGroupe")) + "</p>" +
-      '<p class="action-meta">' + esc(M("msgReglageAide")) + "</p></div>" +
+      // Demande 007b : la phrase d'aide dit ce qui se passe dans l'état affiché par le bouton.
+      '<p class="action-meta">' + esc(M(allume ? "msgReglageAideAllume" : "msgReglageAideEteint")) + "</p></div>" +
       '<button type="button" class="statut" data-reglage aria-pressed="' + allume + '" aria-label="' + esc(M("msgReglageToutLeGroupe") + " : " + mot) + '">' +
       esc(mot) + "</button></li></ul>" +
       (enregistre ? '<p class="message-ok" role="status">' + esc(M("msgReglageEnregistre")) + "</p>" : "") + "</section>";
@@ -1839,12 +2063,25 @@
       '<a class="carte" href="#charte"><span class="carte-etiquette">Carte</span><span class="carte-titre">Un résumé qui s\'ouvre au toucher</span></a>' +
       '<p><span class="etiquette">Manquent 2</span> <span class="etiquette etiquette--alerte">En retard</span> <span class="etiquette etiquette--ok">Complet</span></p>' +
       '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">Statut d\'une action</p><p class="action-meta">On touche l\'étiquette pour avancer</p></div>' +
-      '<span class="statut statut--en-cours" style="display:inline-flex;align-items:center;justify-content:center">En cours</span></li></ul>' +
+      '<span class="statut statut--en-cours" style="display:inline-flex;align-items:center;justify-content:center">En cours</span></li>' +
+      // L'état qui se lit sans se toucher : une étiquette, pas un bouton (demande 006b).
+      '<li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("charteSuppression").actionLecture) + '</p><p class="action-meta">' + esc(M("charteSuppression").actionLectureMeta) + "</p></div>" +
+      '<span class="etiquette">' + esc(L.LIBELLES_STATUT["en-cours"]) + "</span></li></ul>" +
+      exemplesSuppression() +
       etatVide("calme", "État vide", "Une petite illustration et une phrase qui dit quoi faire.") +
       exemplesFormulaire() +
       exemplesMessages() +
       "</section>";
     return { titre: "Charte graphique", onglet: "groupe", html: html };
+  }
+
+  // Confirmation d'une suppression (demande 006b, à la demande de la direction artistique) : la phrase qui dit quoi,
+  // le texte d'alerte et le bouton rouge, montrés une fois chacun.
+  function exemplesSuppression() {
+    var C = M("charteSuppression");
+    return '<p class="confirmation-quoi">' + esc(C.quoi) + "</p>" +
+      '<p class="texte-alerte">' + esc(C.definitif) + "</p>" +
+      '<button type="button" class="bouton bouton--alerte" data-exemple>' + esc(C.bouton) + "</button>";
   }
 
   // Les éléments de formulaire, montrés une fois chacun (demande 006, à la demande de la direction artistique).
@@ -1867,10 +2104,12 @@
   }
 
   // Les composants de la demande 007, montrés une fois chacun : la paire de réponse dans ses trois états (N1),
-  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), le choix sur deux colonnes et la case qui ne se coche plus (N5), le réglage allumé (N6).
+  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), le choix du jour (deux jours nommés, demande 007b) et la case
+  // qui ne se coche plus (N5), le réglage allumé (N6).
   function exemplesMessages() {
     var C = M("chartePaire");
     var F = M("charteFormulaire");
+    var exemplesJours = joursProposes(L.aujourdhui()).slice(0, 2);
     return '<h3 id="charte-paire">' + esc(C.titre) + "</h3>" +
       '<p class="discret">' + esc(C.avant) + "</p>" + paireReponse("", "", true) +
       '<p class="discret">' + esc(C.apresOui) + "</p>" + paireReponse("", "oui", true) +
@@ -1881,10 +2120,14 @@
       '<span class="carte-quand">' + esc(M("msgDe", { prenom: C.de }) + " · " + C.rendezVous) + "</span>" +
       paireReponse("", "", true) +
       '<a class="lien-suite" href="#charte">' + esc(Mn("msgAccueilAutres", C.autres)) + "</a></div>" +
+      // Le bloc à deux liens de l'accueil (N12, demande 007c ; décision du 2026-11-19, soir) : deux zones, aucun bouton.
+      '<p class="discret">' + esc(M("charteBlocLiens").titre) + "</p>" +
+      '<div class="bloc-liens" id="charte-bloc-liens"><a class="carte" href="#charte"><span class="carte-titre">' + esc(M("charteBlocLiens").haut) + "</span></a>" +
+      '<a class="lien-suite" href="#charte">' + esc(M("charteBlocLiens").bas) + "</a></div>" +
       '<ul class="legende">' + legendeRendezVous() + "</ul>" +
-      '<fieldset class="choix choix--deux-colonnes"><legend>' + esc(M("msgChampJour")) + "</legend>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(M("msgJourAujourdhui")) + "</span></span></label>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" disabled><span class="choix-texte"><span class="choix-titre">' + esc(M("msgJourDemain")) + "</span></span></label></fieldset>" +
+      '<fieldset class="choix choix--liste" id="exemple-choix-jour"><legend>' + esc(M("msgChampJour")) + "</legend>" +
+      '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[0])) + "</span></span></label>" +
+      '<label class="choix-option"><input type="radio" name="exemple-jour" disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[1])) + "</span></span></label></fieldset>" +
       '<fieldset class="choix choix--liste"><legend>' + esc(M("msgAPersonnes")) + ' <span class="compte">' + esc(M("msgPersonnesCompte", { n: 10 })) + "</span></legend>" +
       '<label class="choix-option"><input type="checkbox" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[1]) + "</span></span></label>" +
       '<label class="choix-option choix-option--bloquee"><input type="checkbox" disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[2]) + "</span></span></label>" +
@@ -2160,7 +2403,7 @@
 
   function ecranMerci(jeton) {
     var t = inscriptionPartout(jeton);
-    if (!t) { return lienInconnu(); }
+    if (!t) { return lienSansInscription(jeton); }
     var lien = lienPersonnel(jeton);
     var contact = L.analyserContact(t.volontaire.contact);
     var parSms = contact && contact.type === "tel";
@@ -2211,7 +2454,7 @@
       };
     }
     var t = inscriptionPartout(jeton);
-    if (!t) { return lienInconnu(); }
+    if (!t) { return lienSansInscription(jeton); }
     var html = '<section class="confirmation">' +
       '<p class="surtitre">' + esc(t.groupe.nom) + "</p>" +
       '<h1 tabindex="-1">Votre coup de main</h1>' +
@@ -2242,6 +2485,22 @@
     };
   }
 
+  // Lien personnel qui ne mène plus à une inscription : si c'est celui d'un inscrit d'un événement supprimé
+  // (son jeton est gardé, et rien d'autre), la page le dit ; sinon, la page « Ce lien ne mène à aucune inscription. ».
+  function lienSansInscription(jeton) {
+    var supprime = etat.groupes.some(function (g) { return Ev.jetonSupprime(g, jeton); });
+    return supprime ? lienEvenementSupprime() : lienInconnu();
+  }
+
+  // Deux phrases, aucun bouton ; ni le nom de l'événement ni celui de la personne (ils sont effacés).
+  function lienEvenementSupprime() {
+    return {
+      titre: MA("lienEvenementSupprime"), parent: true,
+      html: '<section class="confirmation"><h1 tabindex="-1">' + esc(MA("lienEvenementSupprime")) + "</h1>" +
+        etatVide("chemin", MA("lienEvenementSupprimeAide"), "") + "</section>"
+    };
+  }
+
   function introuvable() {
     return {
       titre: M("pageIntrouvable"), onglet: null,
@@ -2265,7 +2524,7 @@
   }
 
   // Écrans propres aux associations : un groupe simple n'en a pas.
-  var ECRANS_ASSOCIATION = ["mes-actions", "rappels", "evenements", "evenement"];
+  var ECRANS_ASSOCIATION = ["mes-actions", "rappels", "creneaux-manquants", "evenements", "evenement"];
 
   function rendre(options) {
     var morceaux = adresseActuelle().split("/").map(decodeURIComponent);
@@ -2274,8 +2533,11 @@
     switch (morceaux[0]) {
       case "accueil": r = ecranAccueil(); break;
       case "mes-actions": r = ecranMesActions(morceaux[1] === "toutes"); break;
-      // L'écran « Rappels » a disparu : son adresse mène à « Mes actions » (demande 007).
-      case "rappels": location.replace("#mes-actions"); return;
+      // Décision du 2026-11-19 (soir) : l'adresse #rappels ouvre l'écran des créneaux en manque, sans écran
+      // intermédiaire ; elle suit donc la même règle que lui, pour chacun.
+      case "rappels": location.replace("#creneaux-manquants"); return;
+      // Demande 007c : la liste des créneaux en manque, pour le bureau seul ; pour les autres, la page n'existe pas.
+      case "creneaux-manquants": r = gere() && !morceaux[1] ? ecranCreneauxManquants() : introuvable(); break;
       case "messages":
         r = morceaux[1] === "nouveau" && morceaux[2] === "question" ? ecranNouvelleQuestion(morceaux[3]) : morceaux[1] ? introuvable() : ecranMessages();
         break;
@@ -2418,7 +2680,10 @@
   // ---------- Gestes ----------
 
   document.addEventListener("click", function (ev) {
-    if (ev.target.name === "jour" && ev.target.type === "radio") { basculerJour(ev.target); return; }
+    if (ev.target.type === "radio" && (ev.target.name === "jour" || ev.target.name === "heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
+      choisirJourOuHeure(ev.target);
+      return;
+    }
     var cible = ev.target.closest("button, a");
     if (!cible) { return; }
     if (cible.hasAttribute("data-reglage")) { changerReglage(); return; }
@@ -2440,6 +2705,7 @@
     if (cible.hasAttribute("data-supprimer-equipe")) { supprimerEquipe(cible); return; }
     if (cible.hasAttribute("data-supprimer-action")) { supprimerAction(cible); return; }
     if (cible.hasAttribute("data-supprimer-creneau")) { supprimerCreneau(cible); return; }
+    if (cible.hasAttribute("data-supprimer-evenement")) { supprimerEvenement(cible); return; }
     if (cible.hasAttribute("data-enregistrer-essai")) { enregistrerEssai(); return; }
     if (cible.hasAttribute("data-envoyer-essai")) { envoyerEssai(); return; }
     if (cible.hasAttribute("data-qr")) {
@@ -2465,6 +2731,9 @@
 
   document.addEventListener("change", function (ev) {
     var c = ev.target;
+    effacerErreur(c);
+    // La phrase des 80 caractères n'est pas une erreur d'envoi : elle reste écrite tant que la limite est atteinte.
+    if (c.id === "champ-question") { compterCaracteres(c); }
     if (c.id === "demo-groupe") {
       etat.groupeActif = c.value;
       sauver();
@@ -2485,13 +2754,19 @@
     } else if (c.name === "echeance") {
       montrerChampsEcheance(c.form);
     } else if (c.form && c.form.classList.contains("form-question")) {
-      if (c.name === "a-qui" || c.name === "jour") { montrerZonesQuestion(c.form); }
+      if (c.name === "a-qui" || c.name === "jour" || c.name === "heure") { montrerZonesQuestion(c.form); }
       if (c.name === "personnes") { compterPersonnes(c.form); }
     }
   });
 
   document.addEventListener("input", function (ev) {
+    // D'abord la phrase d'erreur du champ, puis le compteur de la question, qui peut écrire la sienne (« … pas plus longue »).
+    effacerErreur(ev.target);
     if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
+    if ((ev.target.name === "autre-date" || ev.target.name === "autre-heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
+      montrerAideAutreDate(ev.target.form);
+      effacerErreursRendezVous(ev.target.form, ev.target.name);
+    }
   });
 
   document.addEventListener("submit", function (ev) {

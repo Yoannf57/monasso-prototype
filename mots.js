@@ -15,6 +15,7 @@
   restent pour l'instant dans js/app.js (liste dans docs/recette/005-groupes-personnes-equipes.md).
   Demande 006 : tous les mots de la création d'un événement, de ses actions et de ses créneaux
   sont dans la liste « association ».
+  Demande 006b : les mots pour modifier, supprimer et refaire un événement sont dans la liste « association ».
   Demande 007 : tous les mots des messages commencent par « msg » ; ils sont dans la liste commune,
   sauf ceux qui nomment le bureau, les organisateurs ou un événement.
 */
@@ -114,10 +115,14 @@ var MOTS = {
     msgPersonnesCompte: "{n} sur 10",
     msgOptions: "Ajouter une date ou un nombre de Oui",
     msgChampJour: "Jour du rendez-vous",
-    msgJourAujourdhui: "Aujourd'hui",
-    msgJourDemain: "Demain",
+    // Demande 007b : les sept prochains jours, nommés (« jeudi 26 »), puis « Autre date » ; les heures courantes, puis « Autre heure ».
+    // Entre le jour et son numéro, comme dans une heure, l'espace est celle qui ne se coupe pas en fin de ligne.
+    msgJourNomme: "{jour} {numero}",
     msgJourAutre: "Autre date",
+    msgJourAutreAide: "Aujourd'hui est déjà choisi. Touchez la date pour la changer.",
     msgChampHeure: "Heure",
+    msgHeuresCourantes: ["18:00", "19:00", "20:00", "21:00"],
+    msgHeureAutre: "Autre heure",
     msgChampAttendus: "Nombre de Oui attendus",
     msgChampAvantLe: "Réponse avant le",
     msgEnvoyer: "Envoyer la question",
@@ -203,10 +208,18 @@ var MOTS = {
       apresOui: "Après « Oui »",
       apresNon: "Après « Non »",
       bloc: "Bloc « À répondre » de l'accueil",
-      question: "Qui pour jouer jeudi 20 h ?",
+      question: "Qui pour jouer jeudi 20 h ?",
       de: "Samir",
-      rendezVous: "jeudi à 20 h",
+      rendezVous: "jeudi à 20 h",
       autres: 2
+    },
+
+    // Page Charte : l'exemple du bloc à deux liens de l'accueil (décision du 2026-11-19, soir).
+    // Mots communs : la page s'ouvre aussi dans un groupe simple.
+    charteBlocLiens: {
+      titre: "Bloc à deux liens",
+      haut: "Le bloc ouvre un écran",
+      bas: "Ouvrir un autre écran"
     },
 
     // Page du groupe
@@ -277,7 +290,8 @@ var MOTS = {
     confirmerOuvrir: "Remplacer ce qui est sur ce téléphone par l'essai « {nom} » ?",
     essaiOuvert: "Essai ouvert : {groupes}, {personnes}.",
     essaiIllisible: "Ce fichier n'est pas un essai MonAsso. Choisissez le fichier enregistré avec « Enregistrer mon essai ».",
-    essaiAncien: "Cet essai vient d'une autre version du prototype : il ne peut pas être ouvert ici.",
+    // Demande 007c (journal du 2026-11-19) : la phrase de Yoann, mot pour mot.
+    essaiAncien: "Cet essai vient d'une version précédente et ne peut plus être ouvert.",
 
     // Charte (page interne)
     charteExempleSecondaire: "Inviter un membre",
@@ -301,6 +315,15 @@ var MOTS = {
       actionMeta: "Le libellé souligné ouvre l'action"
     },
 
+    // Exemples de la page Charte ajoutés par la demande 006b : confirmation d'une suppression, état qui se lit sans se toucher.
+    charteSuppression: {
+      quoi: "Vous allez supprimer l'équipe «\u00A0Les verts\u00A0».",
+      definitif: "On ne peut pas revenir en arrière.",
+      bouton: "Supprimer l'équipe",
+      actionLecture: "État d'une action, en lecture seule",
+      actionLectureMeta: "Une étiquette\u00A0: elle ne se touche pas"
+    },
+
     // Pages d'erreur
     pageIntrouvable: "Cette page n'existe pas.",
     pageIntrouvableAide: "Le lien est peut-être incomplet."
@@ -318,9 +341,11 @@ var MOTS = {
       organisateur: "Ajoute des personnes et crée les équipes.",
       membre: "Voit le groupe et ses équipes."
     },
-    msgChampQuestionAide: "Par exemple : Qui pour jouer jeudi 20 h ?",
+    msgChampQuestionAide: "Par exemple : Qui pour jouer jeudi 20 h ?",
     msgAGestion: "Les organisateurs",
-    msgReglageAide: "Éteint, seuls les organisateurs écrivent à tout le groupe.",
+    // Demande 007b : la phrase d'aide du réglage suit l'état du bouton.
+    msgReglageAideEteint: "Seuls les organisateurs écrivent à tout le groupe.",
+    msgReglageAideAllume: "Les organisateurs et les membres écrivent à tout le groupe.",
     aideQuestions: [
       ["Comment ajouter une personne ?",
         "Ouvrez « Groupe », puis « Personnes », et touchez « Ajouter une personne ». Seul le prénom est obligatoire."],
@@ -382,8 +407,9 @@ var MOTS = {
     erreurFinAvantDebut: "L'heure de fin doit venir après l'heure de début.",
 
     // Horaires : « 16 h », « 16 h 30 », « 16 h – 18 h », « à partir de 16 h »
-    heureRonde: "{h} h",
-    heureMinutes: "{h} h {min}",
+    // Demande 007b : dans une heure, les espaces sont celles qui ne se coupent pas (une heure tient d'un seul morceau en fin de ligne).
+    heureRonde: "{h} h",
+    heureMinutes: "{h} h {min}",
     horaireDeA: "{debut} – {fin}",
     horaireAPartirDe: "à partir de {debut}",
 
@@ -453,6 +479,43 @@ var MOTS = {
     ],
     creneauIntrouvable: "Ce créneau n'existe plus.",
 
+    // ---------- Demande 006b : modifier, supprimer et refaire un événement ----------
+    // \u00A0 est une espace insécable : après « et avant », avant ? et :, pour qu'aucun de ces signes ne passe seul à la ligne.
+
+    // Modifier l'événement (le formulaire est celui de la création)
+    modifierLEvenement: "Modifier l'événement",
+    enregistrerLEvenement: "Enregistrer l'événement",
+    evenementModifie: "«\u00A0{nom}\u00A0» est enregistré.",
+
+    // Supprimer l'événement : un écran entier, rien à taper
+    supprimerCetEvenement: "Supprimer cet événement",
+    supprimerEvenementTitre: "Supprimer cet événement\u00A0?",
+    supprimerEvenementQuoi: "Vous allez supprimer «\u00A0{nom}\u00A0», prévu le {date}.",
+    supprimerEvenementPerte: "Seront effacés avec lui\u00A0: {liste}.",
+    supprimerEvenementInscrits: "Les personnes inscrites ne seront pas prévenues\u00A0: pensez à le leur dire.",
+    supprimerEvenementDefinitif: "On ne peut pas revenir en arrière.",
+    supprimerLEvenement: "Supprimer l'événement",
+    garderLEvenement: "Garder l'événement",
+    evenementSupprime: "«\u00A0{nom}\u00A0» est supprimé.",
+    nActions: ["{n} action", "{n} actions"],
+    nCreneaux: ["{n} créneau", "{n} créneaux"],
+    nInscrits: ["{n} personne inscrite", "{n} personnes inscrites"],
+    // {liste} : on ne cite que ce qui existe, avec des virgules, et « et » avant le dernier.
+    listeVirgule: ", ",
+    listeEt: "{debut} et {dernier}",
+
+    // Refaire cet événement
+    refaireCetEvenement: "Refaire cet événement",
+    refaireTexte: "La copie reprend {liste}. Les actions repartent à «\u00A0À faire\u00A0» et personne n'est inscrit. «\u00A0{nom}\u00A0» ne change pas.",
+    refaireTexteVide: "La copie reprend le nom, les horaires et le lieu. «\u00A0{nom}\u00A0» ne change pas.",
+    champNouvelleDate: "Nouvelle date",
+    creerLaCopie: "Créer la copie",
+    evenementRefait: "«\u00A0{nom}\u00A0» est recopié au {date}. Vérifiez ses actions et ses créneaux.",
+
+    // Lien personnel d'un parent, après la suppression de l'événement
+    lienEvenementSupprime: "Cet événement n'existe plus.",
+    lienEvenementSupprimeAide: "Le bureau de l'association peut vous renseigner.",
+
     // Messages à envoyer : le nom de l'événement entre guillemets, jamais précédé de « le » ou « la »
     messageCoupsDeMain: "Bonjour, on cherche des parents pour « {nom} », {date}. Même une heure aide beaucoup, sans créer de compte : {lien}",
     messageLienPersonnel: "Mon coup de main pour « {nom} » : {creneau}, {date}, {horaire}. Pour annuler : {lien}",
@@ -465,12 +528,16 @@ var MOTS = {
     msgPourEvenement: "Pour : {titre}",
     msgVideAideVisiteur: "Les questions qu'on vous pose apparaîtront ici.",
     msgErreurVisiteur: "Vous pouvez répondre aux questions, pas en poser.",
-    msgReglageAide: "Éteint, seul le bureau écrit à tout le groupe.",
-    // Les rappels, dans l'écran « Mes actions » (bureau seulement)
-    accueilRappelsCreneaux: ["{n} créneau manque de monde", "{n} créneaux manquent de monde"],
-    accueilRappels: "Rappels",
+    // Demande 007b : la phrase d'aide du réglage suit l'état du bouton.
+    msgReglageAideEteint: "Seul le bureau écrit à tout le groupe.",
+    msgReglageAideAllume: "Le bureau et les membres écrivent à tout le groupe.",
+    // La ligne des créneaux à l'accueil du bureau, et la ligne d'aide de l'écran « Créneaux qui manquent de monde »
+    accueilRappelsCreneaux: ["Voir le créneau qui manque de monde", "Voir les {n} créneaux qui manquent de monde"],
     accueilRappelsAide: "Les créneaux remplis à moins de la moitié",
-    accueilRappelsVoirAutres: ["Voir {n} autre créneau", "Voir les {n} autres créneaux"],
+    // Demande 007c : l'écran « Créneaux qui manquent de monde », ouvert par la ligne de l'accueil (bureau seulement)
+    creneauxManqueTitre: "Créneaux qui manquent de monde",
+    creneauManque: ["Il manque {n} personne", "Il manque {n} personnes"],
+    creneauxManqueVide: "Aucun créneau ne manque de monde.",
 
     aideQuestions: [
       ["Comment créer un événement ?",

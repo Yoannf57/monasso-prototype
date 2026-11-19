@@ -1,6 +1,7 @@
 /*
-  Règles de la demande 006, sans rien d'affichage : créer un événement ; ajouter, modifier,
-  supprimer une action ou un créneau. Chargé par la page et par les tests automatiques (Node).
+  Règles des demandes 006 et 006b, sans rien d'affichage : créer un événement ; ajouter, modifier,
+  supprimer une action ou un créneau (006) ; modifier, supprimer et refaire l'événement (006b).
+  Chargé par la page et par les tests automatiques (Node).
 
   Association seulement, et le bureau seul : chaque geste reçoit la personne qui le fait
   et le refuse (raison "droits") si elle n'est pas du bureau. Un événement passé ne reçoit
@@ -15,6 +16,10 @@
   - referent : le nom noté ce jour-là, affiché si la personne ou l'équipe n'existe plus ;
   - dateLimite ("AAAA-MM-JJ") seulement pour une échéance « à une date précise ».
   Un créneau : titre, debut, fin, horaire (le texte affiché), places, inscrits ; il a lieu le jour de l'événement.
+
+  Demande 006b : le bureau seul modifie, supprime et refait un événement, à venir ou passé.
+  Après une suppression, rien n'est gardé des inscrits (ni prénom, ni initiale, ni contact) : seuls leurs
+  jetons le sont, dans groupe.jetonsSupprimes, pour dire « Cet événement n'existe plus. » sur leur lien personnel.
 */
 (function (racine) {
   "use strict";
@@ -105,6 +110,113 @@
     };
     groupe.evenements.push(e);
     return { ok: true, evenement: e };
+  }
+
+  // ---------- Demande 006b : modifier, supprimer, refaire l'événement ----------
+
+  // L'événement que le bureau peut modifier, supprimer ou refaire : à venir ou passé.
+  function evenementDuBureau(groupe, personne, evenementId) {
+    var r = refus(groupe, personne);
+    if (r) { return r; }
+    var e = L.trouverEvenement(groupe, evenementId);
+    return e ? { ok: true, evenement: e } : { ok: false, raison: "introuvable" };
+  }
+
+  // Le formulaire est celui de la création. La date n'est contrôlée que si on la change :
+  // laissée telle quelle, elle est acceptée même passée.
+  // Changer la date déplace les échéances « N jours avant » (elles se comptent depuis l'événement) ;
+  // une échéance à date précise ne bouge pas. Si elle tombait après le nouvel événement, elle est ramenée à son jour.
+  function modifierEvenement(groupe, personne, evenementId, saisie, reference) {
+    var o = evenementDuBureau(groupe, personne, evenementId);
+    if (!o.ok) { return o; }
+    var e = o.evenement;
+    var actuelle = ecrireDate(L.dateEvenement(e, reference));
+    var v = validerEvenement(saisie, reference);
+    if (v.erreurs.date === "passee" && v.valeurs.date === actuelle) { delete v.erreurs.date; }
+    if (Object.keys(v.erreurs).length) { return { ok: false, raison: "saisie", erreurs: v.erreurs }; }
+    e.titre = v.valeurs.titre;
+    e.debut = v.valeurs.debut;
+    e.fin = v.valeurs.fin;
+    e.lieu = v.valeurs.lieu;
+    var dateChangee = v.valeurs.date !== actuelle;
+    if (dateChangee) {
+      // Un événement des données d'exemple est placé « dans N jours » : il prend une vraie date.
+      e.date = v.valeurs.date;
+      delete e.dansJours;
+      delete e.leSamedi;
+      var jour = L.dateEvenement(e, reference);
+      e.actions.forEach(function (a) {
+        if (!a.dateLimite) { return; }
+        var ecart = L.joursJusqua(jour, lireDate(a.dateLimite));
+        if (ecart < 0) { ecart = 0; a.dateLimite = e.date; }
+        a.joursAvant = ecart;
+      });
+    }
+    return { ok: true, evenement: e, dateChangee: dateChangee };
+  }
+
+  // Ce qui sera effacé avec l'événement : pour l'écran de confirmation.
+  function compterPertes(evenement) {
+    return { actions: evenement.actions.length, creneaux: evenement.creneaux.length, inscrits: L.compterInscrits(evenement) };
+  }
+
+  // Supprimer est permis avec des inscrits. L'événement part avec ses actions, ses créneaux et ses inscrits :
+  // de ces derniers, seuls les jetons sont gardés (identifiants au hasard, sans nom ni contact).
+  function supprimerEvenement(groupe, personne, evenementId) {
+    var o = evenementDuBureau(groupe, personne, evenementId);
+    if (!o.ok) { return o; }
+    var e = o.evenement;
+    var jetons = [];
+    e.creneaux.forEach(function (c) {
+      c.inscrits.forEach(function (v) { if (v.jeton) { jetons.push(v.jeton); } });
+    });
+    groupe.evenements.splice(groupe.evenements.indexOf(e), 1);
+    if (jetons.length) { groupe.jetonsSupprimes = (groupe.jetonsSupprimes || []).concat(jetons); }
+    // Une question qui citait cet événement ne le cite plus.
+    (groupe.messages || []).forEach(function (m) { if (m.evenementId === e.id) { delete m.evenementId; } });
+    return { ok: true, titre: e.titre, pertes: { actions: e.actions.length, creneaux: e.creneaux.length, inscrits: jetons.length } };
+  }
+
+  // Le jeton d'une personne qui était inscrite à un événement supprimé depuis.
+  function jetonSupprime(groupe, jeton) {
+    return !!jeton && !!groupe && (groupe.jetonsSupprimes || []).indexOf(jeton) >= 0;
+  }
+
+  function validerNouvelleDate(saisie, reference) {
+    var date = lireDate(String(saisie && saisie.date != null ? saisie.date : "").trim());
+    var erreurs = {};
+    if (!date) { erreurs.date = "vide"; } else if (L.joursJusqua(date, reference) < 0) { erreurs.date = "passee"; }
+    return { ok: Object.keys(erreurs).length === 0, erreurs: erreurs, valeurs: { date: date ? ecrireDate(date) : "" } };
+  }
+
+  // La copie : même nom, mêmes horaires, même lieu ; les actions (toutes « À faire », référents recopiés)
+  // et les créneaux (sans inscrit) ; pas le bilan. Les échéances « N jours avant » suivent la nouvelle date ;
+  // une échéance à date précise est décalée du même écart que l'événement. L'original ne change pas.
+  function refaireEvenement(groupe, personne, evenementId, saisie, reference) {
+    var o = evenementDuBureau(groupe, personne, evenementId);
+    if (!o.ok) { return o; }
+    var v = validerNouvelleDate(saisie, reference);
+    if (!v.ok) { return { ok: false, raison: "saisie", erreurs: v.erreurs }; }
+    var e = o.evenement;
+    var jour = lireDate(v.valeurs.date);
+    var copie = {
+      id: nouvelId("ev"), titre: e.titre, date: v.valeurs.date,
+      debut: e.debut || "", fin: e.fin || "", lieu: e.lieu || "",
+      actions: e.actions.map(function (a) {
+        var b = { id: nouvelId("a"), libelle: a.libelle, statut: "a-faire", joursAvant: a.joursAvant };
+        if (a.referentId) { b.referentId = a.referentId; }
+        if (a.equipeId) { b.equipeId = a.equipeId; }
+        if (a.referent !== undefined) { b.referent = a.referent; }
+        if (a.echeance) { b.echeance = a.echeance; }
+        if (a.dateLimite) { b.dateLimite = ecrireDate(L.ajouterJours(jour, -a.joursAvant)); }
+        return b;
+      }),
+      creneaux: e.creneaux.map(function (c) {
+        return { id: nouvelId("c"), jour: c.jour || 0, debut: c.debut, fin: c.fin, titre: c.titre, horaire: c.horaire, places: c.places, inscrits: [] };
+      })
+    };
+    groupe.evenements.push(copie);
+    return { ok: true, evenement: copie, original: e };
   }
 
   // ---------- Actions ----------
@@ -304,6 +416,12 @@
     ecrireDate: ecrireDate,
     validerEvenement: validerEvenement,
     creerEvenement: creerEvenement,
+    modifierEvenement: modifierEvenement,
+    compterPertes: compterPertes,
+    supprimerEvenement: supprimerEvenement,
+    jetonSupprime: jetonSupprime,
+    validerNouvelleDate: validerNouvelleDate,
+    refaireEvenement: refaireEvenement,
     trouverAction: trouverAction,
     referentsPossibles: referentsPossibles,
     choixReferent: choixReferent,
