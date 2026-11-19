@@ -1,0 +1,2520 @@
+/*
+  Affichage du prototype. Deux espaces bien séparés :
+  - espace du groupe : menu fixe en bas (Accueil · Messages · Événements · Association pour une association,
+    Accueil · Messages · Groupe pour un groupe simple), lien « Aide » en haut de chaque écran ;
+  - espace parent : arrivée par le lien ou le QR code, aucune navigation.
+  Plusieurs groupes (demande 005) : un groupe simple n'a ni événements ni bureau.
+  Les mots des nouveaux écrans et ceux qui changent selon la sorte de groupe viennent de mots.js.
+  Règle de la charte : chaque écran montre une liste courte ou un résumé,
+  le détail s'ouvre au toucher, et il y a au plus un bouton principal par écran
+  (seule exception : la paire « Oui » / « Non » d'un message).
+  Ce qu'un testeur saisit est gardé dans le navigateur (localStorage).
+*/
+(function () {
+  "use strict";
+
+  var L = window.Logique;
+  var Gr = window.Groupes;
+  var Ev = window.Evenements;
+  var Msg = window.Messages;
+  var CLE = "monasso-prototype-groupes"; // les essais des versions précédentes restent à part
+  var FOND = "#FFF7EC"; // même valeur que --fond dans style.css
+  var etat = charger();
+  var creneauOuvert = null;   // créneau dont le formulaire est déplié (espace parent)
+  var annulationFaite = null; // dernière inscription annulée
+  var qrVisible = false;      // encart QR code (espace bureau)
+  var moisAffiche = null;     // mois montré par le calendrier (null : choisi automatiquement)
+  var message = null;         // phrase de confirmation montrée une fois sur l'écran suivant
+  var reponseAccueil = null;  // dernière réponse donnée depuis l'accueil : { id, reponse }
+  var reglageEnregistre = false; // « Réglage enregistré. », montré une fois sur la page du groupe
+
+  // ---------- Mémoire du navigateur ----------
+
+  function cloner(o) { return JSON.parse(JSON.stringify(o)); }
+
+  function etatInitial() {
+    var e = cloner(DONNEES);
+    e.groupeActif = DONNEES.groupeParDefaut;
+    e.personneActive = {};
+    return Gr.rattacherActions(e);
+  }
+
+  function charger() {
+    try {
+      var texte = window.localStorage.getItem(CLE);
+      if (texte) {
+        var e = JSON.parse(texte);
+        // Reprise d'un état gardé avant la demande 005b : les actions y tenaient au prénom.
+        if (e && e.version === DONNEES.version && Array.isArray(e.groupes) && e.groupes.length) { return Gr.rattacherActions(e); }
+      }
+    } catch (err) { /* navigation privée : on repart des données d'origine */ }
+    return etatInitial();
+  }
+
+  function sauver() {
+    try { window.localStorage.setItem(CLE, JSON.stringify(etat)); } catch (err) { /* la démo marche quand même */ }
+  }
+
+  function reinitialiser() {
+    try { window.localStorage.removeItem(CLE); } catch (err) { /* rien */ }
+    etat = etatInitial();
+    creneauOuvert = null;
+    annulationFaite = null;
+    qrVisible = false;
+    moisAffiche = null;
+    message = null;
+    reponseAccueil = null;
+    reglageEnregistre = false;
+    appliquerCouleur();
+  }
+
+  // ---------- Groupe et personne simulés ----------
+
+  function G() { return Gr.groupeActif(etat); }
+  function moi() { return Gr.personneActive(etat, G()); }
+  function gere() { return Gr.peutGerer(G(), moi()); }
+  function estAsso() { return Gr.estAssociation(G()); }
+  function hrefGroupe() { return estAsso() ? "#association" : "#groupe"; }
+
+  // Un mot de mots.js, pris dans la liste de la sorte du groupe, sinon dans la liste commune.
+  function remplacer(texte, valeurs) {
+    return texte.replace(/\{(\w+)\}/g, function (tout, k) { return Object.prototype.hasOwnProperty.call(valeurs, k) ? valeurs[k] : tout; });
+  }
+  function mot(sorte, cle, valeurs) {
+    var liste = MOTS[sorte] || {};
+    var v = Object.prototype.hasOwnProperty.call(liste, cle) ? liste[cle] : MOTS.commun[cle];
+    if (v === undefined) { throw new Error("Mot manquant dans mots.js : " + cle); }
+    return typeof v === "string" && valeurs ? remplacer(v, valeurs) : v;
+  }
+  function M(cle, valeurs) { return mot(G().sorte, cle, valeurs); }
+  // Les mots d'une association, quel que soit le groupe ouvert dans la démo : pour les pages des parents
+  // (leur lien marche toujours) et pour ce qui est gardé avec un événement.
+  function MA(cle, valeurs) { return mot("association", cle, valeurs); }
+  function D(cle) { return MOTS.commun.demo[cle]; }
+  // Compte avec accord : Mn("nPersonnes", 3) → « 3 personnes ». D'autres valeurs peuvent suivre ({nom}…).
+  function Mn(cle, n, valeurs) {
+    var f = M(cle), v = { n: n };
+    Object.keys(valeurs || {}).forEach(function (k) { v[k] = valeurs[k]; });
+    return remplacer(n > 1 ? f[1] : f[0], v);
+  }
+  function nomRole(role) { return MOTS.commun.roles[role].nom; }
+  function compteRoles(groupe) {
+    return Gr.ROLES[groupe.sorte].map(function (r) {
+      var n = groupe.personnes.filter(function (p) { return p.role === r; }).length;
+      var f = MOTS.commun.roles[r].compte;
+      return n ? (n > 1 ? f[1] : f[0]).replace("{n}", n) : "";
+    }).filter(Boolean).join(" · ");
+  }
+  function nomEquipe(e) { return e.bureau ? M("equipeBureau") : e.nom; }
+
+  // La couleur principale du groupe remplace celle de la charte.
+  function appliquerCouleur() {
+    var p = L.paletteAssociation(G().couleur, FOND);
+    var s = document.documentElement.style;
+    s.setProperty("--principale", p.principale);
+    s.setProperty("--principale-fond", p.principaleFond);
+    s.setProperty("--sur-principale", p.surPrincipale);
+    s.setProperty("--principale-texte", p.principaleTexte);
+    s.setProperty("--principale-pale", p.principalePale);
+    return p;
+  }
+
+  // ---------- Outils de texte ----------
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function majuscule(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function minuscule(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
+
+  var fmtLong = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  var fmtLongAnnee = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  var fmtCourt = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+  var fmtMois = new Intl.DateTimeFormat("fr-FR", { month: "short" });
+
+  function dateLongue(d) { return majuscule(fmtLong.format(d)); }
+  function dateCourte(d) { return fmtCourt.format(d).replace(/\.$/, ""); }
+
+  function quandEvenement(e) {
+    var j = L.joursJusqua(L.dateEvenement(e));
+    if (j < 0) { return majuscule(fmtLongAnnee.format(L.dateEvenement(e))); }
+    if (j === 0) { return "Aujourd'hui"; }
+    if (j === 1) { return "Demain"; }
+    if (j < 14) { return "Dans " + j + " jours"; }
+    if (j < 60) { return "Dans " + Math.round(j / 7) + " semaines"; }
+    return "Dans " + Math.round(j / 30) + " mois";
+  }
+
+  function quandAction(action, evenement) {
+    var j = L.joursJusqua(L.dateLimite(action, evenement));
+    if (action.statut === "fait") { return "faite"; }
+    if (j < -1) { return "en retard de " + (-j) + " jours"; }
+    if (j === -1) { return "en retard depuis hier"; }
+    if (j === 0) { return "pour aujourd'hui"; }
+    if (j === 1) { return "pour demain"; }
+    return "pour le " + dateCourte(L.dateLimite(action, evenement));
+  }
+
+  function pluriel(n, un, plusieurs) { return n + " " + (n > 1 ? plusieurs : un); }
+
+  // « 16 h », « 16 h 30 » ; « 16 h – 18 h » ; début seul : « à partir de 16 h » ; rien sans heure de début.
+  function heureLisible(hhmm) {
+    var p = String(hhmm).split(":");
+    return p[1] === "00" ? MA("heureRonde", { h: Number(p[0]) }) : MA("heureMinutes", { h: Number(p[0]), min: p[1] });
+  }
+  function horaires(debut, fin) {
+    if (!debut) { return ""; }
+    return fin ? MA("horaireDeA", { debut: heureLisible(debut), fin: heureLisible(fin) }) : MA("horaireAPartirDe", { debut: heureLisible(debut) });
+  }
+
+  // Date, puis horaires s'il y en a, puis lieu s'il y en a : rien à la place d'un champ vide.
+  function quandOu(e, date) {
+    return [date, horaires(e.debut, e.fin), e.lieu].filter(Boolean).join(" · ");
+  }
+
+  // Nom d'une échéance dans la liste des actions. Les actions des données d'exemple gardent leur texte
+  // (« 6 semaines avant ») ; celles créées à la main : « Le jour J », « La veille », « N jours avant »,
+  // ou la date en toutes lettres pour une échéance à date précise.
+  function titreEcheance(a, e) {
+    if (a.echeance) { return a.echeance; }
+    if (a.dateLimite) { return dateLongue(L.dateLimite(a, e)); }
+    if (a.joursAvant === 0) { return MA("echeanceJourJ"); }
+    if (a.joursAvant === 1) { return MA("echeanceVeille"); }
+    return MA("echeanceNJoursAvant", { n: a.joursAvant });
+  }
+  function groupesEcheance(e) { return L.grouperParEcheance(e, function (a) { return titreEcheance(a, e); }); }
+  function peutModifier(e) { return gere() && !L.estPasse(e); }
+
+  // Étiquette du code couleur : toujours un mot avec la couleur.
+  function etiquettePreparation(e) {
+    var p = L.etatPreparation(e);
+    return '<span class="etiquette etiquette--' + p + '">' + esc(L.LIBELLES_PREPARATION[p]) + "</span>";
+  }
+
+  function pastilleDate(d) {
+    return '<span class="pastille" aria-hidden="true"><span class="pastille-jour">' + d.getDate() +
+      '</span><span class="pastille-mois">' + esc(fmtMois.format(d).replace(".", "")) + "</span></span>";
+  }
+
+  function lienParent(evenementId) { return location.href.split("#")[0] + "#inscription/" + evenementId; }
+  function lienPersonnel(jeton) { return location.href.split("#")[0] + "#annuler/" + jeton; }
+
+  function entete(surtitre, titre, sousTitre) {
+    return '<header class="entete">' + (surtitre ? '<p class="surtitre">' + esc(surtitre) + "</p>" : "") +
+      '<h1 tabindex="-1">' + esc(titre) + "</h1>" +
+      (sousTitre ? '<p class="sous-titre">' + sousTitre + "</p>" : "") + "</header>";
+  }
+
+  function retour(href, libelle) { return '<a class="retour" href="' + href + '">' + esc(libelle) + "</a>"; }
+
+  // Illustrations légères des écrans vides (dessinées avec les couleurs de la charte).
+  function illustration(nom) {
+    var dessins = {
+      calme: '<circle cx="60" cy="52" r="34" fill="var(--principale-pale)"/>' +
+        '<circle cx="60" cy="52" r="16" fill="var(--principale)"/>' +
+        '<path d="M60 10v8M60 86v8M18 52h8M94 52h8M30 22l6 6M84 76l6 6M30 82l6-6M84 28l6-6" stroke="var(--principale)" stroke-width="4" stroke-linecap="round"/>' +
+        '<path d="M22 100h76" stroke="var(--trait)" stroke-width="4" stroke-linecap="round"/>',
+      panneau: '<rect x="20" y="18" width="80" height="62" rx="10" fill="var(--principale-pale)"/>' +
+        '<rect x="32" y="32" width="38" height="8" rx="4" fill="var(--principale)"/>' +
+        '<rect x="32" y="48" width="56" height="6" rx="3" fill="var(--trait)"/><rect x="32" y="60" width="44" height="6" rx="3" fill="var(--trait)"/>' +
+        '<circle cx="60" cy="18" r="6" fill="var(--accent)"/><path d="M44 80l-8 22M76 80l8 22" stroke="var(--texte-doux)" stroke-width="4" stroke-linecap="round"/>',
+      chemin: '<path d="M60 104V30" stroke="var(--texte-doux)" stroke-width="5" stroke-linecap="round"/>' +
+        '<path d="M60 26h34l10 10-10 10H60z" fill="var(--principale)"/><path d="M60 54H28l-10 10 10 10h32z" fill="var(--accent-pale)"/>' +
+        '<path d="M30 104h60" stroke="var(--trait)" stroke-width="4" stroke-linecap="round"/>'
+    };
+    return '<svg class="illustration" viewBox="0 0 120 110" aria-hidden="true" focusable="false">' + dessins[nom] + "</svg>";
+  }
+
+  function etatVide(nom, titre, texte, suite) {
+    return '<div class="vide">' + illustration(nom) + "<p><strong>" + esc(titre) + "</strong></p>" +
+      (texte ? '<p class="discret">' + texte + "</p>" : "") + (suite || "") + "</div>";
+  }
+
+  // ---------- Ligne d'action (Mes actions et fiche événement) ----------
+
+  function ligneAction(a, e, contexte) {
+    var retard = L.estEnRetard(a, e);
+    var suivant = L.statutSuivant(a.statut);
+    var meta = [];
+    if (contexte === "mes-actions" || contexte === "toutes") { meta.push(esc(e.titre)); }
+    if (contexte !== "mes-actions" && nomReferent(a)) { meta.push(esc(nomReferent(a))); }
+    meta.push('<span class="action-quand">' + esc(quandAction(a, e)) + "</span>");
+    var texte = '<p class="action-libelle">' + esc(a.libelle) + "</p>" + '<p class="action-meta">' + meta.join(" · ") + "</p>";
+    // Dans l'événement, pour le bureau : le libellé (et la ligne dessous) ouvre l'action pour la modifier.
+    var ouvre = contexte === "evenement" && peutModifier(e);
+    return '<li class="action action--' + esc(a.statut) + (retard ? " action--retard" : "") + '" id="action-' + esc(a.id) + '" data-contexte="' + esc(contexte) + '">' +
+      (ouvre
+        ? '<a class="action-texte action-texte--lien" href="#evenement/' + esc(e.id) + "/action/" + esc(a.id) + '">' + texte + "</a>"
+        : '<div class="action-texte">' + texte + "</div>") +
+      // L'état se touche pour le référent de l'action et pour le bureau ; les autres le lisent seulement.
+      (peutChangerEtat(a)
+        ? '<button type="button" class="statut statut--' + esc(a.statut) + '" data-action="' + esc(a.id) + '" data-evenement="' + esc(e.id) + '"' +
+          ' aria-label="' + esc(a.libelle) + " : " + esc(L.LIBELLES_STATUT[a.statut]) + ". Touchez pour passer à « " + esc(L.LIBELLES_STATUT[suivant]) + " »." + '">' +
+          esc(L.LIBELLES_STATUT[a.statut]) + "</button>"
+        : '<span class="statut statut--lecture statut--' + esc(a.statut) + '">' + esc(L.LIBELLES_STATUT[a.statut]) + "</span>") +
+      "</li>";
+  }
+
+  // Le prénom affiché sur une action : celui de sa personne aujourd'hui (elle a pu être renommée) ;
+  // si elle n'est plus dans le groupe, le prénom noté sur l'action.
+  // Une action confiée à une équipe porte le nom de l'équipe à la place du prénom.
+  function nomReferent(a) {
+    if (a.equipeId) {
+      var equipe = Gr.trouverEquipe(G(), a.equipeId);
+      return equipe ? nomEquipe(equipe) : (a.referent || "");
+    }
+    var p = Gr.referentAction(G(), a);
+    return p ? p.prenom : (a.referent || "");
+  }
+
+  function peutChangerEtat(a) { return Ev.peutChangerEtat(G(), moi(), a); }
+
+  function changerStatut(bouton) {
+    // La règle refuse le geste de qui n'est ni le référent de l'action ni du bureau : un bouton fabriqué à la main ne change rien.
+    var r = Ev.changerEtatAction(G(), moi(), bouton.getAttribute("data-evenement"), bouton.getAttribute("data-action"));
+    if (!r.ok) { return; }
+    var e = r.evenement, a = r.action;
+    sauver();
+    // On remplace la ligne sur place : elle reste visible jusqu'au prochain écran.
+    var li = document.getElementById("action-" + a.id);
+    li.outerHTML = ligneAction(a, e, li.getAttribute("data-contexte"));
+    document.querySelector("#action-" + esc(a.id) + " .statut").focus();
+    var av = document.getElementById("avancement");
+    if (av) {
+      av.innerHTML = texteAvancement(e);
+      document.getElementById("barre").style.width = pourcentage(e) + "%";
+      groupesEcheance(e).forEach(function (g, i) {
+        var meta = document.getElementById("groupe-meta-" + i);
+        if (meta && g.actions.indexOf(a) >= 0) { meta.innerHTML = metaGroupe(g, e); }
+      });
+    }
+  }
+
+  // ---------- Accueil : trois blocs au plus, chacun ouvre son détail ----------
+
+  function ecranAccueil() {
+    if (!estAsso()) { return ecranAccueilGroupe(); }
+    var p = moi();
+    var html = entete(G().nom, M("bonjour", { prenom: p.prenom }), esc(dateLongue(L.aujourdhui()))) + bandeauMessage() + blocARepondre();
+
+    var prochain = L.evenementsAVenir(G())[0];
+    if (prochain) {
+      var retards = prochain.actions.filter(function (a) { return L.estEnRetard(a, prochain); }).length;
+      var infos = [];
+      if (retards) { infos.push('<span class="texte-alerte">' + pluriel(retards, "action en retard", "actions en retard") + "</span>"); }
+      if (prochain.creneaux.length) { infos.push(L.compterInscrits(prochain) + " coups de main sur " + esc(L.compterPlaces(prochain))); }
+      html += '<a class="carte" id="bloc-prochain" href="#evenement/' + esc(prochain.id) + '">' +
+        '<span class="carte-etiquette">Prochain événement ' + etiquettePreparation(prochain) + "</span>" +
+        '<span class="carte-ligne">' + pastilleDate(L.dateEvenement(prochain)) +
+        '<span><span class="carte-titre">' + esc(prochain.titre) + "</span>" +
+        '<span class="carte-quand">' + esc([quandEvenement(prochain), prochain.lieu].filter(Boolean).join(" · ")) + "</span></span></span>" +
+        (infos.length ? '<span class="carte-infos">' + infos.join(" · ") + "</span>" : "") + "</a>";
+    }
+
+    var m = L.actionsAFaire(G(), p);
+    var premiere = m.enRetard[0] || m.cetteSemaine[0] || m.plusTard[0];
+    html += '<a class="carte" id="bloc-actions" href="#mes-actions">' +
+      '<span class="carte-etiquette">Mes actions à faire</span>' +
+      '<span class="bloc-chiffre"><span class="grand-nombre">' + m.total + "</span><span>" +
+      (m.total ? (m.enRetard.length ? '<span class="texte-alerte">dont ' + m.enRetard.length + " en retard</span>" : "rien en retard") : "tout est fait") +
+      "</span></span>" +
+      (premiere ? '<span class="carte-infos">' + esc(premiere.action.libelle) + "</span>" : "") +
+      // Les rappels ne sont plus un bloc de l'accueil : pour le bureau, une ligne de plus, qui mène à « Mes actions ».
+      (rappels().length ? '<span class="carte-infos" id="ligne-rappels">' + esc(Mn("accueilRappelsCreneaux", rappels().length)) + "</span>" : "") + "</a>";
+
+    return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
+  }
+
+  // Accueil d'un groupe simple : « À répondre », ses personnes et mes équipes.
+  function ecranAccueilGroupe() {
+    var g = G(), p = moi();
+    var miennes = Gr.equipesDePersonne(g, p.id).map(nomEquipe);
+    var html = entete(g.nom, M("bonjour", { prenom: p.prenom }), esc(dateLongue(L.aujourdhui()))) + bandeauMessage() + blocARepondre() +
+      '<a class="carte" id="bloc-personnes" href="#personnes">' +
+      '<span class="carte-etiquette">' + esc(M("accueilPersonnes")) + "</span>" +
+      '<span class="carte-titre">' + esc(Mn("nPersonnes", g.personnes.length)) + "</span>" +
+      '<span class="carte-quand">' + esc(compteRoles(g)) + "</span></a>" +
+      '<a class="carte" id="bloc-equipes" href="#equipes">' +
+      '<span class="carte-etiquette">' + esc(M("accueilMesEquipes")) + "</span>" +
+      '<span class="carte-titre">' + esc(miennes.length ? miennes.join(", ") : M("accueilAucuneEquipe")) + "</span>" +
+      '<span class="carte-quand">' + esc(Mn("nEquipes", Gr.equipes(g).length)) + "</span></a>";
+    return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
+  }
+
+  // ---------- Détail : mes actions (ou toutes) ----------
+
+  function ecranMesActions(toutes) {
+    var p = moi();
+    var r = L.actionsAFaire(G(), toutes ? null : p);
+    var contexte = toutes ? "toutes" : "mes-actions";
+    var html = retour("#accueil", "Accueil") +
+      entete(null, toutes ? "Toutes les actions" : "Mes actions", toutes ? "Celles du bureau, pour les 7 jours à venir" : esc(p.prenom) + ", " + esc(minuscule(p.fonction || nomRole(p.role)))) +
+      '<div class="bascule" role="group" aria-label="Quelles actions afficher">' +
+      '<a href="#mes-actions"' + (toutes ? "" : ' aria-current="true"') + ">Mes actions</a>" +
+      '<a href="#mes-actions/toutes"' + (toutes ? ' aria-current="true"' : "") + ">Toutes</a></div>";
+
+    function section(titre, liste, alerte) {
+      return '<section class="section"><h2 class="section-titre"><span' + (alerte ? ' class="texte-alerte"' : "") + ">" + titre +
+        '</span><span class="compte">' + liste.length + "</span></h2>" +
+        '<ul class="actions">' + liste.map(function (x) { return ligneAction(x.action, x.evenement, contexte); }).join("") + "</ul></section>";
+    }
+    // Sections, dans cet ordre : « En retard », « Cette semaine », « Rappels » (bureau seulement), « Plus tard ».
+    var groupes = [["En retard", r.enRetard, true], ["Cette semaine", r.cetteSemaine, false]];
+    var manque = rappels();
+    if (manque.length) { groupes.push(["rappels", manque, false]); }
+    if (!toutes) { groupes.push(["Plus tard", r.plusTard, false]); }
+    groupes = groupes.filter(function (g) { return g[1].length; });
+    if (!groupes.length) {
+      html += '<div class="section">' + etatVide("calme", toutes ? "Rien en retard ni cette semaine." : "Tout est fait.", "Les nouvelles actions apparaîtront ici.") + "</div>";
+    } else {
+      groupes.forEach(function (g) { html += g[0] === "rappels" ? sectionRappels(g[1]) : section(g[0], g[1], g[2]); });
+    }
+    // Les rappels sont des créneaux, pas des actions : ils ne comptent pas pour la phrase sur l'étiquette.
+    groupes = groupes.filter(function (g) { return g[0] !== "rappels"; });
+    // La phrase sur l'étiquette ne s'affiche que si la personne peut changer l'état d'une action de l'écran.
+    var touchable = (!groupes.length && !manque.length) || groupes.some(function (g) { return g[1].some(function (x) { return peutChangerEtat(x.action); }); });
+    var note = (touchable ? "Touchez l\'étiquette d\'une action pour changer son statut." : "") + (toutes ? " Les autres actions sont dans chaque événement." : "");
+    if (note) { html += '<p class="discret note-bas">' + note.trim() + "</p>"; }
+    return { titre: toutes ? "Toutes les actions" : "Mes actions", onglet: "accueil", html: html };
+  }
+
+  // ---------- Rappels : une section de « Mes actions », pour le bureau seul (demande 007) ----------
+
+  // Les créneaux remplis à moins de la moitié. Personne d'autre que le bureau ne les reçoit.
+  function rappels() { return estAsso() && gere() ? L.creneauxEnManque(G()) : []; }
+
+  function carteRappel(m) {
+    return '<a class="carte" href="#evenement/' + esc(m.evenement.id) + '/coups-de-main">' +
+      '<span class="carte-titre">' + esc(m.creneau.titre) + "</span>" +
+      '<span class="carte-quand">' + esc(m.evenement.titre) + " · " + esc(m.creneau.horaire) + "</span>" +
+      '<span class="carte-infos"><span class="etiquette etiquette--alerte">' + m.creneau.inscrits.length + " sur " + esc(m.creneau.places) + "</span></span></a>";
+  }
+
+  // Trois rappels au plus, le reste se déplie sur place. Un toucher ouvre les coups de main de l'événement.
+  function sectionRappels(manque) {
+    return '<section class="section" id="section-rappels"><h2 class="section-titre"><span>' + esc(M("accueilRappels")) +
+      '</span><span class="compte">' + manque.length + "</span></h2>" +
+      '<p class="discret">' + esc(M("accueilRappelsAide")) + "</p>" +
+      manque.slice(0, 3).map(carteRappel).join("") +
+      (manque.length > 3
+        ? '<div class="suite-liste" hidden>' + manque.slice(3).map(carteRappel).join("") + "</div>" +
+          '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("accueilRappelsVoirAutres", manque.length - 3)) + "</button>"
+        : "") + "</section>";
+  }
+
+  // ---------- Événements : liste courte, un toucher ouvre l'événement ----------
+
+  function carteEvenement(e) {
+    var passe = L.estPasse(e);
+    var infos = [];
+    if (!passe) {
+      var retards = e.actions.filter(function (a) { return L.estEnRetard(a, e); }).length;
+      infos.push(L.compterFaites(e) + " sur " + pluriel(e.actions.length, "action faite", "actions faites"));
+      if (retards) { infos.push('<span class="texte-alerte">' + retards + " en retard</span>"); }
+    } else if (e.bilan) {
+      infos.push(esc(e.bilan.benevoles) + " parents ont aidé");
+    }
+    return '<a class="carte' + (passe ? " carte--passee" : "") + '" id="carte-' + esc(e.id) + '" href="#evenement/' + esc(e.id) + '">' +
+      '<span class="carte-ligne">' + pastilleDate(L.dateEvenement(e)) +
+      '<span><span class="carte-titre">' + esc(e.titre) + "</span>" +
+      '<span class="carte-quand">' + esc(quandEvenement(e)) + "</span>" +
+      '<span class="carte-statut">' + etiquettePreparation(e) + "</span>" +
+      (infos.length ? '<span class="carte-quand">' + infos.join(" · ") + "</span>" : "") +
+      "</span></span></a>";
+  }
+
+  function ecranEvenements() {
+    var avenir = L.evenementsAVenir(G());
+    var passes = L.evenementsPasses(G());
+    var html = entete(G().nom, "Événements", avenir.length + " à venir · " + pluriel(passes.length, "passé", "passés")) + bandeauMessage();
+    // Le bureau seul crée un événement : aucun bouton pour les autres.
+    if (gere()) { html += '<a class="bouton bouton--principal" id="creer-evenement" href="#evenement/nouveau">' + esc(M("creerUnEvenement")) + "</a>"; }
+    html += calendrier() + sectionRendezVous(false);
+    html += avenir.length
+      ? '<section><h2 class="section-titre">À venir</h2>' + avenir.map(carteEvenement).join("") + "</section>"
+      : etatVide("panneau", M("aucunEvenementAVenir"), gere() ? esc(M("aucunEvenementAide")) : "");
+    if (passes.length) {
+      html += '<section class="section"><h2 class="section-titre">Passés</h2>' + passes.map(carteEvenement).join("") + "</section>";
+    }
+    return { titre: "Événements", onglet: "evenements", html: html };
+  }
+
+  // ---------- Calendrier du mois, avec le code couleur ----------
+
+  var fmtMoisAnnee = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+  var fmtMoisSeul = new Intl.DateTimeFormat("fr-FR", { month: "long" });
+  var fmtJourLong = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+
+  // Par défaut : le mois en cours s'il a un événement à venir, sinon le mois du prochain événement.
+  function moisParDefaut(avenir) {
+    var auj = L.aujourdhui();
+    var debut = new Date(auj.getFullYear(), auj.getMonth(), 1);
+    var ceMois = avenir.some(function (e) { var d = L.dateEvenement(e); return d.getFullYear() === auj.getFullYear() && d.getMonth() === auj.getMonth(); });
+    if (ceMois || !avenir.length) { return debut; }
+    var d = L.dateEvenement(avenir[0]);
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+
+  // Le mois montré à l'ouverture. Association : comme avant, d'après les événements.
+  // Groupe simple (pas d'événement) : le mois en cours, sauf si le prochain rendez-vous tombe un autre mois.
+  function moisDeDepart() {
+    if (estAsso()) { return moisParDefaut(L.evenementsAVenir(G())); }
+    var auj = L.aujourdhui();
+    var rdv = Msg.rendezVous(G(), moi());
+    var ceMois = rdv.some(function (x) { return x.date.getFullYear() === auj.getFullYear() && x.date.getMonth() === auj.getMonth(); });
+    var d = ceMois || !rdv.length ? auj : rdv[0].date;
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+
+  // Les rendez-vous à venir du mois affiché : questions datées que je vois, sauf celles où j'ai dit Non.
+  function rendezVousDuMois() {
+    var m = moisAffiche || moisDeDepart();
+    return Msg.rendezVous(G(), moi()).filter(function (x) { return x.date.getFullYear() === m.getFullYear() && x.date.getMonth() === m.getMonth(); });
+  }
+
+  // Sous le calendrier : les rendez-vous du mois (question, jour, heure). Un toucher ouvre le message.
+  function sectionRendezVous(avecVide) {
+    var liste = rendezVousDuMois();
+    if (!liste.length) {
+      return avecVide ? etatVide("calme", M("msgAucunRendezVous"), esc(M("msgAucunRendezVousAide"))) : "";
+    }
+    return '<section class="rendez-vous" id="rendez-vous"><h2 class="section-titre">' + esc(M("msgRendezVousTitre")) + "</h2>" +
+      liste.map(function (x) {
+        return '<a class="carte" id="rdv-' + esc(x.message.id) + '" href="#message/' + esc(x.message.id) + '">' +
+          '<span class="carte-ligne">' + pastilleDate(x.date) +
+          '<span><span class="carte-titre">' + esc(x.message.texte) + "</span>" +
+          '<span class="carte-quand">' + esc(quandRendezVous(x.message)) + "</span></span></span></a>";
+      }).join("") + "</section>";
+  }
+
+  // Calendrier du groupe simple : il s'ouvre depuis l'accueil, sans onglet de plus (demande 007).
+  function ecranCalendrier() {
+    var html = retour("#accueil", M("ongletAccueil")) + entete(G().nom, M("msgCalendrierTitre")) + calendrier() + sectionRendezVous(true);
+    return { titre: M("msgCalendrierTitre"), onglet: "accueil", html: html };
+  }
+
+  function calendrier() {
+    var asso = estAsso();
+    var m = moisAffiche || moisDeDepart();
+    var annee = m.getFullYear(), mois = m.getMonth();
+    var auj = L.aujourdhui();
+    var duMois = asso ? L.evenementsDuMois(G(), annee, mois) : [];
+    var rdv = rendezVousDuMois();
+    var avant = new Date(annee, mois - 1, 1), apres = new Date(annee, mois + 1, 1);
+    var html = '<section class="calendrier" aria-labelledby="titre-calendrier">' +
+      '<h2 class="calendrier-titre" id="titre-calendrier">' + esc(majuscule(fmtMoisAnnee.format(m))) + "</h2>" +
+      '<table class="calendrier-grille"><thead><tr>' +
+      ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map(function (j) { return '<th scope="col">' + j + "</th>"; }).join("") +
+      "</tr></thead><tbody>";
+    L.grilleMois(annee, mois).forEach(function (semaine) {
+      html += "<tr>" + semaine.map(function (d) {
+        if (!d) { return "<td></td>"; }
+        var e = duMois.filter(function (x) { return L.memeJour(L.dateEvenement(x), d); })[0];
+        var classe = "jour" + (L.memeJour(d, auj) ? " jour--aujourdhui" : "");
+        // Un jour qui porte un événement ouvre toujours l'événement ; sinon, le premier rendez-vous du jour.
+        var rv = e ? null : rdv.filter(function (x) { return L.memeJour(x.date, d); })[0];
+        if (rv) {
+          return '<td><a class="' + classe + ' jour--rendez-vous" href="#message/' + esc(rv.message.id) + '" id="jour-rdv-' + esc(rv.message.id) + '"' +
+            ' aria-label="' + esc(fmtJourLong.format(d) + " : " + minuscule(M("msgRendezVousTitre")) + ", " + rv.message.texte) + '">' + d.getDate() + "</a></td>";
+        }
+        if (!e) {
+          return '<td><span class="' + classe + '"' + (L.memeJour(d, auj) ? ' aria-label="Aujourd\'hui, ' + esc(fmtJourLong.format(d)) + '"' : "") + ">" + d.getDate() + "</span></td>";
+        }
+        var p = L.etatPreparation(e);
+        return '<td><a class="' + classe + " jour--" + p + '" href="#evenement/' + esc(e.id) + '" id="jour-' + esc(e.id) + '"' +
+          ' aria-label="' + esc(fmtJourLong.format(d) + " : " + e.titre + ", " + minuscule(L.LIBELLES_PREPARATION[p])) + '">' + d.getDate() + "</a></td>";
+      }).join("") + "</tr>";
+    });
+    html += "</tbody></table>" +
+      '<div class="boutons-ligne calendrier-mois">' +
+      '<button type="button" class="bouton bouton--secondaire bouton--petit" data-mois="-1">Voir ' + esc(fmtMoisSeul.format(avant)) + "</button>" +
+      '<button type="button" class="bouton bouton--secondaire bouton--petit" data-mois="1">Voir ' + esc(fmtMoisSeul.format(apres)) + "</button></div>" +
+      '<ul class="legende">' +
+      (asso
+        ? '<li><span class="jour jour--a-jour" aria-hidden="true"></span><span><strong>À jour</strong> : rien en retard ni d\'urgent</span></li>' +
+          '<li><span class="jour jour--en-cours" aria-hidden="true"></span><span><strong>En cours</strong> : des actions à faire cette semaine</span></li>' +
+          '<li><span class="jour jour--retard" aria-hidden="true"></span><span><strong>En retard</strong> : au moins une action a dépassé sa date</span></li>'
+        : "") +
+      legendeRendezVous() +
+      "</ul>" +
+      (!asso || duMois.length ? "" : '<p class="discret">Pas d\'événement ce mois-ci.</p>') +
+      "</section>";
+    return html;
+  }
+
+  function legendeRendezVous() {
+    return '<li><span class="jour jour--rendez-vous" aria-hidden="true"></span><span><strong>' + esc(M("msgRendezVousTitre")) + "</strong> : " +
+      esc(M("msgLegendeRendezVous")) + "</span></li>";
+  }
+
+  function changerMois(delta) {
+    var m = moisAffiche || moisDeDepart();
+    moisAffiche = new Date(m.getFullYear(), m.getMonth() + delta, 1);
+    rendre({ garderDefilement: true });
+  }
+
+  // ---------- Un événement (3 onglets) ----------
+
+  function ecranEvenement(id, onglet, sous) {
+    // Créer un événement : le bureau seul ; les autres retrouvent la liste, sans message.
+    if (id === "nouveau" && !onglet) { return gere() ? ecranCreerEvenement() : ecranEvenements(); }
+    var e = L.trouverEvenement(G(), id);
+    if (!e) { return introuvable(); }
+    // Modifier, supprimer et refaire l'événement : demande 006b, pas encore là.
+    if (["modifier", "supprimer", "refaire"].indexOf(onglet) >= 0) { return introuvable(); }
+    var passe = L.estPasse(e);
+    // Ajouter ou modifier une action, un créneau : le bureau seul, événement à venir ; sinon, l'événement.
+    if (onglet === "action") {
+      if (sous && peutModifier(e)) { return ecranAction(e, sous); }
+      onglet = "actions";
+    }
+    if (onglet === "creneau") {
+      if (sous && peutModifier(e)) { return ecranCreneau(e, sous); }
+      onglet = "coups-de-main";
+    }
+    if (["actions", "coups-de-main", "bilan"].indexOf(onglet) < 0) {
+      onglet = passe && e.bilan ? "bilan" : "actions";
+    }
+    var date = L.dateEvenement(e);
+    var html = retour("#evenements", "Événements") +
+      entete(quandOu(e, dateLongue(date) + (passe ? " " + date.getFullYear() : "")), e.titre, etiquettePreparation(e)) +
+      bandeauMessage() +
+      '<nav class="sous-onglets" aria-label="Rubriques de l\'événement">' +
+      sousOnglet(e, "actions", "Actions", onglet) +
+      sousOnglet(e, "coups-de-main", "Coups de main", onglet) +
+      sousOnglet(e, "bilan", "Bilan", onglet) +
+      "</nav>";
+    var r;
+    if (onglet === "coups-de-main") { r = ongletCoupsDeMain(e); }
+    else if (onglet === "bilan") { r = ongletBilan(e); }
+    else { r = ongletActions(e); }
+    var noms = { actions: "Actions", "coups-de-main": "Coups de main", bilan: "Bilan" };
+    return { titre: noms[onglet] + " — " + e.titre, onglet: "evenements", html: html + r };
+  }
+
+  function sousOnglet(e, cle, libelle, actif) {
+    return '<a href="#evenement/' + esc(e.id) + "/" + esc(cle) + '"' + (cle === actif ? ' aria-current="page"' : "") + ">" + esc(libelle) + "</a>";
+  }
+
+  function texteAvancement(e) {
+    var nbRetard = e.actions.filter(function (a) { return L.estEnRetard(a, e); }).length;
+    var t = "<strong>" + L.compterFaites(e) + " sur " + e.actions.length + "</strong> actions faites";
+    if (nbRetard) { t += ' · <span class="texte-alerte">' + nbRetard + " en retard</span>"; }
+    return t;
+  }
+
+  function pourcentage(e) { return Math.round(100 * L.compterFaites(e) / Math.max(1, e.actions.length)); }
+
+  function metaGroupe(g, e) {
+    var faites = g.actions.filter(function (a) { return a.statut === "fait"; }).length;
+    var retards = g.actions.filter(function (a) { return L.estEnRetard(a, e); }).length;
+    return esc(dateCourte(L.ajouterJours(L.dateEvenement(e), -g.joursAvant))) + " · " + faites + " sur " + g.actions.length +
+      (retards ? ' · <span class="texte-alerte">' + retards + " en retard</span>" : "");
+  }
+
+  // Les échéances sont repliées ; on ouvre d'office celles qui ont du retard,
+  // ou la première qui n'est pas terminée.
+  function ongletActions(e) {
+    var modifiable = peutModifier(e);
+    var ajout = modifiable
+      ? '<a class="bouton bouton--principal" id="ajouter-action" href="#evenement/' + esc(e.id) + '/action/nouvelle">' + esc(M("ajouterUneAction")) + "</a>"
+      : "";
+    if (!e.actions.length) { return ajout + etatVide("panneau", M("aucuneAction"), modifiable ? esc(M("aucuneActionAide")) : ""); }
+    var groupes = groupesEcheance(e);
+    var aOuvrir = groupes.filter(function (g) { return g.actions.some(function (a) { return L.estEnRetard(a, e); }); });
+    if (!aOuvrir.length) {
+      aOuvrir = groupes.filter(function (g) { return g.actions.some(function (a) { return a.statut !== "fait"; }); }).slice(0, 1);
+    }
+    var html = ajout + '<p class="avancement" id="avancement">' + texteAvancement(e) + "</p>" +
+      '<div class="barre" aria-hidden="true"><span id="barre" style="width:' + pourcentage(e) + '%"></span></div>';
+    groupes.forEach(function (g, i) {
+      html += '<details class="repli" id="groupe-' + i + '"' + (aOuvrir.indexOf(g) >= 0 ? " open" : "") + ">" +
+        '<summary><span class="repli-titres"><span class="repli-titre">' + esc(g.echeance) + "</span>" +
+        '<span class="repli-meta" id="groupe-meta-' + i + '">' + metaGroupe(g, e) + "</span></span></summary>" +
+        '<div class="repli-corps"><ul class="actions">' + g.actions.map(function (a) { return ligneAction(a, e, "evenement"); }).join("") + "</ul></div></details>";
+    });
+    // Sans action dont elle puisse changer l'état, la personne lit la phrase courte.
+    var touche = e.actions.some(peutChangerEtat);
+    html += '<p class="discret note-bas">' + esc(M(modifiable ? "noteActionsBureau" : touche ? "noteActions" : "noteActionsLecture")) + "</p>";
+    return html;
+  }
+
+  function ongletCoupsDeMain(e) {
+    var modifiable = peutModifier(e);
+    var hrefAjout = "#evenement/" + esc(e.id) + "/creneau/nouveau";
+    if (!e.creneaux.length) {
+      // Sans créneau, pas de lien à copier : « Ajouter un créneau » est le bouton principal (bureau).
+      return etatVide("panneau", M("aucunCreneau"), modifiable ? esc(M("aucunCreneauAide")) : "",
+        modifiable ? '<a class="bouton bouton--principal" id="ajouter-creneau" href="' + hrefAjout + '">' + esc(M("ajouterUnCreneau")) + "</a>" : "");
+    }
+    var lien = lienParent(e.id);
+    var texteWhatsapp = M("messageCoupsDeMain", { nom: e.titre, date: fmtLong.format(L.dateEvenement(e)), lien: lien });
+    var html = '<section class="partage" aria-labelledby="titre-partage">' +
+      '<h2 id="titre-partage">Lien à envoyer aux parents</h2>' +
+      '<p class="discret">Les parents choisissent un créneau avec ce lien, sans créer de compte.</p>' +
+      '<p class="lien-adresse" id="lien-parent">' + esc(lien) + "</p>" +
+      '<button type="button" class="bouton bouton--principal" data-copier="lien-parent">Copier le lien</button>' +
+      '<p class="copie-ok" id="copie-lien-parent" role="status"></p>' +
+      '<div class="boutons-ligne">' +
+      '<a class="bouton bouton--secondaire" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(texteWhatsapp) + '">Envoyer sur WhatsApp</a>' +
+      '<button type="button" class="bouton bouton--secondaire" data-qr aria-expanded="' + qrVisible + '" aria-controls="qr">Afficher le QR code</button>' +
+      "</div>" +
+      '<div class="qr" id="qr"' + (qrVisible ? "" : " hidden") + ">" +
+      '<div class="qr-image" aria-hidden="true"></div>' +
+      "<p>Dans la vraie application, ce QR code s'imprime sur l'affiche et dans le cahier de liaison. Le prototype ne le fabrique pas.</p></div>" +
+      '<a class="lien-suite" href="#inscription/' + esc(e.id) + '">Voir la page des parents</a>' +
+      "</section>";
+
+    html += '<h2 class="section-titre">Qui vient <span class="compte">' + L.compterInscrits(e) + " sur " + esc(L.compterPlaces(e)) + "</span></h2>";
+    e.creneaux.forEach(function (c) {
+      var reste = L.placesRestantes(c);
+      var etiquette = reste === 0
+        ? '<span class="etiquette etiquette--ok">Complet</span>'
+        : '<span class="etiquette' + (c.inscrits.length < c.places / 2 ? " etiquette--alerte" : "") + '">' + (reste === 1 ? "Manque 1" : "Manquent " + esc(reste)) + "</span>";
+      html += '<details class="repli" id="equipe-' + esc(c.id) + '">' +
+        '<summary><span class="repli-titres"><span class="repli-titre">' + esc(c.titre) + "</span>" +
+        // Le point médian tient au compte : si le compte passe à la ligne, le point est masqué (jamais seul en bout de ligne).
+        '<span class="repli-meta suite"><span class="suite-part">' + esc(c.horaire) + '</span><span class="suite-part insecable"><span class="suite-point"> · </span>' +
+        c.inscrits.length + " sur " + esc(c.places) + "</span></span></span>" + etiquette + "</summary>" +
+        '<div class="repli-corps">' +
+        (c.inscrits.length
+          ? '<ul class="noms">' + c.inscrits.map(function (v) {
+            var ct = gere() ? L.analyserContact(v.contact) : null; // coordonnées : bureau seulement
+            var href = ct ? (ct.type === "email" ? "mailto:" + ct.valeur : "tel:" + ct.valeur.replace(/[\s.\-()]/g, "")) : "";
+            return "<li><span>" + esc(L.nomPublic(v)) + "</span>" +
+              (href ? '<a href="' + esc(href) + '">' + esc(v.contact) + "</a>" : "") + "</li>";
+          }).join("") + "</ul>"
+          : '<p class="calme">Personne pour l\'instant.</p>') +
+        (modifiable ? '<a class="lien-suite" href="#evenement/' + esc(e.id) + "/creneau/" + esc(c.id) + '">' + esc(M("modifierCeCreneau")) + "</a>" : "") +
+        "</div></details>";
+    });
+    // Avec des créneaux, « Copier le lien » reste le seul bouton principal : l'ajout devient secondaire.
+    if (modifiable) { html += '<a class="bouton bouton--secondaire" id="ajouter-creneau" href="' + hrefAjout + '">' + esc(M("ajouterUnCreneau")) + "</a>"; }
+    html += '<p class="discret note-bas">Touchez un créneau pour voir qui vient. Les coordonnées ne sont visibles que du bureau ; les parents ne voient que les prénoms et initiales.</p>';
+    return html;
+  }
+
+  function ongletBilan(e) {
+    if (!e.bilan) {
+      var exemple = G().evenements.filter(function (x) { return x.bilan; })[0];
+      return etatVide("panneau", "Le bilan se remplit le soir de l'événement.",
+        "Quelques chiffres (parents venus, heures données, recette de la buvette, exposants) deviennent une image de remerciement à partager.",
+        exemple ? '<a class="lien-suite" href="#evenement/' + esc(exemple.id) + '/bilan">Voir le bilan de la ' + esc(minuscule(exemple.titre)) + "</a>" : "");
+    }
+    var b = e.bilan;
+    var texte = L.texteBilan(G(), e);
+    return '<figure class="affichette" aria-label="Image de remerciement à partager">' +
+      '<p class="affichette-asso">' + esc(G().nom) + "</p>" +
+      '<p class="affichette-merci">Merci à vous.</p>' +
+      '<p class="chiffre-vedette"><span class="nombre">' + esc(b.benevoles) + '</span> parents ont donné un coup de main</p>' +
+      '<ul class="chiffres">' +
+      '<li><span class="nombre">' + esc(b.heures) + "</span> heures données</li>" +
+      '<li><span class="nombre">' + esc(L.formaterEuros(b.recetteBuvette)) + "</span> à la buvette</li>" +
+      '<li><span class="nombre">' + esc(b.exposants) + "</span> " + esc(b.exposantsLibelle) + "</li>" +
+      "</ul>" +
+      '<p class="affichette-pied">' + esc(b.ceQueCaFinance) + "</p>" +
+      "</figure>" +
+      '<a class="bouton bouton--principal" id="whatsapp" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(texte) + '">Partager sur WhatsApp</a>' +
+      '<button type="button" class="bouton bouton--secondaire" data-image="' + esc(e.id) + '">Enregistrer l\'image</button>' +
+      '<p class="discret note-bas">WhatsApp reçoit le message en texte. Pour envoyer l\'affichette, enregistrez l\'image puis joignez-la.</p>';
+  }
+
+  // Dessine l'affichette dans une image PNG (1080 × 1350), aux couleurs de l'association.
+  function enregistrerImage(id) {
+    var e = L.trouverEvenement(G(), id);
+    if (!e || !e.bilan) { return; }
+    var b = e.bilan;
+    var p = L.paletteAssociation(G().couleur, FOND);
+    var pret = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+    pret.then(function () {
+      var W = 1080, H = 1350, M = 96;
+      var c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      var g = c.getContext("2d");
+      var texte = "#2A211C", doux = "#6B5D52", accent = "#0B6E77";
+      g.fillStyle = FOND; g.fillRect(0, 0, W, H);
+      g.fillStyle = p.principale; g.fillRect(0, 0, W, 32);
+
+      g.fillStyle = doux; g.font = "800 36px Nunito";
+      g.fillText(G().nom, M, 160);
+      g.fillStyle = texte; g.font = "900 120px Nunito";
+      g.fillText("Merci à vous.", M, 300);
+      g.fillStyle = doux; g.font = "600 40px Nunito";
+      g.fillText(e.titre + " · " + fmtLongAnnee.format(L.dateEvenement(e)).replace(/^\S+ /, ""), M, 370);
+
+      g.font = "900 200px Nunito";
+      var lv = g.measureText(String(b.benevoles)).width;
+      g.fillStyle = p.principalePale; g.beginPath();
+      if (g.roundRect) { g.roundRect(M - 20, 430, lv + 40, 200, 28); } else { g.rect(M - 20, 430, lv + 40, 200); }
+      g.fill();
+      g.fillStyle = texte;
+      g.fillText(String(b.benevoles), M, 600);
+      g.font = "800 46px Nunito";
+      g.fillText("parents ont donné", M + lv + 48, 515);
+      g.fillText("un coup de main", M + lv + 48, 575);
+
+      var y = 780;
+      [[String(b.heures), "heures données"], [L.formaterEuros(b.recetteBuvette), "à la buvette"], [String(b.exposants), b.exposantsLibelle]]
+        .forEach(function (l) {
+          g.strokeStyle = "#EADCC8"; g.lineWidth = 3;
+          g.beginPath(); g.moveTo(M, y - 84); g.lineTo(W - M, y - 84); g.stroke();
+          g.fillStyle = accent; g.font = "900 88px Nunito";
+          g.fillText(l[0], M, y + 10);
+          var largeur = g.measureText(l[0]).width;
+          g.fillStyle = texte; g.font = "700 42px Nunito";
+          g.fillText(l[1], M + largeur + 28, y);
+          y += 140;
+        });
+
+      g.fillStyle = texte; g.font = "600 40px Nunito";
+      ecrireLignes(g, b.ceQueCaFinance, M, 1200, W - 2 * M, 56);
+      telecharger("merci-" + esc(e.id) + ".png", c.toDataURL("image/png"));
+    });
+  }
+
+  function ecrireLignes(g, texte, x, y, largeurMax, interligne) {
+    var ligne = "";
+    texte.split(" ").forEach(function (m) {
+      var essai = ligne ? ligne + " " + m : m;
+      if (g.measureText(essai).width > largeurMax && ligne) { g.fillText(ligne, x, y); y += interligne; ligne = m; }
+      else { ligne = essai; }
+    });
+    if (ligne) { g.fillText(ligne, x, y); }
+  }
+
+  function telecharger(nom, href) {
+    var a = document.createElement("a");
+    a.download = nom;
+    a.href = href;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // ---------- Petits morceaux communs aux nouveaux écrans ----------
+
+  // Phrase de confirmation (« … est dans la liste »), montrée une seule fois.
+  function bandeauMessage() {
+    if (!message) { return ""; }
+    var m = message;
+    message = null;
+    return '<p class="message-ok" role="status">' + esc(m) + "</p>";
+  }
+
+  function avertissement() { return '<p class="avertissement">' + esc(M("avertissementPrototype")) + "</p>"; }
+
+  // Liste de choix (boutons radio ou cases à cocher), chaque choix est une grande zone à toucher.
+  function choix(nom, legende, options, choisis, type, classe) {
+    var t = type || "radio";
+    return '<fieldset class="choix' + (classe ? " " + classe : "") + '" id="champ-' + nom + '" aria-describedby="erreur-' + nom + '">' +
+      "<legend>" + esc(legende) + "</legend>" +
+      options.map(function (o) { return optionChoix(nom, t, o, choisis.indexOf(o.valeur) >= 0); }).join("") +
+      '<p class="champ-erreur" id="erreur-' + nom + '"></p></fieldset>';
+  }
+
+  function optionChoix(nom, type, o, coche) {
+    return '<label class="choix-option"><input type="' + type + '" name="' + nom + '" value="' + esc(o.valeur) + '"' + (coche ? " checked" : "") + ">" +
+      '<span class="choix-texte"><span class="choix-titre">' +
+      (o.pastille ? '<span class="pastille-couleur" style="background:' + esc(o.pastille) + '" aria-hidden="true"></span>' : "") +
+      esc(o.titre) + "</span>" + (o.detail ? '<span class="choix-detail">' + esc(o.detail) + "</span>" : "") + "</span></label>";
+  }
+
+  // Choix unique dans une longue liste : replié, il montre le choix en cours ; on l'ouvre pour en changer.
+  // sections : [{ titre (facultatif), options }]. Choisir referme la liste (voir les gestes, plus bas).
+  function choixReplie(nom, legende, sections, choisi) {
+    var enCours = "";
+    var corps = sections.map(function (s) {
+      return (s.titre ? '<p class="surtitre">' + esc(s.titre) + "</p>" : "") + s.options.map(function (o) {
+        if (o.valeur === choisi) { enCours = o.titre; }
+        return optionChoix(nom, "radio", o, o.valeur === choisi);
+      }).join("");
+    }).join("");
+    return '<fieldset class="choix choix--liste choix--replie" id="champ-' + nom + '" aria-describedby="erreur-' + nom + '">' +
+      "<legend>" + esc(legende) + "</legend>" +
+      '<details class="repli"><summary><span class="repli-titres"><span class="repli-titre">' + esc(enCours) + "</span></span></summary>" +
+      '<div class="repli-corps">' + corps + "</div></details>" +
+      '<p class="champ-erreur" id="erreur-' + nom + '"></p></fieldset>';
+  }
+
+  function valeurRadio(form, nom) {
+    var coche = form.querySelector('input[name="' + nom + '"]:checked');
+    return coche ? coche.value : "";
+  }
+
+  // Affiche les erreurs d'un formulaire (codes des règles → phrases de mots.js) ; rend vrai s'il y en a.
+  function montrerErreurs(form, champs, erreurs, textes) {
+    var premier = null;
+    champs.forEach(function (n) {
+      var code = erreurs && erreurs[n];
+      var texte = code ? textes[n + ":" + code] || textes[n] : "";
+      var zone = form.querySelector("#erreur-" + n);
+      if (zone) { zone.textContent = texte; }
+      var el = form.querySelector("#champ-" + n);
+      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", texte ? "true" : "false"); }
+      if (texte && !premier) { premier = el && el.tagName === "INPUT" ? el : form.querySelector("#champ-" + n + " input"); }
+    });
+    if (premier) { premier.focus(); }
+    return !!premier;
+  }
+
+  function erreurGenerale(form, texte) {
+    var z = form.querySelector(".erreur-generale");
+    z.textContent = texte;
+  }
+
+  // Va à l'adresse ; si on y est déjà, redessine quand même l'écran.
+  function aller(adresse) {
+    if (location.hash === adresse) { rendre({ focus: true }); } else { location.hash = adresse; }
+  }
+
+  // ---------- Demande 006 : créer un événement ; ajouter, modifier, supprimer une action ou un créneau ----------
+  // Association seulement, bureau seulement : les écrans ne sont rendus que pour le bureau (voir ecranEvenement)
+  // et chaque geste est contrôlé une seconde fois par les règles (js/evenements.js).
+
+  function hrefEvenement(e, rubrique) { return "#evenement/" + esc(e.id) + "/" + rubrique; }
+
+  // Écran « n'existe plus » d'une action ou d'un créneau supprimé entre-temps.
+  function nExistePlus(e, cle, rubrique) {
+    return {
+      titre: M(cle), onglet: "evenements",
+      html: retour(hrefEvenement(e, rubrique), e.titre) +
+        '<section class="confirmation"><h1 tabindex="-1">' + esc(M(cle)) + "</h1>" +
+        '<a class="lien-suite" href="' + hrefEvenement(e, rubrique) + '">' + esc(M("revenirALEvenement")) + "</a></section>"
+    };
+  }
+
+  // Écran 2 : créer un événement. Seuls le nom et la date sont obligatoires.
+  function ecranCreerEvenement() {
+    var html = retour("#evenements", M("ongletEvenements")) + entete(G().nom, M("creerUnEvenement")) +
+      '<form class="form-evenement" novalidate>' +
+      champ("nom-evenement", M("champNomEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"', M("champNomEvenementAide")) +
+      champ("date-evenement", M("champDateEvenement"), 'min="' + esc(Ev.ecrireDate(L.aujourdhui())) + '"', "", "date") +
+      champ("debut-evenement", M("champDebutEvenement"), "", "", "time") +
+      champ("fin-evenement", M("champFinEvenement"), "", "", "time") +
+      champ("lieu-evenement", M("champLieuEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"', "") +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M("creerLEvenement")) + "</button>" +
+      "</form>";
+    return { titre: M("creerUnEvenement"), onglet: "evenements", html: html, champ: "nom-evenement" };
+  }
+
+  function envoyerEvenement(form) {
+    if (!estAsso()) { return; }
+    var el = form.elements;
+    var r = Ev.creerEvenement(G(), moi(), {
+      titre: el["nom-evenement"].value, date: el["date-evenement"].value,
+      debut: el["debut-evenement"].value, fin: el["fin-evenement"].value, lieu: el["lieu-evenement"].value
+    });
+    var e = r.erreurs || {};
+    if (montrerErreurs(form, ["nom-evenement", "date-evenement", "fin-evenement", "lieu-evenement"],
+      { "nom-evenement": e.titre, "date-evenement": e.date, "fin-evenement": e.fin, "lieu-evenement": e.lieu }, {
+        "nom-evenement:vide": M("erreurNomEvenementVide"), "nom-evenement:long": M("erreurNomGroupeLong"),
+        "date-evenement:vide": M("erreurDateVide"), "date-evenement:passee": M("erreurDatePassee"),
+        "fin-evenement:sans-debut": M("erreurFinSansDebut"), "fin-evenement:avant": M("erreurFinAvantDebut"),
+        "lieu-evenement:long": M("erreurNomGroupeLong")
+      })) { return; }
+    if (!r.ok) { aller("#evenements"); return; }
+    sauver();
+    // Le calendrier s'ouvrira sur le mois du nouvel événement.
+    var d = L.dateEvenement(r.evenement);
+    moisAffiche = new Date(d.getFullYear(), d.getMonth(), 1);
+    message = M("evenementCree", { nom: r.evenement.titre });
+    aller("#evenement/" + r.evenement.id + "/actions");
+  }
+
+  // Écrans 4 et 5 : ajouter ou modifier une action.
+  function sectionsReferent(a) {
+    var p = moi();
+    var possibles = Ev.referentsPossibles(G());
+    var sections = [
+      { options: [{ valeur: "p:" + p.id, titre: M("referentVous", { prenom: p.prenom }) }] },
+      { titre: M("equipes"), options: possibles.equipes.map(function (x) { return { valeur: "e:" + x.id, titre: nomEquipe(x) }; }) },
+      { titre: M("personnes"), options: possibles.personnes.filter(function (x) { return x.id !== p.id; }).map(function (x) { return { valeur: "p:" + x.id, titre: Gr.nomComplet(x) }; }) }
+    ].filter(function (s) { return s.options.length; });
+    var choisi = a ? Ev.choixReferent(a) : "p:" + p.id;
+    var propose = sections.some(function (s) { return s.options.some(function (o) { return o.valeur === choisi; }); });
+    if (!propose) {
+      // La personne notée sur l'action n'est plus proposée (retirée du groupe, ou visiteur) : on peut la garder.
+      if (a && nomReferent(a)) { sections[0].options.push({ valeur: "garder", titre: nomReferent(a) }); choisi = "garder"; }
+      else { choisi = "p:" + p.id; }
+    }
+    return { sections: sections, choisi: choisi };
+  }
+
+  function ecranAction(e, id) {
+    var nouvelle = id === "nouvelle";
+    var a = nouvelle ? null : Ev.trouverAction(e, id);
+    if (!nouvelle && !a) { return nExistePlus(e, "actionIntrouvable", "actions"); }
+    var sorte = a ? Ev.sorteEcheance(a) : "veille";
+    var ref = sectionsReferent(a);
+    var titre = M(nouvelle ? "ajouterUneAction" : "modifierLAction");
+    var html = retour(hrefEvenement(e, "actions"), e.titre) + entete(G().nom, titre) + (nouvelle ? bandeauMessage() : "") +
+      '<form class="form-action" data-evenement="' + esc(e.id) + '" data-action="' + (a ? esc(a.id) : "") + '" novalidate>' +
+      champ("libelle-action", M("champLibelleAction"), 'autocomplete="off" autocapitalize="sentences" maxlength="80"' + (a ? ' value="' + esc(a.libelle) + '"' : ""), M("champLibelleActionAide")) +
+      choixReplie("referent", M("champReferent"), ref.sections, ref.choisi) +
+      choix("echeance", M("champEcheance"), [
+        { valeur: "jour-j", titre: M("echeanceJourJ") }, { valeur: "veille", titre: M("echeanceVeille") },
+        { valeur: "jours", titre: M("echeancePlusieursJours") }, { valeur: "date", titre: M("echeanceDatePrecise") }
+      ], [sorte]) +
+      '<div id="zone-jours"' + (sorte === "jours" ? "" : " hidden") + ">" +
+      champ("jours-avant", M("champJoursAvant"), 'inputmode="numeric" autocomplete="off" maxlength="3" class="champ-court"' + (a && sorte === "jours" ? ' value="' + esc(a.joursAvant) + '"' : ""), "") + "</div>" +
+      '<div id="zone-date"' + (sorte === "date" ? "" : " hidden") + ">" +
+      champ("date-echeance", M("champDateEcheance"), 'max="' + esc(Ev.ecrireDate(L.dateEvenement(e))) + '"' + (a && sorte === "date" ? ' value="' + esc(Ev.ecrireDate(L.dateLimite(a, e))) + '"' : ""), "", "date") + "</div>" +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M(nouvelle ? "ajouterLAction" : "enregistrerLAction")) + "</button>" +
+      (nouvelle
+        ? '<a class="lien-suite" href="' + hrefEvenement(e, "actions") + '">' + esc(M("revenirALEvenement")) + "</a>"
+        : '<button type="button" class="lien-bouton lien-bouton--alerte" data-supprimer-action="' + esc(a.id) + '">' + esc(M("supprimerCetteAction")) + "</button>") +
+      "</form>";
+    return { titre: titre, onglet: "evenements", html: html, champ: nouvelle ? "libelle-action" : null };
+  }
+
+  // « Plusieurs jours avant » montre le nombre de jours ; « À une date précise » montre la date limite.
+  function montrerChampsEcheance(form) {
+    var sorte = valeurRadio(form, "echeance");
+    form.querySelector("#zone-jours").hidden = sorte !== "jours";
+    form.querySelector("#zone-date").hidden = sorte !== "date";
+  }
+
+  function envoyerAction(form) {
+    if (!estAsso()) { return; }
+    var g = G(), el = form.elements;
+    var eid = form.getAttribute("data-evenement"), aid = form.getAttribute("data-action");
+    var saisie = {
+      libelle: el["libelle-action"].value, referent: valeurRadio(form, "referent"), echeance: valeurRadio(form, "echeance"),
+      jours: el["jours-avant"].value, date: el["date-echeance"].value
+    };
+    var r = aid ? Ev.modifierAction(g, moi(), eid, aid, saisie) : Ev.ajouterAction(g, moi(), eid, saisie);
+    var e = r.erreurs || {};
+    if (montrerErreurs(form, ["libelle-action", "referent", "echeance", "jours-avant", "date-echeance"],
+      { "libelle-action": e.libelle, referent: e.referent, echeance: e.echeance, "jours-avant": e.jours, "date-echeance": e.date }, {
+        "libelle-action:vide": M("erreurLibelleVide"), "libelle-action:long": M("erreurLibelleLong"),
+        referent: M("champReferent"), echeance: M("champEcheance"), "jours-avant": M("erreurJoursAvant"),
+        "date-echeance:vide": M("erreurDateEcheanceVide"), "date-echeance:apres": M("erreurDateEcheanceApres")
+      })) { return; }
+    // Action ou événement disparu entre-temps, ou droits perdus : l'écran se redessine et le dit.
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    if (aid) {
+      message = M("actionModifiee", { libelle: r.action.libelle });
+      aller("#evenement/" + eid + "/actions");
+    } else {
+      // On reste sur le formulaire, vidé, pour enchaîner l'action suivante.
+      message = M("actionAjoutee", { libelle: r.action.libelle });
+      aller("#evenement/" + eid + "/action/nouvelle");
+    }
+  }
+
+  function supprimerAction(bouton) {
+    var form = bouton.closest("form");
+    if (!form || !estAsso()) { return; }
+    var eid = form.getAttribute("data-evenement");
+    var e = L.trouverEvenement(G(), eid);
+    var a = e && Ev.trouverAction(e, bouton.getAttribute("data-supprimer-action"));
+    if (!a || !peutModifier(e)) { rendre({ focus: true }); return; }
+    if (!window.confirm(M("confirmerSuppressionAction", { libelle: a.libelle }))) { return; }
+    if (!Ev.supprimerAction(G(), moi(), eid, a.id).ok) { rendre({ focus: true }); return; }
+    sauver();
+    message = M("actionSupprimee", { libelle: a.libelle });
+    aller("#evenement/" + eid + "/actions");
+  }
+
+  // Écrans 7 et 8 : ajouter ou modifier un créneau. Il a lieu le jour de l'événement.
+  function ecranCreneau(e, id) {
+    var nouveau = id === "nouveau";
+    var c = nouveau ? null : L.trouverCreneau(e, id);
+    if (!nouveau && !c) { return nExistePlus(e, "creneauIntrouvable", "coups-de-main"); }
+    var titre = M(nouveau ? "ajouterUnCreneau" : "modifierCeCreneau");
+    var valeur = function (v) { return v || v === 0 ? ' value="' + esc(v) + '"' : ""; };
+    var html = retour(hrefEvenement(e, "coups-de-main"), e.titre) + entete(G().nom, titre) + (nouveau ? bandeauMessage() : "") +
+      '<form class="form-creneau" data-evenement="' + esc(e.id) + '" data-creneau="' + (c ? esc(c.id) : "") + '" novalidate>' +
+      champ("intitule-creneau", M("champIntituleCreneau"), 'autocomplete="off" autocapitalize="sentences" maxlength="40"' + valeur(c && c.titre), M("champIntituleCreneauAide")) +
+      champ("debut-creneau", M("champDebutCreneau"), valeur(c ? c.debut : e.debut), "", "time") +
+      champ("fin-creneau", M("champFinCreneau"), valeur(c ? c.fin : e.fin), "", "time") +
+      champ("places-creneau", M("champPlacesCreneau"), 'inputmode="numeric" autocomplete="off" maxlength="2" class="champ-court"' + valeur(c ? c.places : 2), "") +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M(nouveau ? "ajouterLeCreneau" : "enregistrerLeCreneau")) + "</button>" +
+      (nouveau
+        ? '<a class="lien-suite" href="' + hrefEvenement(e, "coups-de-main") + '">' + esc(M("revenirALEvenement")) + "</a>"
+        : '<button type="button" class="lien-bouton lien-bouton--alerte" data-supprimer-creneau="' + esc(c.id) + '">' + esc(M("supprimerCeCreneau")) + "</button>") +
+      "</form>";
+    return { titre: titre, onglet: "evenements", html: html, champ: nouveau ? "intitule-creneau" : null };
+  }
+
+  function envoyerCreneau(form) {
+    if (!estAsso()) { return; }
+    var g = G(), el = form.elements;
+    var eid = form.getAttribute("data-evenement"), cid = form.getAttribute("data-creneau");
+    var saisie = {
+      titre: el["intitule-creneau"].value, debut: el["debut-creneau"].value,
+      fin: el["fin-creneau"].value, places: el["places-creneau"].value
+    };
+    var r = cid ? Ev.modifierCreneau(g, moi(), eid, cid, saisie, horaires) : Ev.ajouterCreneau(g, moi(), eid, saisie, horaires);
+    var e = r.erreurs || {};
+    if (montrerErreurs(form, ["intitule-creneau", "debut-creneau", "fin-creneau", "places-creneau"],
+      { "intitule-creneau": e.titre, "debut-creneau": e.debut, "fin-creneau": e.fin, "places-creneau": e.places }, {
+        "intitule-creneau:vide": M("erreurIntituleVide"), "intitule-creneau:long": M("erreurTropLong"),
+        "debut-creneau": M("erreurDebutVide"), "fin-creneau:vide": M("erreurFinVide"), "fin-creneau:avant": M("erreurFinAvantDebut"),
+        "places-creneau:invalide": M("erreurPlaces"), "places-creneau:inscrits": Mn("erreurPlacesInscrits", r.inscrits || 0)
+      })) { return; }
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    if (cid) {
+      message = M("creneauModifie", { nom: r.creneau.titre });
+      aller("#evenement/" + eid + "/coups-de-main");
+    } else {
+      // On reste sur le formulaire, pour enchaîner le créneau suivant.
+      message = M("creneauAjoute", { nom: r.creneau.titre });
+      aller("#evenement/" + eid + "/creneau/nouveau");
+    }
+  }
+
+  // Supprimer un créneau qui a des inscrits est permis : la question en donne le nombre.
+  function supprimerCreneau(bouton) {
+    var form = bouton.closest("form");
+    if (!form || !estAsso()) { return; }
+    var eid = form.getAttribute("data-evenement");
+    var e = L.trouverEvenement(G(), eid);
+    var c = e && L.trouverCreneau(e, bouton.getAttribute("data-supprimer-creneau"));
+    if (!c || !peutModifier(e)) { rendre({ focus: true }); return; }
+    var n = c.inscrits.length;
+    var question = n ? Mn("confirmerSuppressionCreneauInscrits", n, { nom: c.titre }) : M("confirmerSuppressionCreneau", { nom: c.titre });
+    if (!window.confirm(question)) { return; }
+    if (!Ev.supprimerCreneau(G(), moi(), eid, c.id).ok) { rendre({ focus: true }); return; }
+    sauver();
+    message = M("creneauSupprime", { nom: c.titre });
+    aller("#evenement/" + eid + "/coups-de-main");
+  }
+
+  // ---------- Demande 007 : demander qui est partant ----------
+  // La question « Qui est partant ? » seulement. Chaque geste est contrôlé une seconde fois par les règles
+  // (js/messages.js) : qui écrit à qui, qui voit quoi, qui répond, qui relance et qui clôt.
+  // La question est le seul texte libre : elle passe partout par esc(), jamais écrite comme du HTML.
+
+  var fmtJourMois = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
+  var fmtJourCourt = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric" });
+
+  function motReponse(r) { return M(r === "oui" ? "msgOui" : "msgNon"); }
+
+  // « jeudi 19 novembre à 20 h », « jeudi 19 novembre » sans heure, rien sans jour.
+  function quandRendezVous(m) {
+    var d = Msg.dateRendezVous(m);
+    if (!d) { return ""; }
+    return m.heure ? M("msgDateHeure", { date: fmtLong.format(d), heure: heureLisible(m.heure) }) : fmtLong.format(d);
+  }
+
+  // L'auteur tel qu'il s'appelle aujourd'hui ; s'il n'est plus dans le groupe, le nom noté sur la question.
+  function prenomAuteur(m) { var p = Msg.auteur(G(), m); return p ? p.prenom : (m.auteur || ""); }
+  function nomAuteur(m) { var p = Msg.auteur(G(), m); return p ? Gr.nomComplet(p) : (m.auteur || ""); }
+  function deQui(m) { return Msg.estAuteur(G(), moi(), m) ? M("msgDeVous") : M("msgDe", { prenom: prenomAuteur(m) }); }
+
+  // « Tout le groupe · 30 personnes »
+  function aQui(m) {
+    var a = m.a || {};
+    var equipe = a.sorte === "equipe" ? Gr.trouverEquipe(G(), a.equipeId) : null;
+    var nom = a.sorte === "tous" ? M("msgAToutLeGroupe") : a.sorte === "gestion" ? M("msgAGestion") :
+      a.sorte === "equipe" && (equipe || a.nom) ? (equipe ? nomEquipe(equipe) : a.nom) : M("msgAPersonnes");
+    return M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", Msg.destinataires(G(), m).length) });
+  }
+
+  // « 8 Oui sur 10 attendus », ou « 8 Oui » sans nombre attendu.
+  function texteCompteur(c) {
+    return c.attendus ? Mn("msgCompteurAttendus", c.attendus, { oui: c.oui.length }) : M("msgCompteur", { oui: c.oui.length });
+  }
+
+  function etiquetteComplet() { return '<span class="etiquette etiquette--ok">' + esc(M("msgComplet")) + "</span>"; }
+
+  // La paire « Oui » / « Non » : seule exception à « un seul bouton principal par écran ».
+  // Avant la réponse, deux boutons pleins de même taille ; après, le bouton choisi reste plein, avec une coche,
+  // et l'autre passe en contour. exemple : boutons inertes de la page Charte.
+  function paireReponse(id, choisie, exemple) {
+    function bouton(valeur) {
+      var choisi = choisie === valeur;
+      return '<button type="button" class="bouton ' + (!choisie || choisi ? "bouton--principal" : "bouton--secondaire") + (choisi ? " bouton--choisi" : "") + '"' +
+        (exemple ? " data-exemple" : ' data-reponse="' + valeur + '" data-message="' + esc(id) + '"') +
+        ' aria-pressed="' + choisi + '">' + esc(motReponse(valeur)) + "</button>";
+    }
+    return '<div class="boutons-ligne paire-reponse">' + bouton("oui") + bouton("non") + "</div>";
+  }
+
+  // ----- Écran 1 : Messages, en trois listes -----
+
+  function carteMessage(m) {
+    var c = Msg.decompte(G(), m), close = Msg.estClose(m);
+    return '<a class="carte' + (close ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" href="#message/' + esc(m.id) + '">' +
+      '<span class="carte-titre">' + esc(m.texte) + "</span>" +
+      '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
+      '<span class="carte-infos">' + esc(texteCompteur(c)) + (c.complet ? " " + etiquetteComplet() : "") +
+      (close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "") + "</span></a>";
+  }
+
+  // Trois messages au plus, puis « Voir les N autres messages » qui déplie le reste sur place.
+  function sectionMessages(id, titre, liste, vide) {
+    var html = '<section class="section" id="liste-' + id + '"><h2 class="section-titre"><span>' + esc(titre) +
+      '</span><span class="compte">' + liste.length + "</span></h2>";
+    if (!liste.length) { return html + '<p class="calme">' + esc(vide) + "</p></section>"; }
+    html += liste.slice(0, 3).map(carteMessage).join("");
+    if (liste.length > 3) {
+      html += '<div class="suite-liste" hidden>' + liste.slice(3).map(carteMessage).join("") + "</div>" +
+        '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("msgVoirAutres", liste.length - 3)) + "</button>";
+    }
+    return html + "</section>";
+  }
+
+  function voirSuite(bouton) {
+    var suite = bouton.previousElementSibling;
+    suite.hidden = false;
+    bouton.remove();
+    var premier = suite.querySelector("a");
+    if (premier) { premier.focus({ preventScroll: true }); }
+  }
+
+  function ecranMessages() {
+    var g = G(), p = moi();
+    var l = Msg.listes(g, p);
+    var lance = Msg.peutLancer(g, p); // un visiteur répond, il ne lance rien : pas de bouton
+    var html = entete(g.nom, M("msgTitre")) + bandeauMessage() +
+      (lance ? '<a class="bouton bouton--principal" id="demander" href="#messages/nouveau/question">' + esc(M("msgDemander")) + "</a>" : "");
+    if (!(l.aRepondre.length + l.enCours.length + l.termines.length)) {
+      html += '<div class="section">' + etatVide("panneau", M("msgVide"), esc(M(lance ? "msgVideAide" : "msgVideAideVisiteur"))) + "</div>";
+    } else {
+      html += sectionMessages("a-repondre", M("msgListeARepondre"), l.aRepondre, M("msgRienARepondre")) +
+        sectionMessages("en-cours", M("msgListeEnCours"), l.enCours, M("msgRienEnCours")) +
+        sectionMessages("termines", M("msgListeTermines"), l.termines, M("msgRienTermine"));
+    }
+    return { titre: M("msgTitre"), onglet: "messages", html: html };
+  }
+
+  // Message inexistant, ou personne ni auteur ni destinataire : la même phrase, pour ne rien laisser deviner.
+  function messageIntrouvable() {
+    return {
+      titre: M("msgTitre"), onglet: "messages",
+      html: retour("#messages", M("msgRetourMessages")) + entete(G().nom, M("msgTitre")) +
+        '<p class="calme" id="message-introuvable">' + esc(M("msgIntrouvable")) + "</p>" +
+        '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>"
+    };
+  }
+
+  // ----- Écrans 2 et 6 : nouvelle question, refaire -----
+
+  function comptePersonnes(n, sansLimite) { return sansLimite ? Mn("nPersonnes", n) : M("msgPersonnesCompte", { n: n }); }
+
+  function ecranNouvelleQuestion(refaireId) {
+    var g = G(), p = moi();
+    if (!Msg.peutLancer(g, p)) {
+      return {
+        titre: M("msgDemander"), onglet: "messages",
+        html: retour("#messages", M("msgRetourMessages")) + entete(g.nom, M("msgDemander")) +
+          '<p class="calme" id="question-refusee">' + esc(M("msgErreurVisiteur")) + "</p>" +
+          '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>"
+      };
+    }
+    var origine = null;
+    if (refaireId) {
+      origine = Msg.trouverVisible(g, p, refaireId);
+      if (!origine) { return messageIntrouvable(); }
+      // Refaire : l'auteur, plus le bureau ou les organisateurs destinataires ; les autres retrouvent le message.
+      if (!Msg.peutGerer(g, p, origine)) { return ecranMessage(refaireId); }
+    }
+    var sansLimite = Gr.peutGerer(g, p); // dix personnes au plus pour un membre seulement
+    var o = origine || {};
+    var valeur = function (v) { return v || v === 0 ? ' value="' + esc(v) + '"' : ""; };
+    var aujourdhui = L.aujourdhui();
+    var min = 'min="' + esc(Ev.ecrireDate(aujourdhui)) + '"';
+
+    // À qui ? Un seul choix, chacun avec son nombre de personnes. Rien n'est coché d'avance (sauf « Les mêmes personnes »).
+    var options = Msg.destinatairesPossibles(g, p).map(function (l) {
+      var nom = l.sorte === "tous" ? M("msgAToutLeGroupe") : l.sorte === "gestion" ? M("msgAGestion") : l.sorte === "equipe" ? nomEquipe(l.equipe) : M("msgAPersonnes");
+      return { valeur: l.valeur, titre: l.sorte === "personnes" ? nom : M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", l.personnes.length) }) };
+    });
+    if (origine) {
+      options.unshift({ valeur: "memes", titre: M("msgAvecCompte", { nom: M("msgAMemesPersonnes"), compte: Mn("nPersonnes", Msg.destinataires(g, origine).length) }) });
+    }
+
+    // Les sept prochains jours en un toucher, puis « Autre date ».
+    var jours = [];
+    for (var i = 0; i < 7; i++) {
+      var d = L.ajouterJours(aujourdhui, i);
+      jours.push({ valeur: Ev.ecrireDate(d), titre: i === 0 ? M("msgJourAujourdhui") : i === 1 ? M("msgJourDemain") : fmtJourCourt.format(d) });
+    }
+    jours.push({ valeur: "autre", titre: M("msgJourAutre") });
+
+    var evenements = estAsso() ? L.evenementsAVenir(g) : [];
+    var evenementChoisi = evenements.some(function (e) { return e.id === o.evenementId; }) ? o.evenementId : "";
+    var titre = M(origine ? "msgRefaire" : "msgDemander");
+    var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
+      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '" novalidate>' +
+      // La question : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
+      '<div class="champ"><label for="champ-question">' + esc(M("msgChampQuestion")) + "</label>" +
+      '<p class="champ-aide" id="aide-question">' + esc(M("msgChampQuestionAide")) + "</p>" +
+      '<input id="champ-question" name="question" type="text" autocomplete="off" autocapitalize="sentences" maxlength="' + Msg.LIMITES.texte + '"' +
+      valeur(o.texte) + ' aria-describedby="aide-question compte-question erreur-question">' +
+      '<p class="discret compte-question" id="compte-question">' + esc(M("msgCompteCaracteres", { n: (o.texte || "").length })) + "</p>" +
+      '<p class="champ-erreur" id="erreur-question"></p></div>' +
+      choix("a-qui", M("msgChampAQui"), options, origine ? ["memes"] : [], "radio", "choix--liste") +
+      // « Des personnes choisies » déplie la liste des personnes, à cocher, avec son compteur.
+      '<div id="zone-personnes" hidden><fieldset class="choix choix--liste" id="champ-personnes" aria-describedby="erreur-personnes"' +
+      ' data-limite="' + (sansLimite ? "" : Msg.LIMITES.personnesMembre) + '">' +
+      "<legend>" + esc(M("msgAPersonnes")) + ' <span class="compte" id="compte-personnes">' + esc(comptePersonnes(0, sansLimite)) + "</span></legend>" +
+      '<p class="champ-erreur limite-personnes" id="erreur-personnes" role="status"></p>' +
+      Msg.personnesProposees(g, p).map(function (x) { return optionChoix("personnes", "checkbox", { valeur: x.id, titre: Gr.nomComplet(x) }, false); }).join("") +
+      "</fieldset></div>" +
+      // Les options, repliées (dépliées quand on refait une question).
+      '<details class="repli" id="options-question"' + (origine ? " open" : "") + '><summary><span class="repli-titres"><span class="repli-titre">' +
+      esc(M("msgOptions")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
+      choix("jour", M("msgChampJour"), jours, [], "radio", "choix--deux-colonnes") +
+      '<div id="zone-autre-date" hidden>' + champ("autre-date", M("msgJourAutre"), min, "", "date") + "</div>" +
+      champ("heure", M("msgChampHeure"), valeur(o.heure), "", "time") +
+      champ("attendus", M("msgChampAttendus"), 'inputmode="numeric" autocomplete="off" maxlength="4" class="champ-court"' + valeur(o.attendus), "") +
+      champ("avant-le", M("msgChampAvantLe"), min, "", "date") +
+      (estAsso()
+        ? choix("evenement", M("msgChampEvenement"), [{ valeur: "", titre: M("msgAucunEvenement") }].concat(evenements.map(function (e) { return { valeur: e.id, titre: e.titre }; })),
+          [evenementChoisi], "radio", "choix--liste")
+        : "") +
+      "</div></details>" +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M("msgEnvoyer")) + "</button>" +
+      "</form>";
+    return { titre: titre, onglet: "messages", html: html, champ: origine ? null : "question" };
+  }
+
+  // Le compteur « 24 sur 80 » ; à 80, la phrase qui dit que la question ne peut pas être plus longue.
+  function compterCaracteres(champQuestion) {
+    var n = champQuestion.value.length, max = Msg.LIMITES.texte;
+    document.getElementById("compte-question").textContent = M("msgCompteCaracteres", { n: n });
+    var zone = document.getElementById("erreur-question");
+    if (n >= max) { zone.textContent = M("msgErreurQuestionLongue"); }
+    else if (zone.textContent === M("msgErreurQuestionLongue")) { zone.textContent = ""; }
+  }
+
+  // « Des personnes choisies » montre la liste des personnes ; « Autre date » montre le champ de date.
+  function montrerZonesQuestion(form) {
+    form.querySelector("#zone-personnes").hidden = valeurRadio(form, "a-qui") !== "personnes";
+    form.querySelector("#zone-autre-date").hidden = valeurRadio(form, "jour") !== "autre";
+  }
+
+  // Toucher le jour déjà choisi l'enlève : le rendez-vous est une option.
+  function basculerJour(radio) {
+    var form = radio.form;
+    if (radio.getAttribute("data-choisi") === "oui") { radio.checked = false; }
+    Array.prototype.forEach.call(form.querySelectorAll('input[name="jour"]'), function (x) {
+      if (x.checked) { x.setAttribute("data-choisi", "oui"); } else { x.removeAttribute("data-choisi"); }
+    });
+    montrerZonesQuestion(form);
+  }
+
+  // Compteur des personnes cochées. Membre : « 3 sur 10 » ; à dix, les autres cases ne se cochent plus
+  // et la phrase de la limite s'affiche. Bureau, organisateurs : « 3 personnes », aucune case bloquée.
+  function compterPersonnes(form) {
+    var zone = form.querySelector("#champ-personnes");
+    var limite = Number(zone.getAttribute("data-limite")) || 0;
+    var cases = zone.querySelectorAll('input[name="personnes"]');
+    var n = zone.querySelectorAll('input[name="personnes"]:checked').length;
+    form.querySelector("#compte-personnes").textContent = comptePersonnes(n, !limite);
+    var plein = limite > 0 && n >= limite;
+    Array.prototype.forEach.call(cases, function (x) {
+      var bloquee = plein && !x.checked;
+      x.disabled = bloquee;
+      x.closest(".choix-option").classList.toggle("choix-option--bloquee", bloquee);
+    });
+    form.querySelector("#erreur-personnes").textContent = plein ? M("msgErreurDixPersonnes") : "";
+  }
+
+  function envoyerQuestion(form) {
+    var g = G(), el = form.elements;
+    var jour = valeurRadio(form, "jour");
+    var autre = jour === "autre";
+    var saisie = {
+      texte: el.question.value, a: valeurRadio(form, "a-qui"), memesDe: form.getAttribute("data-refaire"),
+      personnes: Array.prototype.map.call(form.querySelectorAll('input[name="personnes"]:checked'), function (x) { return x.value; }),
+      jour: autre ? el["autre-date"].value : jour, heure: el.heure.value, attendus: el.attendus.value, avantLe: el["avant-le"].value,
+      evenementId: estAsso() ? valeurRadio(form, "evenement") : ""
+    };
+    var r = Msg.poserQuestion(g, moi(), saisie);
+    // Visiteur, ou personne retirée entre-temps : l'écran se redessine et le dit.
+    if (r.raison === "droits" || r.raison === "introuvable") { rendre({ focus: true }); return; }
+    var e = r.erreurs || {};
+    // Une erreur dans les options ouvre les options ; une erreur sur les personnes montre la liste.
+    if (e.jour || e.heure || e.attendus || e.avantLe) { form.querySelector("#options-question").open = true; }
+    var erreurs = { question: e.texte, "a-qui": e.a, personnes: e.personnes, heure: e.heure, attendus: e.attendus, "avant-le": e.avantLe };
+    erreurs[autre ? "autre-date" : "jour"] = e.jour;
+    var fautes = montrerErreurs(form, ["question", "a-qui", "personnes", "jour", "autre-date", "heure", "attendus", "avant-le"], erreurs, {
+      "question:vide": M("msgErreurQuestionVide"), "question:long": M("msgErreurQuestionLongue"),
+      "a-qui": M("msgErreurAQui"), "personnes:aucune": M("msgErreurPersonneAucune"), "personnes:trop": M("msgErreurDixPersonnes"),
+      jour: M("msgErreurDatePassee"), "autre-date": M("msgErreurDatePassee"), heure: M("msgErreurHeureSansJour"),
+      "attendus:invalide": M("msgErreurAttendus"), "attendus:trop": M("msgErreurAttendusTrop", { n: r.nbDestinataires || 0 }),
+      "avant-le:passee": M("msgErreurDatePassee"), "avant-le:apres": M("msgErreurAvantLe")
+    });
+    if (fautes) {
+      // Les phrases qui ne sont pas des erreurs d'envoi (limite atteinte, 80 caractères) restent affichées.
+      if (!e.personnes) { compterPersonnes(form); }
+      if (!e.texte) { compterCaracteres(el.question); }
+      return;
+    }
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    // Le calendrier s'ouvrira sur le mois du rendez-vous.
+    var rdv = Msg.dateRendezVous(r.message);
+    if (rdv) { moisAffiche = new Date(rdv.getFullYear(), rdv.getMonth(), 1); }
+    // Rien n'est envoyé : l'écran suivant montre le message qui partirait.
+    aller("#message/" + r.message.id + "/envoi");
+  }
+
+  // ----- Écrans 3 et 5 : ce qui serait envoyé, ce qui serait relancé -----
+
+  function ecranEnvoi(m, relance) {
+    var g = G(), p = moi();
+    // La relance ne vise que ceux qui n'ont pas encore répondu ; elle porte le prénom de la personne qui relance.
+    var n = relance ? Msg.decompte(g, m).sans.length : Msg.destinataires(g, m).length;
+    var premiere = relance ? M("msgNotifRelanceEntete", { groupe: g.nom, prenom: p.prenom }) : M("msgNotifEntete", { groupe: g.nom, prenom: prenomAuteur(m) });
+    var lignes = [m.texte];
+    var quand = quandRendezVous(m), avant = Msg.dateAvantLe(m);
+    if (quand) { lignes.push(M("msgRendezVous", { quand: quand })); }
+    if (!relance && avant) { lignes.push(M("msgNotifAvantLe", { date: fmtLong.format(avant) })); }
+    lignes.push(M(relance ? "msgNotifRelanceFin" : "msgNotifFin"));
+    var titre = M(relance ? "msgRelanceTitre" : "msgEnvoiTitre");
+    var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
+      '<p class="astuce" id="envoi-combien">' + esc(Mn(relance ? "msgRelanceTexte" : "msgEnvoiTexte", n)) + "</p>" +
+      '<p class="confirmation-quoi" id="message-qui-partirait"><strong>' + esc(premiere) + "</strong>" +
+      lignes.map(function (l) { return "<br>" + esc(l); }).join("") + "</p>" +
+      '<a class="bouton bouton--principal" href="#message/' + esc(m.id) + '">' + esc(M("msgVoirLaQuestion")) + "</a>";
+    return { titre: titre, onglet: "messages", html: html };
+  }
+
+  // ----- Écran 4 : le message -----
+
+  function listeNoms(id, titre, personnes, vide) {
+    var p = moi();
+    return '<details class="repli" id="liste-' + id + '"><summary><span class="repli-titres"><span class="repli-titre">' + esc(titre) +
+      '</span></span><span class="compte">' + personnes.length + "</span></summary>" +
+      '<div class="repli-corps">' +
+      (personnes.length
+        ? '<ul class="noms">' + personnes.map(function (x) {
+          return '<li><span class="personne-nom">' + esc(Gr.nomComplet(x)) +
+            (x.id === p.id ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : "") + "</span></li>";
+        }).join("") + "</ul>"
+        : '<p class="calme">' + esc(vide) + "</p>") +
+      "</div></details>";
+  }
+
+  function ecranMessage(id, sous) {
+    var g = G(), p = moi();
+    // Ni auteur ni destinataire : le message n'existe pas pour cette personne, adresse directe comprise.
+    var m = Msg.trouverVisible(g, p, id);
+    if (!m) { return messageIntrouvable(); }
+    if (sous === "envoi") { return ecranEnvoi(m, false); }
+    if (sous === "relance") {
+      var rel = Msg.relance(g, p, id);
+      if (rel.ok) { return ecranEnvoi(m, true); }
+      if (rel.raison === "tout-repondu") {
+        return {
+          titre: M("msgRelanceTitre"), onglet: "messages",
+          html: retour("#messages", M("msgRetourMessages")) + entete(g.nom, M("msgRelanceTitre")) +
+            '<p class="calme" id="relance-inutile">' + esc(M("msgListePasReponduVide")) + "</p>" +
+            '<a class="bouton bouton--principal" href="#message/' + esc(m.id) + '">' + esc(M("msgVoirLaQuestion")) + "</a>"
+        };
+      }
+      // Personne qui ne peut pas relancer, ou question close : le message, sans relance.
+    } else if (sous) { return introuvable(); }
+
+    var c = Msg.decompte(g, m);
+    var close = Msg.estClose(m), destinataire = Msg.estDestinataire(g, p, m), gerable = Msg.peutGerer(g, p, m), maReponse = Msg.reponse(m, p);
+    var creation = Msg.dateCreation(m), avant = Msg.dateAvantLe(m), quand = quandRendezVous(m), rdv = Msg.dateRendezVous(m);
+    var evenement = estAsso() && m.evenementId ? L.trouverEvenement(g, m.evenementId) : null;
+    var pour = evenement ? M("msgPourEvenement").split("{titre}") : null;
+    var ligne = function (texte) { return '<p class="sous-titre">' + texte + "</p>"; };
+    var html = retour("#messages", M("msgRetourMessages")) +
+      '<header class="entete entete--message">' +
+      // Place gardée au-dessus du titre pour l'étiquette de sorte (demande 009). Question close : l'étiquette « Close ».
+      (close ? '<p class="surtitre"><span class="etiquette">' + esc(M("msgClose")) + "</span></p>" : "") +
+      '<h1 tabindex="-1">' + esc(m.texte) + "</h1>" +
+      ligne(esc(M("msgDeLe", { nom: nomAuteur(m), date: creation ? fmtJourMois.format(creation) : "" }))) +
+      ligne(esc(M("msgA", { destinataires: aQui(m) }))) +
+      (quand ? ligne(esc(M("msgRendezVous", { quand: quand }))) : "") +
+      (avant ? ligne(esc(M("msgAvantLe", { date: fmtLong.format(avant) }))) : "") +
+      (pour ? ligne(esc(pour[0]) + '<a href="#evenement/' + esc(evenement.id) + '">' + esc(evenement.titre) + "</a>" + esc(pour[1] || "")) : "") +
+      "</header>" + bandeauMessage();
+
+    if (close) {
+      // Close : plus de boutons « Oui » / « Non », plus de relance ; les listes restent lisibles.
+      html += '<p class="astuce" id="question-close">' + esc(M("msgCloseLe", { date: fmtJourMois.format(Msg.dateCloture(m)) })) +
+        (destinataire ? " " + esc(maReponse ? M("msgVotreReponse", { reponse: motReponse(maReponse) }) : M("msgSansReponse")) : "") + "</p>";
+    } else if (destinataire) {
+      html += '<section class="ma-reponse" id="ma-reponse">' + paireReponse(m.id, maReponse) +
+        (maReponse ? '<p class="message-ok" role="status">' + esc(M("msgVotreReponse", { reponse: motReponse(maReponse) }) + " " + M("msgChangerAide")) + "</p>" : "") +
+        "</section>";
+    }
+
+    // Le compteur en toutes lettres, « Complet » (un mot et une forme) ; la barre n'est qu'un complément.
+    html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteur(c)) + "</span>" +
+      (c.complet ? etiquetteComplet() : "") + "</h2>" +
+      (c.attendus ? '<div class="barre" aria-hidden="true"><span style="width:' + Math.min(100, Math.round(100 * c.oui.length / c.attendus)) + '%"></span></div>' : "") +
+      listeNoms("oui", M("msgOui"), c.oui, M("msgListeOuiVide")) +
+      listeNoms("non", M("msgNon"), c.non, M("msgListeNonVide")) +
+      listeNoms("sans", M("msgListePasRepondu"), c.sans, M("msgListePasReponduVide")) + "</section>";
+
+    // Un seul bouton principal, selon le cas : la paire « Oui » / « Non » si je peux répondre ; sinon « Relancer »
+    // (question ouverte, auteur non destinataire) ; « Refaire » (question close que je peux gérer) ; sinon aucun.
+    var principal = close ? "refaire" : destinataire ? "" : "relancer";
+    var classe = function (nom) { return "bouton " + (principal === nom ? "bouton--principal" : "bouton--secondaire"); };
+    var boutons = "";
+    if (rdv && maReponse === "oui" && L.joursJusqua(rdv) >= 0) {
+      boutons += '<button type="button" class="bouton bouton--secondaire" data-agenda-question="' + esc(m.id) + '">' + esc(M("msgAjouterAgenda")) + "</button>";
+    }
+    // Relancer, clore, refaire : l'auteur, plus le bureau ou les organisateurs destinataires.
+    if (gerable) {
+      if (!close && c.sans.length) { boutons += '<a class="' + classe("relancer") + '" id="relancer" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgRelancer")) + "</a>"; }
+      if (!close) { boutons += '<button type="button" class="bouton bouton--secondaire" data-clore="' + esc(m.id) + '">' + esc(M("msgClore")) + "</button>"; }
+      boutons += '<a class="' + classe("refaire") + '" id="refaire" href="#messages/nouveau/question/' + esc(m.id) + '">' + esc(M("msgRefaire")) + "</a>";
+    }
+    if (boutons) { html += '<div class="section" id="gestion-question">' + boutons + "</div>"; }
+    // Places gardées en bas pour les commentaires (demande 008) et le partage par lien (demande 010) : rien pour l'instant.
+    return { titre: m.texte, onglet: "messages", html: html };
+  }
+
+  // Oui ou Non, en un geste : depuis l'écran du message comme depuis le bloc « À répondre » de l'accueil.
+  function repondreQuestion(bouton) {
+    var id = bouton.getAttribute("data-message"), valeur = bouton.getAttribute("data-reponse");
+    var accueil = adresseActuelle().split("/")[0] === "accueil";
+    var r = Msg.repondre(G(), moi(), id, valeur);
+    if (r.ok) {
+      sauver();
+      if (accueil) { reponseAccueil = { id: id, reponse: valeur }; }
+    }
+    rendre({ garderDefilement: true, garderReplis: true });
+    var suite = accueil ? document.querySelector("#bloc-repondre .message-ok") : document.querySelector('#ma-reponse [data-reponse="' + (valeur === "non" ? "non" : "oui") + '"]');
+    if (suite) { suite.focus({ preventScroll: true }); }
+  }
+
+  function cloreQuestion(id) {
+    var g = G(), p = moi();
+    var m = Msg.trouverVisible(g, p, id);
+    if (!m || !Msg.peutGerer(g, p, m) || Msg.estClose(m)) { rendre({ focus: true }); return; }
+    if (!window.confirm(M("msgConfirmerClore"))) { return; }
+    if (Msg.clore(g, p, id).ok) { sauver(); }
+    rendre({ focus: true });
+  }
+
+  function ajouterAgendaQuestion(id) {
+    var g = G(), p = moi();
+    var m = Msg.trouverVisible(g, p, id);
+    if (!m || Msg.reponse(m, p) !== "oui") { return; }
+    var ics = Msg.fichierAgenda(g, m);
+    if (!ics) { return; }
+    var url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    telecharger("rendez-vous.ics", url);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  // ----- Écran 7 : le bloc « À répondre » de l'accueil -----
+  // Une seule question, la plus pressée, avec « Oui » et « Non » : un toucher répond, sans quitter l'accueil.
+  function blocARepondre() {
+    var g = G(), p = moi();
+    var liste = Msg.listes(g, p).aRepondre;
+    var m = liste[0];
+    var html = '<section class="bloc-reponse" id="bloc-repondre" aria-labelledby="titre-repondre">' +
+      '<h2 class="carte-etiquette" id="titre-repondre">' + esc(M("msgListeARepondre")) + "</h2>";
+    var faite = reponseAccueil ? Msg.trouverVisible(g, p, reponseAccueil.id) : null;
+    if (faite) {
+      html += '<p class="message-ok" role="status" tabindex="-1">' +
+        esc(M("msgReponseEnregistree", { reponse: motReponse(reponseAccueil.reponse), question: faite.texte })) +
+        ' <a href="#message/' + esc(faite.id) + '">' + esc(M("msgChangerDAvis")) + "</a></p>";
+    }
+    if (m) {
+      html += '<a class="carte-titre" id="question-a-repondre" href="#message/' + esc(m.id) + '">' + esc(m.texte) + "</a>" +
+        '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
+        paireReponse(m.id, "");
+    } else {
+      html += '<p class="calme">' + esc(M("msgRienARepondre")) + "</p>";
+    }
+    if (liste.length > 1) { html += '<a class="lien-suite" id="autres-questions" href="#messages">' + esc(Mn("msgAccueilAutres", liste.length - 1)) + "</a>"; }
+    // Groupe simple : le calendrier s'ouvre d'ici, toujours, même quand il n'y a rien à répondre.
+    if (!estAsso()) { html += '<a class="lien-suite" id="voir-calendrier" href="#calendrier">' + esc(M("msgVoirCalendrier")) + "</a>"; }
+    return html + "</section>";
+  }
+
+  // ---------- Page du groupe (Association, ou Groupe pour un groupe simple) ----------
+
+  function ecranGroupe() {
+    var g = G();
+    var equipes = Gr.equipes(g);
+    var sous = [g.ecole, g.ville].filter(Boolean).map(esc).join(" · ");
+    var html = entete(M("surtitreGroupe"), g.nom, sous) + bandeauMessage() +
+      '<a class="carte" id="carte-personnes" href="#personnes">' +
+      '<span class="carte-etiquette">' + esc(M("personnes")) + "</span>" +
+      '<span class="carte-titre">' + esc(Mn("nPersonnes", g.personnes.length)) + "</span>" +
+      '<span class="carte-quand">' + esc(compteRoles(g)) + "</span></a>" +
+      '<a class="carte" id="carte-equipes" href="#equipes">' +
+      '<span class="carte-etiquette">' + esc(M("equipes")) + "</span>" +
+      '<span class="carte-titre">' + esc(Mn("nEquipes", equipes.length)) + "</span>" +
+      (equipes.length ? '<span class="carte-quand">' + esc(equipes.map(nomEquipe).join(", ")) + "</span>" : "") + "</a>" +
+      sectionReglage() +
+      '<section class="section"><h2 class="section-titre">' + esc(M("apparence")) + "</h2>" +
+      '<p class="discret">' + esc(M("apparenceTexte")) + "</p>" +
+      '<a class="lien-suite" href="#charte">' + esc(M("voirLaCharte")) + "</a></section>" +
+      '<section class="section"><h2 class="section-titre">' + esc(M("demonstration")) + "</h2>" +
+      '<p class="discret">' + esc(M("demonstrationTexte")) + "</p>" +
+      '<button type="button" class="bouton bouton--secondaire" data-reinitialiser>' + esc(M("reinitialiser")) + "</button></section>";
+    return { titre: M("ongletGroupe"), onglet: "groupe", html: html };
+  }
+
+  // Réglage « Les membres peuvent écrire à tout le groupe » (demande 007) : seuls le bureau ou les organisateurs
+  // voient cette section. Un toucher change l'état et l'enregistre ; l'état se lit en toutes lettres.
+  function sectionReglage() {
+    if (!gere()) { return ""; }
+    var allume = Msg.reglageToutLeGroupe(G());
+    var mot = M(allume ? "msgReglageAllume" : "msgReglageEteint");
+    var enregistre = reglageEnregistre;
+    reglageEnregistre = false;
+    return '<section class="section" id="reglage-messages"><h2 class="section-titre">' + esc(M("msgReglageTitre")) + "</h2>" +
+      '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("msgReglageToutLeGroupe")) + "</p>" +
+      '<p class="action-meta">' + esc(M("msgReglageAide")) + "</p></div>" +
+      '<button type="button" class="statut" data-reglage aria-pressed="' + allume + '" aria-label="' + esc(M("msgReglageToutLeGroupe") + " : " + mot) + '">' +
+      esc(mot) + "</button></li></ul>" +
+      (enregistre ? '<p class="message-ok" role="status">' + esc(M("msgReglageEnregistre")) + "</p>" : "") + "</section>";
+  }
+
+  function changerReglage() {
+    var r = Msg.changerReglage(G(), moi(), !Msg.reglageToutLeGroupe(G()));
+    if (r.ok) { sauver(); reglageEnregistre = true; }
+    rendre({ garderDefilement: true });
+    var bouton = document.querySelector("#reglage-messages .statut");
+    if (bouton) { bouton.focus({ preventScroll: true }); }
+  }
+
+  // ---------- Personnes ----------
+
+  function ligneEquipes(g, p) {
+    var eq = Gr.equipesDePersonne(g, p.id).filter(function (e) { return !e.bureau; }).map(nomEquipe);
+    return eq.length ? M("equipesDeLaPersonne", { liste: eq.join(", ") }) : M("aucuneEquipePersonne");
+  }
+
+  function ecranPersonnes() {
+    var g = G(), p = moi(), gerer = gere();
+    var liste = Gr.personnesTriees(g);
+    var html = retour(hrefGroupe(), M("ongletGroupe")) +
+      entete(g.nom, M("personnes"), esc(Mn("nPersonnes", liste.length)) + " · " + esc(compteRoles(g))) + bandeauMessage() +
+      (gerer ? '<a class="bouton bouton--principal" id="ajouter-personne" href="#personne/nouvelle">' + esc(M("ajouterUnePersonne")) + "</a>" : "") +
+      '<ul class="personnes">' + liste.map(function (x) {
+        var contenu = '<span class="personne-nom">' + esc(Gr.nomComplet(x)) + (x.id === p.id ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : "") + "</span>" +
+          '<span class="personne-detail">' + esc(nomRole(x.role) + (x.fonction ? " · " + x.fonction : "")) + "</span>" +
+          '<span class="personne-detail">' + esc(ligneEquipes(g, x)) + "</span>" +
+          (gerer && x.contact ? '<span class="personne-detail personne-contact">' + esc(x.contact) + "</span>" : "");
+        return gerer
+          ? '<li><a class="personne personne--lien" id="personne-' + esc(x.id) + '" href="#personne/' + esc(x.id) + '">' + contenu + "</a></li>"
+          : '<li><div class="personne" id="personne-' + esc(x.id) + '">' + contenu + "</div></li>";
+      }).join("") + "</ul>" +
+      '<p class="discret note-bas">' + esc(gerer ? M("contactsReserves") : M("reserveGestion")) + "</p>";
+    return { titre: M("personnes"), onglet: "groupe", html: html };
+  }
+
+  function optionsRoles(g) {
+    var aides = M("rolesAide");
+    return Gr.ROLES[g.sorte].map(function (r) { return { valeur: r, titre: nomRole(r), detail: aides[r] }; });
+  }
+
+  function ecranPersonne(id) {
+    var g = G();
+    var nouvelle = id === "nouvelle";
+    var x = nouvelle ? null : Gr.trouverPersonne(g, id);
+    var html = retour("#personnes", M("personnes"));
+    if (!nouvelle && !x) {
+      return { titre: M("personnes"), onglet: "groupe", html: html + entete(g.nom, M("personnes")) + etatVide("chemin", M("personneIntrouvable"), "") };
+    }
+    if (!gere()) {
+      if (nouvelle) { return ecranPersonnes(); }
+      html += entete(g.nom, Gr.nomComplet(x), esc(nomRole(x.role) + (x.fonction ? " · " + x.fonction : ""))) +
+        '<p>' + esc(ligneEquipes(g, x)) + "</p>" +
+        '<p class="discret note-bas">' + esc(M("reserveGestion")) + "</p>";
+      return { titre: Gr.nomComplet(x), onglet: "groupe", html: html };
+    }
+    var v = function (k) { return x ? ' value="' + esc(x[k] || "") + '"' : ""; };
+    html += entete(g.nom, nouvelle ? M("ajouterUnePersonne") : Gr.nomComplet(x)) + bandeauMessage() +
+      '<form class="form-personne" data-personne="' + (x ? esc(x.id) : "") + '" novalidate>' +
+      champ("prenom", M("champPrenom"), 'autocomplete="off" autocapitalize="words" maxlength="40"' + v("prenom"), "") +
+      champ("nom", M("champNom"), 'autocomplete="off" autocapitalize="words" maxlength="40"' + v("nom"), "") +
+      champ("contact", M("champContact"), 'autocomplete="off" inputmode="email" autocapitalize="off" spellcheck="false"' + v("contact"),
+        M("champContactAide")) +
+      choix("role", M("champRole"), optionsRoles(g), [x ? x.role : "membre"]) +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(nouvelle ? M("ajouterLaPersonne") : M("enregistrerLesChangements")) + "</button>" +
+      (nouvelle
+        ? '<a class="lien-suite" href="#personnes">' + esc(M("voirLaListe")) + "</a>"
+        : '<button type="button" class="lien-bouton lien-bouton--alerte" data-retirer="' + esc(x.id) + '">' + esc(M("retirerLaPersonne")) + "</button>") +
+      "</form>";
+    return { titre: nouvelle ? M("ajouterUnePersonne") : Gr.nomComplet(x), onglet: "groupe", html: html, champ: nouvelle ? "prenom" : null };
+  }
+
+  var TEXTES_PERSONNE = function () {
+    return {
+      "prenom:vide": M("erreurPrenomVide"), "prenom:long": M("erreurTropLong"), "nom:long": M("erreurTropLong"),
+      contact: M("erreurContact"), role: M("erreurRole")
+    };
+  };
+
+  function envoyerPersonne(form) {
+    if (!gere()) { return; }
+    var g = G();
+    var id = form.getAttribute("data-personne");
+    var saisie = {
+      prenom: form.elements.prenom.value, nom: form.elements.nom.value,
+      contact: form.elements.contact.value, role: valeurRadio(form, "role")
+    };
+    var r = id ? Gr.modifierPersonne(g, id, saisie) : Gr.ajouterPersonne(g, saisie);
+    erreurGenerale(form, "");
+    if (montrerErreurs(form, ["prenom", "nom", "contact", "role"], r.erreurs || {}, TEXTES_PERSONNE())) { return; }
+    if (r.raison === "dernier-gestionnaire") { erreurGenerale(form, M("dernierGestionnaire")); return; }
+    if (!r.ok) { return; }
+    sauver();
+    remplirDemo();
+    if (id) {
+      message = M("personneModifiee", { nom: Gr.nomComplet(r.personne) });
+      aller("#personnes");
+    } else {
+      // On reste sur le formulaire, vide, pour enchaîner la personne suivante.
+      message = M("personneAjoutee", { nom: Gr.nomComplet(r.personne) });
+      aller("#personne/nouvelle");
+    }
+  }
+
+  function retirerPersonne(bouton) {
+    var g = G();
+    var x = Gr.trouverPersonne(g, bouton.getAttribute("data-retirer"));
+    if (!x || !gere()) { return; }
+    var form = bouton.closest("form");
+    if (Gr.gestionnaires(g).length <= 1 && Gr.peutGerer(g, x)) { erreurGenerale(form, M("dernierGestionnaire")); return; }
+    if (!window.confirm(M("confirmerRetrait", { nom: Gr.nomComplet(x) }))) { return; }
+    var r = Gr.retirerPersonne(g, x.id);
+    if (!r.ok) { erreurGenerale(form, M("dernierGestionnaire")); return; }
+    sauver();
+    remplirDemo();
+    message = M("personneRetiree", { nom: Gr.nomComplet(x) });
+    aller(gere() ? "#personnes" : hrefGroupe());
+  }
+
+  // ---------- Équipes ----------
+
+  function apercuNoms(g, e) {
+    var noms = Gr.membresEquipe(g, e).map(function (p) { return p.prenom; });
+    if (!noms.length) { return M("equipeVide"); }
+    return noms.length > 4 ? noms.slice(0, 4).join(", ") + " " + M("etAutres", { n: noms.length - 4 }) : noms.join(", ");
+  }
+
+  function ecranEquipes() {
+    var g = G(), gerer = gere();
+    var liste = Gr.equipes(g);
+    var html = retour(hrefGroupe(), M("ongletGroupe")) + entete(g.nom, M("equipes"), esc(Mn("nEquipes", liste.length))) + bandeauMessage() +
+      (gerer ? '<a class="bouton bouton--principal" id="creer-equipe" href="#equipe/nouvelle">' + esc(M("creerUneEquipe")) + "</a>" : "");
+    if (!liste.length) {
+      html += '<div class="section">' + etatVide("panneau", M("aucuneEquipe"), esc(M("aucuneEquipeAide"))) + "</div>";
+    } else {
+      html += '<div class="section">' + liste.map(function (e) {
+        return '<a class="carte" id="equipe-' + esc(e.id) + '" href="#equipe/' + esc(e.id) + '">' +
+          '<span class="carte-titre">' + esc(nomEquipe(e)) + "</span>" +
+          '<span class="carte-quand">' + esc(Mn("nPersonnes", e.personnes.length)) + "</span>" +
+          '<span class="carte-infos">' + esc(apercuNoms(g, e)) + "</span></a>";
+      }).join("") + "</div>";
+    }
+    if (!gerer) { html += '<p class="discret note-bas">' + esc(M("reserveGestion")) + "</p>"; }
+    return { titre: M("equipes"), onglet: "groupe", html: html };
+  }
+
+  function ecranEquipe(id) {
+    var g = G();
+    var nouvelle = id === "nouvelle";
+    var e = nouvelle ? null : Gr.trouverEquipe(g, id);
+    var html = retour("#equipes", M("equipes"));
+    if (!nouvelle && !e) {
+      return { titre: M("equipes"), onglet: "groupe", html: html + entete(g.nom, M("equipes")) + etatVide("chemin", M("equipeIntrouvable"), "") };
+    }
+    if (nouvelle && !gere()) { return ecranEquipes(); }
+    if (!nouvelle && (e.bureau || !gere())) {
+      var membres = Gr.membresEquipe(g, e);
+      html += entete(g.nom, nomEquipe(e), esc(Mn("nPersonnes", membres.length))) +
+        (membres.length
+          ? '<ul class="membres">' + membres.map(function (p) {
+            return '<li><span class="membre-nom">' + esc(Gr.nomComplet(p)) + "</span>" +
+              '<span class="membre-role">' + esc(p.fonction || nomRole(p.role)) + "</span></li>";
+          }).join("") + "</ul>"
+          : etatVide("calme", M("equipeVide"), "")) +
+        '<p class="discret note-bas">' + esc(e.bureau ? M("equipeBureauNote") : M("reserveGestion")) + "</p>";
+      return { titre: nomEquipe(e), onglet: "groupe", html: html };
+    }
+    var options = Gr.personnesTriees(g).map(function (p) { return { valeur: p.id, titre: Gr.nomComplet(p) }; });
+    html += entete(g.nom, nouvelle ? M("creerUneEquipe") : e.nom) +
+      '<form class="form-equipe" data-equipe="' + (e ? esc(e.id) : "") + '" novalidate>' +
+      champ("nom-equipe", M("champNomEquipe"), 'autocomplete="off" autocapitalize="sentences" maxlength="40"' + (e ? ' value="' + esc(e.nom) + '"' : ""), "") +
+      choix("membres", M("champMembresEquipe"), options, e ? e.personnes : [], "checkbox", "choix--liste") +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(nouvelle ? M("creerLEquipe") : M("enregistrerLEquipe")) + "</button>" +
+      (nouvelle ? "" : '<button type="button" class="lien-bouton lien-bouton--alerte" data-supprimer-equipe="' + esc(e.id) + '">' + esc(M("supprimerLEquipe")) + "</button>") +
+      "</form>";
+    return { titre: nouvelle ? M("creerUneEquipe") : e.nom, onglet: "groupe", html: html, champ: nouvelle ? "nom-equipe" : null };
+  }
+
+  function envoyerEquipe(form) {
+    if (!gere()) { return; }
+    var g = G();
+    var id = form.getAttribute("data-equipe");
+    var saisie = {
+      nom: form.elements["nom-equipe"].value,
+      personnes: Array.prototype.map.call(form.querySelectorAll('input[name="membres"]:checked'), function (c) { return c.value; })
+    };
+    var r = id ? Gr.modifierEquipe(g, id, saisie) : Gr.creerEquipe(g, saisie);
+    var erreurs = r.erreurs ? { "nom-equipe": r.erreurs.nom } : {};
+    if (montrerErreurs(form, ["nom-equipe"], erreurs, { "nom-equipe:vide": M("erreurNomEquipeVide"), "nom-equipe:long": M("erreurTropLong") })) { return; }
+    if (!r.ok) { return; }
+    sauver();
+    message = M(id ? "equipeModifiee" : "equipeCreee", { nom: r.equipe.nom });
+    aller("#equipes");
+  }
+
+  function supprimerEquipe(bouton) {
+    var g = G();
+    var e = Gr.trouverEquipe(g, bouton.getAttribute("data-supprimer-equipe"));
+    if (!e || e.bureau || !gere()) { return; }
+    if (!window.confirm(M("confirmerSuppressionEquipe", { nom: e.nom }))) { return; }
+    Gr.supprimerEquipe(g, e.id);
+    sauver();
+    message = M("equipeSupprimee", { nom: e.nom });
+    aller("#equipes");
+  }
+
+  // ---------- Charte (page interne) ----------
+
+  function ecranCharte() {
+    var p = L.paletteAssociation(G().couleur, FOND);
+    function ratio(a, b) { return L.contraste(a, b).toFixed(1).replace(".", ",") + ":1"; }
+    var nuances = [
+      ["Couleur principale", p.principale, M("charteCouleurDetail")],
+      ["Bouton principal", p.principaleFond, "Texte " + (p.surPrincipale === "#FFFFFF" ? "blanc" : "foncé") + " : contraste " + ratio(p.surPrincipale, p.principaleFond)],
+      ["Principale pour écrire", p.principaleTexte, "Liens et titres de carte : " + ratio(p.principaleTexte, p.principalePale) + " sur la teinte pâle"],
+      ["Principale pâle", p.principalePale, "Fonds légers (encadrés, pastilles)"],
+      ["Accent bleu canard", "#0B6E77", "« En cours », chiffres, informations : " + ratio("#0B6E77", FOND)],
+      ["Alerte", "#B8322A", "Retards et annulation : " + ratio("#B8322A", FOND)],
+      ["Fond crème", FOND, "Fond de toutes les pages"],
+      ["Texte", "#2A211C", "Texte courant : " + ratio("#2A211C", FOND)],
+      ["Texte doux", "#6B5D52", "Informations secondaires : " + ratio("#6B5D52", FOND)]
+    ];
+    var regleVocabulaire = M("charteRegleVocabulaire");
+    var html = retour(hrefGroupe(), M("ongletGroupe")) + entete("Page interne", "Charte graphique", "Ce que chaque écran doit respecter") +
+      '<section class="section"><h2 class="section-titre">Règles</h2><ul class="regles">' +
+      "<li>Une liste courte ou un résumé par écran ; le détail s'ouvre au toucher.</li>" +
+      "<li>Un seul bouton principal par écran.</li>" +
+      "<li>" + esc(M("charteReglePaire")) + "</li>" +
+      "<li>Boutons nommés par un verbe et son objet, jamais une icône seule.</li>" +
+      "<li>Texte de 16 px minimum, contraste AA (4,5:1).</li>" +
+      "<li>Aucun défilement de côté sur un téléphone de 360 px.</li>" +
+      (regleVocabulaire ? "<li>" + esc(regleVocabulaire) + "</li>" : "") + "</ul></section>" +
+
+      '<section class="section"><h2 class="section-titre">Couleurs</h2><ul class="nuancier">' +
+      nuances.map(function (n) {
+        return '<li class="nuance"><span class="nuance-carre" style="background:' + esc(n[1]) + '"></span>' +
+          '<span><span class="nuance-nom">' + esc(n[0]) + " · " + esc(n[1]) + '</span><span class="nuance-detail">' + esc(n[2]) + "</span></span></li>";
+      }).join("") + "</ul></section>" +
+
+      '<section class="section" id="charte-couleur"><h2 class="section-titre">' + esc(M("charteCouleurTitre")) + "</h2>" +
+      (gere()
+        ? '<p class="discret">' + esc(M("charteCouleurTexte")) + "</p>" +
+          '<div class="choix-couleurs" style="margin-top:10px">' + M("couleurs").map(function (c) {
+            var choisi = c[1].toUpperCase() === p.principale;
+            return '<button type="button" class="choix-couleur" data-couleur="' + esc(c[1]) + '" aria-pressed="' + choisi + '">' +
+              '<span style="background:' + esc(c[1]) + '" aria-hidden="true"></span>Choisir ' + esc(minuscule(c[0])) + "</button>";
+          }).join("") + "</div>"
+        : '<p class="discret">' + esc(M("charteCouleurReservee")) + "</p>") + "</section>" +
+
+      '<section class="section"><h2 class="section-titre">Textes</h2><ul class="echelle">' +
+      '<li><span style="font-size:2rem;font-weight:850;line-height:1.15">Titre de page</span><span class="discret">32 px, Nunito très gras</span></li>' +
+      '<li><span style="font-size:1.25rem;font-weight:800">Titre de section</span><span class="discret">20 px, gras</span></li>' +
+      "<li><span>Texte courant : phrases simples, mots du quotidien.</span><span class=\"discret\">17 px, normal</span></li>" +
+      '<li><span class="discret" style="display:inline">Texte secondaire</span><span class="discret">16 px, le minimum</span></li></ul></section>' +
+
+      '<section class="section exemples"><h2 class="section-titre">Composants</h2>' +
+      '<button type="button" class="bouton bouton--principal" data-exemple>' + esc(M("charteExemplePrincipal")) + "</button>" +
+      '<button type="button" class="bouton bouton--secondaire" data-exemple>' + esc(M("charteExempleSecondaire")) + "</button>" +
+      '<p><a class="lien-suite" href="#charte">Voir le détail</a></p>' +
+      '<a class="carte" href="#charte"><span class="carte-etiquette">Carte</span><span class="carte-titre">Un résumé qui s\'ouvre au toucher</span></a>' +
+      '<p><span class="etiquette">Manquent 2</span> <span class="etiquette etiquette--alerte">En retard</span> <span class="etiquette etiquette--ok">Complet</span></p>' +
+      '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">Statut d\'une action</p><p class="action-meta">On touche l\'étiquette pour avancer</p></div>' +
+      '<span class="statut statut--en-cours" style="display:inline-flex;align-items:center;justify-content:center">En cours</span></li></ul>' +
+      etatVide("calme", "État vide", "Une petite illustration et une phrase qui dit quoi faire.") +
+      exemplesFormulaire() +
+      exemplesMessages() +
+      "</section>";
+    return { titre: "Charte graphique", onglet: "groupe", html: html };
+  }
+
+  // Les éléments de formulaire, montrés une fois chacun (demande 006, à la demande de la direction artistique).
+  function exemplesFormulaire() {
+    var C = M("charteFormulaire");
+    var numeroter = function (t, i) { return { valeur: String(i), titre: t }; };
+    return champ("exemple-champ", C.champ, 'autocomplete="off"', C.champAide) +
+      champ("exemple-date", C.date, "", "", "date") +
+      champ("exemple-heure", C.heure, "", "", "time") +
+      champ("exemple-court", C.court, 'inputmode="numeric" autocomplete="off" maxlength="2" class="champ-court" value="2"', "") +
+      champ("exemple-erreur", C.erreurChamp, 'autocomplete="off" aria-invalid="true"', "", "text", C.erreur) +
+      choix("exemple-choix", C.choix, C.choixOptions.map(numeroter), ["1"]) +
+      choixReplie("exemple-replie", C.replie, [{ options: C.replieOptions.map(numeroter) }], "0") +
+      '<p class="message-ok">' + esc(C.messageOk) + "</p>" +
+      '<button type="button" class="lien-bouton" data-exemple>' + esc(C.lienBouton) + "</button>" +
+      '<button type="button" class="lien-bouton lien-bouton--alerte" data-exemple>' + esc(C.lienBoutonAlerte) + "</button>" +
+      '<ul class="actions"><li class="action"><a class="action-texte action-texte--lien" href="#charte">' +
+      '<p class="action-libelle">' + esc(C.actionLibelle) + '</p><p class="action-meta">' + esc(C.actionMeta) + "</p></a>" +
+      '<span class="statut" style="display:inline-flex;align-items:center;justify-content:center">' + esc(L.LIBELLES_STATUT["a-faire"]) + "</span></li></ul>";
+  }
+
+  // Les composants de la demande 007, montrés une fois chacun : la paire de réponse dans ses trois états (N1),
+  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), le choix sur deux colonnes et la case qui ne se coche plus (N5), le réglage allumé (N6).
+  function exemplesMessages() {
+    var C = M("chartePaire");
+    var F = M("charteFormulaire");
+    return '<h3 id="charte-paire">' + esc(C.titre) + "</h3>" +
+      '<p class="discret">' + esc(C.avant) + "</p>" + paireReponse("", "", true) +
+      '<p class="discret">' + esc(C.apresOui) + "</p>" + paireReponse("", "oui", true) +
+      '<p class="discret">' + esc(C.apresNon) + "</p>" + paireReponse("", "non", true) +
+      '<p class="discret">' + esc(C.bloc) + "</p>" +
+      '<div class="bloc-reponse"><p class="carte-etiquette">' + esc(M("msgListeARepondre")) + "</p>" +
+      '<a class="carte-titre" href="#charte">' + esc(C.question) + "</a>" +
+      '<span class="carte-quand">' + esc(M("msgDe", { prenom: C.de }) + " · " + C.rendezVous) + "</span>" +
+      paireReponse("", "", true) +
+      '<a class="lien-suite" href="#charte">' + esc(Mn("msgAccueilAutres", C.autres)) + "</a></div>" +
+      '<ul class="legende">' + legendeRendezVous() + "</ul>" +
+      '<fieldset class="choix choix--deux-colonnes"><legend>' + esc(M("msgChampJour")) + "</legend>" +
+      '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(M("msgJourAujourdhui")) + "</span></span></label>" +
+      '<label class="choix-option"><input type="radio" name="exemple-jour" disabled><span class="choix-texte"><span class="choix-titre">' + esc(M("msgJourDemain")) + "</span></span></label></fieldset>" +
+      '<fieldset class="choix choix--liste"><legend>' + esc(M("msgAPersonnes")) + ' <span class="compte">' + esc(M("msgPersonnesCompte", { n: 10 })) + "</span></legend>" +
+      '<label class="choix-option"><input type="checkbox" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[1]) + "</span></span></label>" +
+      '<label class="choix-option choix-option--bloquee"><input type="checkbox" disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[2]) + "</span></span></label>" +
+      '<p class="champ-erreur">' + esc(M("msgErreurDixPersonnes")) + "</p></fieldset>" +
+      '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("msgReglageToutLeGroupe")) + "</p></div>" +
+      '<span class="statut" aria-pressed="true" style="display:inline-flex;align-items:center;justify-content:center">' + esc(M("msgReglageAllume")) + "</span></li></ul>";
+  }
+
+  // Réservé au bureau ou aux organisateurs : le geste est refusé même sans passer par les boutons.
+  function choisirCouleur(couleur) {
+    if (!gere() || hexCouleurs().indexOf(couleur) < 0) { return; }
+    G().couleur = couleur;
+    sauver();
+    appliquerCouleur();
+    rendre({ garderDefilement: true });
+  }
+
+  // ---------- Aide (lien texte en haut de chaque écran) ----------
+
+  function ecranAide() {
+    var questions = M("aideQuestions");
+    var html = entete(G().nom, M("aideTitre"), esc(M("aideSousTitre"))) +
+      '<div class="questions">' + questions.map(function (q, i) {
+        return '<details class="repli" id="question-' + (i + 1) + '"><summary><span class="repli-titres">' + esc(q[0]) + "</span></summary>" +
+          '<div class="repli-corps"><p>' + esc(q[1]) + "</p></div></details>";
+      }).join("") + "</div>" +
+      '<section class="section">' + etatVide("chemin", M("aideAutre"), esc(M("aideAutreTexte"))) + "</section>";
+    return { titre: M("aideTitre"), onglet: null, aide: true, html: html };
+  }
+
+  // ---------- Démo (outil du testeur) : créer un groupe, enregistrer et ouvrir un essai ----------
+
+  function hexCouleurs() { return M("couleurs").map(function (c) { return c[1]; }); }
+
+  function ecranCreerGroupe() {
+    var sortes = M("sortes");
+    var html = retour("#accueil", M("ongletAccueil")) +
+      entete(D("etiquette"), M("creerGroupeTitre"), esc(M("creerGroupeSousTitre"))) + avertissement() +
+      '<form class="form-groupe" novalidate>' +
+      champ("nom-groupe", M("champNomGroupe"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"', M("champNomGroupeAide")) +
+      choix("sorte", M("champSorte"), Gr.SORTES.map(function (s) { return { valeur: s, titre: sortes[s][0], detail: sortes[s][1] }; }), ["simple"]) +
+      choix("couleur", M("champCouleur"), M("couleurs").map(function (c) { return { valeur: c[1], titre: c[0], pastille: c[1] }; }), [M("couleurs")[0][1]], "radio", "choix--couleurs") +
+      champ("prenom-createur", M("champVotrePrenom"), 'autocomplete="given-name" autocapitalize="words" maxlength="40"', M("champVotrePrenomAide")) +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M("creerLeGroupe")) + "</button>" +
+      "</form>";
+    return { titre: M("creerGroupeTitre"), onglet: null, html: html, champ: "nom-groupe" };
+  }
+
+  function envoyerGroupe(form) {
+    var saisie = {
+      nom: form.elements["nom-groupe"].value, sorte: valeurRadio(form, "sorte"),
+      couleur: valeurRadio(form, "couleur"), prenom: form.elements["prenom-createur"].value
+    };
+    var r = Gr.creerGroupe(etat, saisie, hexCouleurs());
+    var e = r.erreurs || {};
+    var erreurs = { "nom-groupe": e.nom, sorte: e.sorte, couleur: e.couleur, "prenom-createur": e.prenom };
+    if (montrerErreurs(form, ["nom-groupe", "sorte", "couleur", "prenom-createur"], erreurs, {
+      "nom-groupe:vide": M("erreurNomGroupeVide"), "nom-groupe:long": M("erreurNomGroupeLong"),
+      sorte: M("champSorte"), couleur: M("champCouleur"),
+      "prenom-createur:vide": M("erreurPrenomVide"), "prenom-createur:long": M("erreurTropLong")
+    })) { return; }
+    sauver();
+    moisAffiche = null;
+    appliquerCouleur();
+    remplirOnglets();
+    remplirDemo();
+    message = M("groupeCree", { nom: r.groupe.nom });
+    aller("#personnes");
+  }
+
+  function ecranEnregistrer() {
+    var nbPersonnes = etat.groupes.reduce(function (n, g) { return n + g.personnes.length; }, 0);
+    var partage = typeof navigator.canShare === "function" && typeof File === "function";
+    var html = retour("#accueil", M("ongletAccueil")) + entete(D("etiquette"), M("enregistrerTitre")) + avertissement() +
+      "<p>" + esc(M("enregistrerTexte")) + "</p>" +
+      '<p class="discret note-bas">' + esc(M("enregistrerContenu", { groupes: Mn("nGroupes", etat.groupes.length), personnes: Mn("nPersonnes", nbPersonnes) })) + "</p>" +
+      '<div class="section">' +
+      '<button type="button" class="bouton bouton--principal" data-enregistrer-essai>' + esc(M("enregistrerBouton")) + "</button>" +
+      (partage ? '<button type="button" class="bouton bouton--secondaire" data-envoyer-essai>' + esc(M("envoyerBouton")) + "</button>" : "") +
+      '<p class="message-ok" id="essai-statut" role="status" hidden></p></div>';
+    return { titre: M("enregistrerTitre"), onglet: null, html: html };
+  }
+
+  function fichierEssai() {
+    var nom = Gr.nomFichierEssai();
+    return { nom: nom, texte: Gr.exporterEssai(etat) };
+  }
+
+  function statutEssai(texte) {
+    var z = document.getElementById("essai-statut");
+    if (z) { z.hidden = !texte; z.textContent = texte; }
+  }
+
+  function enregistrerEssai() {
+    var f = fichierEssai();
+    var url = URL.createObjectURL(new Blob([f.texte], { type: "application/json" }));
+    telecharger(f.nom, url);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+    statutEssai(M("essaiEnregistre", { nom: f.nom }));
+  }
+
+  function envoyerEssai() {
+    var f = fichierEssai();
+    var fichier = new File([f.texte], f.nom, { type: "application/json" });
+    if (!navigator.canShare || !navigator.canShare({ files: [fichier] })) { statutEssai(M("essaiEnvoiImpossible")); return; }
+    navigator.share({ files: [fichier], title: M("enregistrerTitre") }).catch(function (err) {
+      if (!err || err.name !== "AbortError") { statutEssai(M("essaiEnvoiImpossible")); }
+    });
+  }
+
+  function ecranOuvrir() {
+    var html = retour("#accueil", M("ongletAccueil")) + entete(D("etiquette"), M("ouvrirTitre")) +
+      "<p>" + esc(M("ouvrirTexte")) + "</p>" +
+      '<div class="section">' +
+      '<input type="file" id="fichier-essai" class="visuellement-cache">' +
+      '<label class="bouton bouton--principal" for="fichier-essai">' + esc(M("choisirFichier")) + "</label>" +
+      '<p class="champ-erreur" id="essai-erreur" role="alert"></p></div>';
+    return { titre: M("ouvrirTitre"), onglet: null, html: html };
+  }
+
+  function ouvrirEssai(fichier) {
+    var zone = document.getElementById("essai-erreur");
+    var lecteur = new FileReader();
+    lecteur.onload = function () {
+      var r = Gr.lireEssai(String(lecteur.result), DONNEES.version);
+      if (!r.ok) { zone.textContent = M(r.raison === "ancien" ? "essaiAncien" : "essaiIllisible"); return; }
+      if (!window.confirm(M("confirmerOuvrir", { nom: fichier.name }))) { return; }
+      etat = Gr.rattacherActions(r.etat); // essais enregistrés avant la demande 005b
+      sauver();
+      creneauOuvert = null; annulationFaite = null; qrVisible = false; moisAffiche = null;
+      appliquerCouleur();
+      remplirOnglets();
+      remplirDemo();
+      var nb = etat.groupes.reduce(function (n, g) { return n + g.personnes.length; }, 0);
+      message = M("essaiOuvert", { groupes: Mn("nGroupes", etat.groupes.length), personnes: Mn("nPersonnes", nb) });
+      aller("#accueil");
+    };
+    lecteur.onerror = function () { zone.textContent = M("essaiIllisible"); };
+    lecteur.readAsText(fichier);
+  }
+
+  // ---------- Espace parent : tableau des coups de main ----------
+  // Le lien des parents marche quel que soit le groupe ouvert dans la démo :
+  // on cherche l'événement (ou l'inscription) dans tous les groupes.
+
+  function evenementPartout(id) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var g = etat.groupes[i];
+      var e = g.evenements ? L.trouverEvenement(g, id) : null;
+      if (e) { return { groupe: g, evenement: e }; }
+    }
+    return null;
+  }
+
+  function inscriptionPartout(jeton) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var g = etat.groupes[i];
+      var t = g.evenements ? L.trouverInscription(g, jeton) : null;
+      if (t) { t.groupe = g; return t; }
+    }
+    return null;
+  }
+
+  function ecranInscription(id) {
+    var trouve = evenementPartout(id);
+    var e = trouve && trouve.evenement;
+    if (!e || !e.creneaux.length || L.estPasse(e)) { return lienInconnu(); }
+    var asso = trouve.groupe;
+    var date = L.dateEvenement(e);
+    var html = '<header class="affiche">' +
+      '<p class="surtitre">' + esc(asso.nom) + (asso.ecole ? " · " + esc(asso.ecole) : "") + "</p>" +
+      '<h1 tabindex="-1">' + esc(e.titre) + "</h1>" +
+      '<p class="affiche-date">' + esc([dateLongue(date), e.lieu].filter(Boolean).join(" · ")) + "</p>" +
+      '<p class="affiche-texte">On cherche des parents pour tenir la journée. Choisissez un créneau : même une heure aide beaucoup. Pas besoin de compte.</p>' +
+      "</header>" +
+      '<ul class="creneaux">';
+    e.creneaux.forEach(function (c) {
+      var reste = L.placesRestantes(c);
+      var complet = reste === 0;
+      var ouvert = creneauOuvert === c.id && !complet;
+      html += '<li class="creneau' + (complet ? " creneau--complet" : "") + (ouvert ? " creneau--ouvert" : "") + '" id="creneau-' + esc(c.id) + '">' +
+        '<div class="creneau-haut">' +
+        '<div class="creneau-infos"><p class="creneau-horaire">' + esc(c.horaire) + "</p>" +
+        '<p class="creneau-titre">' + esc(c.titre) + "</p>" +
+        '<p class="creneau-places">' + jauge(c) + '<span class="creneau-reste">' + esc(textePlaces(reste)) + "</span></p></div>" +
+        (complet
+          ? '<span class="etiquette">Complet</span>'
+          : (ouvert ? "" : '<button type="button" class="bouton bouton--secondaire bouton--petit" data-ouvrir="' + esc(c.id) + '" aria-label="Je viens : ' + esc(c.titre) + ", " + esc(c.horaire) + '">Je viens</button>')) +
+        "</div>" +
+        (c.inscrits.length ? '<p class="creneau-noms">Avec ' + esc(c.inscrits.map(L.nomPublic).join(", ")) + "</p>" : '<p class="creneau-noms">Personne pour l\'instant.</p>') +
+        (ouvert ? formulaire(e, c) : "") +
+        "</li>";
+    });
+    html += "</ul>" +
+      '<p class="discret pied-affiche">Votre prénom et l\'initiale de votre nom apparaissent sur ce tableau. Votre téléphone ou votre e-mail reste visible du bureau seulement.</p>';
+    return { titre: "Coups de main — " + e.titre, parent: true, html: html };
+  }
+
+  function textePlaces(reste) {
+    if (reste === 0) { return "Plus de place"; }
+    if (reste === 1) { return "Dernière place"; }
+    return "Encore " + reste + " places";
+  }
+
+  function jauge(c) {
+    var s = '<span class="jauge" aria-hidden="true">';
+    for (var i = 0; i < c.places; i++) { s += '<span class="' + (i < c.inscrits.length ? "pris" : "libre") + '"></span>'; }
+    return s + "</span>";
+  }
+
+  function formulaire(e, c) {
+    return '<form class="formulaire" data-evenement="' + esc(e.id) + '" data-creneau="' + esc(c.id) + '" novalidate>' +
+      '<p class="formulaire-titre">Je m\'inscris : ' + esc(minuscule(c.titre)) + ", " + esc(c.horaire) + "</p>" +
+      champ("prenom", "Votre prénom", 'autocomplete="given-name" autocapitalize="words" maxlength="40"', "") +
+      champ("initiale", "Première lettre de votre nom", 'autocomplete="off" autocapitalize="characters" maxlength="1" class="champ-court"', "Par exemple D pour Dupont.") +
+      champ("contact", "Téléphone ou e-mail", 'autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"', "Pour vous prévenir en cas de changement. Seul le bureau le voit.") +
+      '<p class="erreur-generale" id="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">Je m\'inscris</button>' +
+      '<button type="button" class="lien-bouton" data-fermer>Finalement non</button>' +
+      "</form>";
+  }
+
+  // sorte : "text" (par défaut), "date" ou "time" (saisie de date ou d'heure du téléphone).
+  function champ(nom, libelle, attributs, aide, sorte, erreur) {
+    var idAide = aide ? "aide-" + nom : "";
+    return '<div class="champ">' +
+      '<label for="champ-' + nom + '">' + esc(libelle) + "</label>" +
+      (aide ? '<p class="champ-aide" id="' + idAide + '">' + esc(aide) + "</p>" : "") +
+      '<input id="champ-' + nom + '" name="' + nom + '" type="' + (sorte || "text") + '" ' + attributs +
+      ' aria-describedby="' + (idAide ? idAide + " " : "") + "erreur-" + nom + '">' +
+      '<p class="champ-erreur" id="erreur-' + nom + '">' + esc(erreur || "") + "</p></div>";
+  }
+
+  function ouvrirFormulaire(id) {
+    creneauOuvert = id;
+    rendre({ garderDefilement: true });
+    var li = document.getElementById("creneau-" + id);
+    if (li) {
+      li.querySelector("input[name=prenom]").focus({ preventScroll: true });
+      li.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+  }
+
+  function envoyerFormulaire(form) {
+    var saisie = {
+      prenom: form.elements.prenom.value,
+      initiale: form.elements.initiale.value,
+      contact: form.elements.contact.value
+    };
+    var trouve = evenementPartout(form.getAttribute("data-evenement"));
+    var r = trouve ? L.inscrire(trouve.groupe, trouve.evenement.id, form.getAttribute("data-creneau"), saisie) : { ok: false, raison: "introuvable" };
+    ["prenom", "initiale", "contact"].forEach(function (n) {
+      var msg = (r.erreurs && r.erreurs[n]) || "";
+      document.getElementById("erreur-" + n).textContent = msg;
+      form.elements[n].setAttribute("aria-invalid", msg ? "true" : "false");
+    });
+    if (r.ok) {
+      sauver();
+      creneauOuvert = null;
+      location.hash = "#merci/" + r.jeton;
+      return;
+    }
+    if (r.raison === "complet") {
+      document.getElementById("erreur-generale").textContent = "Ce créneau vient d'être complété. Choisissez-en un autre.";
+      return;
+    }
+    var premier = form.querySelector('[aria-invalid="true"]');
+    if (premier) { premier.focus(); }
+  }
+
+  // ---------- Espace parent : confirmation et annulation ----------
+
+  function ecranMerci(jeton) {
+    var t = inscriptionPartout(jeton);
+    if (!t) { return lienInconnu(); }
+    var lien = lienPersonnel(jeton);
+    var contact = L.analyserContact(t.volontaire.contact);
+    var parSms = contact && contact.type === "tel";
+    var corps = MA("messageLienPersonnel", {
+      nom: t.evenement.titre, creneau: minuscule(t.creneau.titre), date: fmtLong.format(L.dateEvenement(t.evenement)),
+      horaire: t.creneau.horaire, lien: lien
+    });
+    var envoi = L.lienEnvoi(t.volontaire.contact, "Mon coup de main — " + t.evenement.titre, corps);
+    var html = '<section class="confirmation">' +
+      '<span class="tampon-ok">Inscrit</span>' +
+      '<h1 tabindex="-1">C\'est noté, ' + esc(t.volontaire.prenom) + ".</h1>" +
+      '<p class="confirmation-quoi"><strong>' + esc(t.creneau.titre) + "</strong><br>" +
+      esc(dateLongue(L.dateEvenement(t.evenement))) + " · " + esc(t.creneau.horaire) + (t.evenement.lieu ? "<br>" + esc(t.evenement.lieu) : "") + "</p>" +
+      '<p>Merci. Sur le tableau, les autres parents voient seulement « <strong>' + esc(L.nomPublic(t.volontaire)) + "</strong> ».</p>" +
+      '<div class="lien-perso"><h2>Gardez votre lien pour annuler</h2>' +
+      '<p class="discret">Il sert à vous désinscrire si vous avez un empêchement. Il est à vous seul.</p>' +
+      (envoi ? '<a class="bouton bouton--principal" id="envoyer-lien" href="' + esc(envoi) + '">' + (parSms ? "M'envoyer le lien par SMS" : "M'envoyer le lien par e-mail") + "</a>" : "") +
+      '<button type="button" class="bouton bouton--secondaire" data-agenda="' + esc(jeton) + '">Ajouter à mon agenda</button>' +
+      '<p class="note-bas">L\'agenda vous le rappelle la veille, avec le lien pour annuler.</p>' +
+      '<details class="lien-details"><summary>Voir ou copier le lien</summary>' +
+      '<p class="lien-adresse" id="lien-perso">' + esc(lien) + "</p>" +
+      '<button type="button" class="lien-bouton" data-copier="lien-perso">Copier le lien</button>' +
+      '<p class="copie-ok" id="copie-lien-perso" role="status"></p></details>' +
+      "</div>" +
+      '<a class="lien-suite" href="#inscription/' + esc(t.evenement.id) + '">Revenir au tableau</a>' +
+      "</section>";
+    return { titre: "Inscription confirmée", parent: true, html: html };
+  }
+
+  function ajouterAgenda(jeton) {
+    var t = inscriptionPartout(jeton);
+    if (!t) { return; }
+    var ics = L.fichierAgenda(t.groupe, t.evenement, t.creneau, lienPersonnel(jeton), null, jeton);
+    var url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    telecharger("coup-de-main-" + esc(t.evenement.id) + ".ics", url);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  function ecranAnnuler(jeton) {
+    if (annulationFaite && annulationFaite.jeton === jeton) {
+      var a = annulationFaite;
+      return {
+        titre: "Inscription annulée", parent: true,
+        html: '<section class="confirmation"><h1 tabindex="-1">C\'est annulé.</h1>' +
+          "<p>Votre place au créneau <strong>" + esc(a.creneau) + "</strong> est libérée. Merci de nous avoir prévenus.</p>" +
+          "<p class=\"discret\">Si vous l'aviez ajouté à votre agenda, pensez à l'en retirer.</p>" +
+          '<a class="bouton bouton--secondaire" href="#inscription/' + esc(a.evenementId) + '">Choisir un autre créneau</a></section>'
+      };
+    }
+    var t = inscriptionPartout(jeton);
+    if (!t) { return lienInconnu(); }
+    var html = '<section class="confirmation">' +
+      '<p class="surtitre">' + esc(t.groupe.nom) + "</p>" +
+      '<h1 tabindex="-1">Votre coup de main</h1>' +
+      '<p class="confirmation-quoi"><strong>' + esc(t.creneau.titre) + "</strong><br>" +
+      esc(dateLongue(L.dateEvenement(t.evenement))) + " · " + esc(t.creneau.horaire) + "<br>" + esc(t.evenement.titre) + "</p>" +
+      "<p>Inscrit au nom de <strong>" + esc(L.nomPublic(t.volontaire)) + "</strong>.</p>" +
+      "<p>Un empêchement ? Annulez ici : la place sera libérée pour un autre parent.</p>" +
+      '<button type="button" class="bouton bouton--alerte" data-annuler="' + esc(jeton) + '">Annuler mon inscription</button>' +
+      '<a class="lien-suite" href="#inscription/' + esc(t.evenement.id) + '">Garder mon inscription</a>' +
+      "</section>";
+    return { titre: "Mon coup de main", parent: true, html: html };
+  }
+
+  function annulerInscription(jeton) {
+    var t = inscriptionPartout(jeton);
+    if (!t) { return; }
+    annulationFaite = { jeton: jeton, creneau: t.creneau.titre + ", " + t.creneau.horaire, evenementId: t.evenement.id };
+    L.annuler(t.groupe, jeton);
+    sauver();
+    rendre();
+  }
+
+  function lienInconnu() {
+    return {
+      titre: "Lien inconnu", parent: true,
+      html: '<section class="confirmation"><h1 tabindex="-1">Ce lien ne mène à aucune inscription.</h1>' +
+        etatVide("chemin", "L'inscription a peut-être déjà été annulée.", esc(M("lienInconnuAide"))) + "</section>"
+    };
+  }
+
+  function introuvable() {
+    return {
+      titre: M("pageIntrouvable"), onglet: null,
+      html: '<section class="confirmation"><h1 tabindex="-1">' + esc(M("pageIntrouvable")) + "</h1>" +
+        etatVide("chemin", M("pageIntrouvableAide"), "", '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>") + "</section>"
+    };
+  }
+
+  // ---------- Aiguillage ----------
+
+  // Anciennes adresses (prototypes 001 et 002), gardées pour les liens déjà envoyés.
+  function adresseActuelle() {
+    var h = location.hash.replace(/^#/, "");
+    var m;
+    if (!h || h === "aujourdhui" || h === "reunions") { return "accueil"; }
+    if (h === "aujourdhui/toutes") { return "mes-actions/toutes"; }
+    if (h === "asso") { return "association"; }
+    if ((m = h.match(/^coups-de-main\/(.+)$/))) { return "inscription/" + m[1]; }
+    if (h === "bilan/fete-juin") { return "evenement/fete-ecole/bilan"; }
+    return h;
+  }
+
+  // Écrans propres aux associations : un groupe simple n'en a pas.
+  var ECRANS_ASSOCIATION = ["mes-actions", "rappels", "evenements", "evenement"];
+
+  function rendre(options) {
+    var morceaux = adresseActuelle().split("/").map(decodeURIComponent);
+    var r;
+    if (!estAsso() && ECRANS_ASSOCIATION.indexOf(morceaux[0]) >= 0) { morceaux = ["introuvable"]; }
+    switch (morceaux[0]) {
+      case "accueil": r = ecranAccueil(); break;
+      case "mes-actions": r = ecranMesActions(morceaux[1] === "toutes"); break;
+      // L'écran « Rappels » a disparu : son adresse mène à « Mes actions » (demande 007).
+      case "rappels": location.replace("#mes-actions"); return;
+      case "messages":
+        r = morceaux[1] === "nouveau" && morceaux[2] === "question" ? ecranNouvelleQuestion(morceaux[3]) : morceaux[1] ? introuvable() : ecranMessages();
+        break;
+      case "message": r = ecranMessage(morceaux[1], morceaux[2]); break;
+      case "calendrier": r = estAsso() ? ecranEvenements() : ecranCalendrier(); break;
+      case "evenements": r = ecranEvenements(); break;
+      case "evenement": r = ecranEvenement(morceaux[1], morceaux[2], morceaux[3]); break;
+      case "association": case "groupe": r = ecranGroupe(); break;
+      case "personnes": r = ecranPersonnes(); break;
+      case "personne": r = ecranPersonne(morceaux[1]); break;
+      case "equipes": r = ecranEquipes(); break;
+      case "equipe": r = ecranEquipe(morceaux[1]); break;
+      case "charte": r = ecranCharte(); break;
+      case "aide": r = ecranAide(); break;
+      case "demo":
+        r = morceaux[1] === "groupe" ? ecranCreerGroupe() : morceaux[1] === "enregistrer" ? ecranEnregistrer() :
+          morceaux[1] === "ouvrir" ? ecranOuvrir() : introuvable();
+        break;
+      case "inscription": r = ecranInscription(morceaux[1]); break;
+      case "merci": r = ecranMerci(morceaux[1]); break;
+      case "annuler": r = ecranAnnuler(morceaux[1]); break;
+      default: r = introuvable();
+    }
+    var parent = !!r.parent;
+    document.body.classList.toggle("espace-parent", parent);
+    document.body.classList.toggle("espace-bureau", !parent);
+    document.getElementById("onglets").hidden = parent;
+    document.getElementById("demo-retour").hidden = !parent;
+
+    var vue = document.getElementById("vue");
+    var defilement = window.scrollY;
+    // Après une réponse donnée sur l'écran du message, les listes ouvertes le restent.
+    var ouverts = options && options.garderReplis
+      ? Array.prototype.map.call(vue.querySelectorAll("details[open][id]"), function (d) { return d.id; }) : [];
+    // Lien « Aide » en haut de chaque écran (sauf l'espace parent et la page d'aide elle-même).
+    var aide = parent || r.aide ? "" : '<a class="lien-aide" id="lien-aide" href="#aide">' + esc(M("lienAide")) + "</a>";
+    vue.innerHTML = aide + r.html;
+    ouverts.forEach(function (id) { var d = document.getElementById(id); if (d && d.tagName === "DETAILS") { d.open = true; } });
+    document.title = r.titre + " — " + (parent ? "" : G().nom + " — ") + "prototype";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-onglet]"), function (a) {
+      if (a.getAttribute("data-onglet") === r.onglet) { a.setAttribute("aria-current", "page"); }
+      else { a.removeAttribute("aria-current"); }
+    });
+    if (options && options.garderDefilement) {
+      window.scrollTo(0, defilement);
+    } else {
+      window.scrollTo(0, 0);
+      var champ = r.champ && document.getElementById("champ-" + r.champ);
+      var h1 = vue.querySelector("h1");
+      if (champ && options && options.focus) { champ.focus({ preventScroll: true }); }
+      else if (h1 && options && options.focus) { h1.focus({ preventScroll: true }); }
+    }
+  }
+
+  function copier(idSource) {
+    var texte = document.getElementById(idSource).textContent;
+    var ok = document.getElementById("copie-" + idSource);
+    function repli() {
+      var zone = document.createElement("textarea");
+      zone.value = texte; zone.setAttribute("readonly", "");
+      zone.style.position = "fixed"; zone.style.opacity = "0";
+      document.body.appendChild(zone); zone.select();
+      var reussi = false;
+      try { reussi = document.execCommand("copy"); } catch (err) { reussi = false; }
+      zone.remove();
+      ok.textContent = reussi ? "Lien copié." : "Copie impossible ici : appuyez longuement sur le lien pour le copier.";
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(texte).then(function () { ok.textContent = "Lien copié."; }, repli);
+    } else { repli(); }
+  }
+
+  // ---------- Menu du bas : Accueil · Messages · Événements · Association (groupe simple : Accueil · Messages · Groupe) ----------
+
+  var ICONES = {
+    accueil: '<path d="M3.5 10.5 12 4l8.5 6.5"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5.5h4V20"/>',
+    messages: '<path d="M4.5 5.5h15a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5H11l-4.5 3.5V17h-2A1.5 1.5 0 0 1 3 15.5V7a1.5 1.5 0 0 1 1.5-1.5z"/>',
+    evenements: '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    groupe: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5c.6-3.4 3-5.3 6-5.3s5.4 1.9 6 5.3"/><circle cx="17" cy="9.5" r="2.5"/><path d="M16.5 14.3c2.4.1 4.1 1.8 4.5 4.7"/>'
+  };
+
+  function remplirOnglets() {
+    var entrees = [["accueil", "#accueil", M("ongletAccueil")], ["messages", "#messages", M("ongletMessages")]];
+    if (estAsso()) { entrees.push(["evenements", "#evenements", M("ongletEvenements")]); }
+    entrees.push(["groupe", hrefGroupe(), M("ongletGroupe")]);
+    document.getElementById("onglets").innerHTML = entrees.map(function (x) {
+      return '<a href="' + x[1] + '" data-onglet="' + x[0] + '"><span class="icone"><svg viewBox="0 0 24 24" aria-hidden="true">' + ICONES[x[0]] +
+        "</svg></span><span>" + esc(x[2]) + "</span></a>";
+    }).join("");
+  }
+
+  // ---------- Menu de démo (outil du testeur, ouvert à tous les rôles) ----------
+
+  function remplirDemo() {
+    var g = G(), p = moi();
+    var vg = Gr.estAssociation(g) && L.trouverEvenement(g, "vide-grenier");
+    document.getElementById("demo-etiquette").textContent = D("etiquette");
+    document.getElementById("demo-ouvrir").textContent = D("bouton");
+    document.getElementById("demo-retour").textContent = D("retourEspace");
+    document.getElementById("demo-menu").innerHTML =
+      '<label class="demo-ligne demo-ligne--liste" for="demo-groupe">' + esc(D("changerDeGroupe")) + ' <select id="demo-groupe">' +
+      etat.groupes.map(function (x) {
+        return '<option value="' + esc(x.id) + '"' + (x.id === g.id ? " selected" : "") + ">" + esc(x.nom) + "</option>";
+      }).join("") + "</select></label>" +
+      '<label class="demo-ligne demo-ligne--liste" for="demo-utilisateur">' + esc(D("changerDePersonne")) + ' <select id="demo-utilisateur">' +
+      Gr.personnesTriees(g).map(function (x) {
+        return '<option value="' + esc(x.id) + '"' + (x.id === p.id ? " selected" : "") + ">" +
+          esc(Gr.nomComplet(x)) + " — " + esc(minuscule(nomRole(x.role))) + "</option>";
+      }).join("") + "</select></label>" +
+      '<a class="demo-ligne" href="#demo/groupe">' + esc(D("creerUnGroupe")) + "</a>" +
+      (vg && vg.creneaux.length ? '<a class="demo-ligne" href="#inscription/vide-grenier">' + esc(D("voirEspaceParent")) + "</a>" : "") +
+      '<a class="demo-ligne" href="#demo/enregistrer">' + esc(D("enregistrerMonEssai")) + "</a>" +
+      '<a class="demo-ligne" href="#demo/ouvrir">' + esc(D("ouvrirUnEssai")) + "</a>" +
+      '<button type="button" class="demo-ligne demo-reinit" data-reinitialiser>' + esc(M("reinitialiser")) + "</button>";
+  }
+
+  function basculerMenu(forcer) {
+    var bouton = document.getElementById("demo-ouvrir");
+    var menu = document.getElementById("demo-menu");
+    var ouvrir = typeof forcer === "boolean" ? forcer : menu.hidden;
+    menu.hidden = !ouvrir;
+    bouton.setAttribute("aria-expanded", String(ouvrir));
+  }
+
+  // Après un changement de groupe ou de personne : l'écran du groupe le plus proche.
+  function apresChangement() {
+    basculerMenu(false);
+    moisAffiche = null;
+    reponseAccueil = null;
+    appliquerCouleur();
+    remplirOnglets();
+    remplirDemo();
+    var h = adresseActuelle().split("/")[0];
+    var garder = ["accueil", "messages", "association", "groupe", "personnes", "equipes", "aide", "charte"];
+    if (document.body.classList.contains("espace-parent") || garder.indexOf(h) < 0) { aller("#accueil"); }
+    else if (h === "association" || h === "groupe") { aller(hrefGroupe()); }
+    else { rendre(); }
+  }
+
+  // ---------- Gestes ----------
+
+  document.addEventListener("click", function (ev) {
+    if (ev.target.name === "jour" && ev.target.type === "radio") { basculerJour(ev.target); return; }
+    var cible = ev.target.closest("button, a");
+    if (!cible) { return; }
+    if (cible.hasAttribute("data-reglage")) { changerReglage(); return; }
+    if (cible.hasAttribute("data-reponse")) { repondreQuestion(cible); return; }
+    if (cible.hasAttribute("data-clore")) { cloreQuestion(cible.getAttribute("data-clore")); return; }
+    if (cible.hasAttribute("data-agenda-question")) { ajouterAgendaQuestion(cible.getAttribute("data-agenda-question")); return; }
+    if (cible.hasAttribute("data-voir-suite")) { voirSuite(cible); return; }
+    if (cible.classList.contains("statut")) { changerStatut(cible); return; }
+    if (cible.hasAttribute("data-ouvrir")) { ouvrirFormulaire(cible.getAttribute("data-ouvrir")); return; }
+    if (cible.hasAttribute("data-fermer")) { creneauOuvert = null; rendre({ garderDefilement: true }); return; }
+    if (cible.hasAttribute("data-copier")) { copier(cible.getAttribute("data-copier")); return; }
+    if (cible.hasAttribute("data-agenda")) { ajouterAgenda(cible.getAttribute("data-agenda")); return; }
+    if (cible.hasAttribute("data-annuler")) { annulerInscription(cible.getAttribute("data-annuler")); return; }
+    if (cible.hasAttribute("data-image")) { enregistrerImage(cible.getAttribute("data-image")); return; }
+    if (cible.hasAttribute("data-couleur")) { choisirCouleur(cible.getAttribute("data-couleur")); return; }
+    if (cible.hasAttribute("data-exemple")) { return; }
+    if (cible.hasAttribute("data-mois")) { changerMois(Number(cible.getAttribute("data-mois"))); return; }
+    if (cible.hasAttribute("data-retirer")) { retirerPersonne(cible); return; }
+    if (cible.hasAttribute("data-supprimer-equipe")) { supprimerEquipe(cible); return; }
+    if (cible.hasAttribute("data-supprimer-action")) { supprimerAction(cible); return; }
+    if (cible.hasAttribute("data-supprimer-creneau")) { supprimerCreneau(cible); return; }
+    if (cible.hasAttribute("data-enregistrer-essai")) { enregistrerEssai(); return; }
+    if (cible.hasAttribute("data-envoyer-essai")) { envoyerEssai(); return; }
+    if (cible.hasAttribute("data-qr")) {
+      qrVisible = !qrVisible;
+      document.getElementById("qr").hidden = !qrVisible;
+      cible.setAttribute("aria-expanded", String(qrVisible));
+      cible.textContent = qrVisible ? "Masquer le QR code" : "Afficher le QR code";
+      return;
+    }
+    if (cible.id === "demo-ouvrir") { basculerMenu(); return; }
+    if (cible.hasAttribute("data-reinitialiser")) {
+      if (window.confirm(M("confirmerReinitialiser"))) {
+        reinitialiser();
+        remplirOnglets();
+        remplirDemo();
+        basculerMenu(false);
+        aller("#accueil");
+      }
+      return;
+    }
+    if (cible.closest("#demo-menu") && cible.tagName === "A") { basculerMenu(false); }
+  });
+
+  document.addEventListener("change", function (ev) {
+    var c = ev.target;
+    if (c.id === "demo-groupe") {
+      etat.groupeActif = c.value;
+      sauver();
+      apresChangement();
+    } else if (c.id === "demo-utilisateur") {
+      etat.personneActive = etat.personneActive || {};
+      etat.personneActive[G().id] = c.value;
+      sauver();
+      apresChangement();
+    } else if (c.id === "fichier-essai" && c.files && c.files[0]) {
+      ouvrirEssai(c.files[0]);
+      c.value = "";
+    } else if (c.type === "radio" && c.closest(".choix--replie")) {
+      // Choix replié : le titre montre le nouveau choix, la liste se referme.
+      var replie = c.closest(".choix--replie");
+      replie.querySelector(".repli-titre").textContent = c.closest(".choix-option").querySelector(".choix-titre").textContent;
+      replie.querySelector("details").open = false;
+    } else if (c.name === "echeance") {
+      montrerChampsEcheance(c.form);
+    } else if (c.form && c.form.classList.contains("form-question")) {
+      if (c.name === "a-qui" || c.name === "jour") { montrerZonesQuestion(c.form); }
+      if (c.name === "personnes") { compterPersonnes(c.form); }
+    }
+  });
+
+  document.addEventListener("input", function (ev) {
+    if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
+  });
+
+  document.addEventListener("submit", function (ev) {
+    var f = ev.target;
+    var envois = {
+      formulaire: envoyerFormulaire, "form-personne": envoyerPersonne, "form-equipe": envoyerEquipe, "form-groupe": envoyerGroupe,
+      "form-evenement": envoyerEvenement, "form-action": envoyerAction, "form-creneau": envoyerCreneau,
+      "form-question": envoyerQuestion
+    };
+    Object.keys(envois).forEach(function (classe) {
+      if (f.classList.contains(classe)) { ev.preventDefault(); envois[classe](f); }
+    });
+  });
+
+  window.addEventListener("hashchange", function () {
+    creneauOuvert = null;
+    qrVisible = false;
+    reponseAccueil = null;
+    rendre({ focus: true });
+  });
+
+  appliquerCouleur();
+  remplirOnglets();
+  remplirDemo();
+  rendre();
+})();
