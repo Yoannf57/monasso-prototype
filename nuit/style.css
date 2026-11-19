@@ -254,9 +254,7 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 }
 .action--retard .statut--a-faire { border-color: var(--alerte); color: var(--alerte); }
 .statut:active { transform: scale(0.96); }
-/* État qui se lit sans se toucher (ni référent de l'action, ni bureau) : même étiquette, même mot, même forme. */
-.statut--lecture { display: inline-flex; align-items: center; justify-content: center; cursor: default; }
-.statut--lecture:active { transform: none; }
+/* État qui se lit sans se toucher (ni référent de l'action, ni bureau) : une étiquette (.etiquette), pas un bouton (demande 006b). */
 
 /* Groupes repliables (échéances d'un événement, créneaux) */
 .repli { margin-bottom: 10px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); }
@@ -468,6 +466,10 @@ a.jour { font-weight: 900; }
 .choix--replie .surtitre { margin: 10px 0 6px; }
 .pastille-couleur { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(42, 33, 28, 0.25); }
 .lien-bouton--alerte { color: var(--alerte); margin-top: 12px; }
+/* Le même, quand il mène à un écran (« Supprimer cet événement », demande 006b) : le texte reste centré dans la zone. */
+a.lien-bouton { display: flex; align-items: center; justify-content: center; text-align: center; }
+/* Écran « Refaire cet événement » : entre le paragraphe et le champ, l'écart qui sépare deux champs. */
+p + .form-evenement { margin-top: 16px; }
 .visuellement-cache {
   position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;

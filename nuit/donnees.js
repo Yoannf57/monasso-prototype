@@ -21,6 +21,10 @@
   à l'ajout dans l'agenda ; horaire est le texte affiché.
   Un événement passé a une date fixe (date: "AAAA-MM-JJ") et peut avoir un bilan.
 
+  Inscrits : « jeton » est le lien personnel de la personne. C'est un identifiant d'allure aléatoire (24 caractères,
+  de 0 à 9 et de a à f), comme ceux que fabrique le prototype : il ne porte ni prénom, ni initiale, ni contact,
+  parce qu'il est gardé seul après la suppression de l'événement (décision du 2026-11-19).
+
   Statuts possibles : "a-faire", "en-cours", "fait".
 
   Actions : « referent » est le prénom d'une personne du groupe, tel qu'on l'écrit ici.
@@ -155,35 +159,35 @@ var DONNEES = {
           ],
           creneaux: [
             { id: "vg-installation", jour: -1, debut: "18:00", fin: "20:00", titre: "Installation de la salle", horaire: "La veille, 18 h – 20 h", places: 6, inscrits: [
-              { prenom: "Karim", initiale: "B", contact: "06 00 00 00 01", jeton: "demo-karim" },
-              { prenom: "Élodie", initiale: "R", contact: "elodie.demo@exemple.fr", jeton: "demo-elodie" },
-              { prenom: "Paul", initiale: "T", contact: "06 00 00 00 02", jeton: "demo-paul" },
-              { prenom: "Inès", initiale: "M", contact: "06 00 00 00 03", jeton: "demo-ines" },
-              { prenom: "Marc", initiale: "L", contact: "marc.demo@exemple.fr", jeton: "demo-marc" },
-              { prenom: "Aurélie", initiale: "F", contact: "06 00 00 00 04", jeton: "demo-aurelie" }
+              { prenom: "Karim", initiale: "B", contact: "06 00 00 00 01", jeton: "ab0045b9747d6f750fb92f39" },
+              { prenom: "Élodie", initiale: "R", contact: "elodie.demo@exemple.fr", jeton: "7a1c0c4de505d47c9dadde24" },
+              { prenom: "Paul", initiale: "T", contact: "06 00 00 00 02", jeton: "d4f7e329e02854f7ba5000e0" },
+              { prenom: "Inès", initiale: "M", contact: "06 00 00 00 03", jeton: "681df3cd669e0983e3c79024" },
+              { prenom: "Marc", initiale: "L", contact: "marc.demo@exemple.fr", jeton: "29071d208c1e9d2a19253ce9" },
+              { prenom: "Aurélie", initiale: "F", contact: "06 00 00 00 04", jeton: "9ec8dc23191c595ce9d8ba23" }
             ] },
             { id: "vg-accueil-exposants", jour: 0, debut: "07:00", fin: "09:00", titre: "Accueil des exposants", horaire: "7 h – 9 h", places: 4, inscrits: [
-              { prenom: "Yasmine", initiale: "K", contact: "06 00 00 00 05", jeton: "demo-yasmine" },
-              { prenom: "Hugo", initiale: "P", contact: "hugo.demo@exemple.fr", jeton: "demo-hugo" },
-              { prenom: "Camille", initiale: "D", contact: "06 00 00 00 06", jeton: "demo-camille" }
+              { prenom: "Yasmine", initiale: "K", contact: "06 00 00 00 05", jeton: "cb31c931990d8bc1e642df14" },
+              { prenom: "Hugo", initiale: "P", contact: "hugo.demo@exemple.fr", jeton: "f58c6794d1a4529bfb90e950" },
+              { prenom: "Camille", initiale: "D", contact: "06 00 00 00 06", jeton: "5d73af17b34f9a659f8ace13" }
             ] },
             { id: "vg-buvette-matin", jour: 0, debut: "09:00", fin: "12:00", titre: "Buvette", horaire: "9 h – 12 h", places: 3, inscrits: [
-              { prenom: "Fatou", initiale: "S", contact: "06 00 00 00 07", jeton: "demo-fatou" }
+              { prenom: "Fatou", initiale: "S", contact: "06 00 00 00 07", jeton: "33a741d058a66489ecc0cdbb" }
             ] },
             { id: "vg-buvette-midi", jour: 0, debut: "12:00", fin: "15:00", titre: "Buvette", horaire: "12 h – 15 h", places: 3, inscrits: [] },
             { id: "vg-gateaux-matin", jour: 0, debut: "09:00", fin: "13:00", titre: "Stand gâteaux", horaire: "9 h – 13 h", places: 2, inscrits: [
-              { prenom: "Léonie", initiale: "G", contact: "06 00 00 00 08", jeton: "demo-leonie" },
-              { prenom: "Romain", initiale: "V", contact: "romain.demo@exemple.fr", jeton: "demo-romain" }
+              { prenom: "Léonie", initiale: "G", contact: "06 00 00 00 08", jeton: "4ea32513bd2a37227d607ffd" },
+              { prenom: "Romain", initiale: "V", contact: "romain.demo@exemple.fr", jeton: "dfbf7af060446603dc5095b3" }
             ] },
             { id: "vg-gateaux-aprem", jour: 0, debut: "13:00", fin: "17:00", titre: "Stand gâteaux", horaire: "13 h – 17 h", places: 2, inscrits: [] },
             { id: "vg-rangement", jour: 0, debut: "17:00", fin: "19:00", titre: "Rangement", horaire: "17 h – 19 h", places: 6, inscrits: [
-              { prenom: "Damien", initiale: "C", contact: "06 00 00 00 09", jeton: "demo-damien" }
+              { prenom: "Damien", initiale: "C", contact: "06 00 00 00 09", jeton: "0fd3e924961983f672e31dac" }
             ] },
             { id: "vg-gateau-maison", jour: 0, debut: "07:30", fin: "09:00", titre: "Apporter un gâteau maison", horaire: "Le matin, avant 9 h", places: 10, inscrits: [
-              { prenom: "Sarah", initiale: "N", contact: "06 00 00 00 10", jeton: "demo-sarah" },
-              { prenom: "Lucas", initiale: "A", contact: "06 00 00 00 11", jeton: "demo-lucas" },
-              { prenom: "Manon", initiale: "J", contact: "manon.demo@exemple.fr", jeton: "demo-manon" },
-              { prenom: "Olivier", initiale: "H", contact: "06 00 00 00 12", jeton: "demo-olivier" }
+              { prenom: "Sarah", initiale: "N", contact: "06 00 00 00 10", jeton: "599a6056014790c8bbce5320" },
+              { prenom: "Lucas", initiale: "A", contact: "06 00 00 00 11", jeton: "1e429ea5384637c739dcd9f5" },
+              { prenom: "Manon", initiale: "J", contact: "manon.demo@exemple.fr", jeton: "89ccf79c3d37574b12be5816" },
+              { prenom: "Olivier", initiale: "H", contact: "06 00 00 00 12", jeton: "16ccc0f2d88269155a2cf3ac" }
             ] }
           ]
         },

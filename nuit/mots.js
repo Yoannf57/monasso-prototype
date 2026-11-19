@@ -15,6 +15,7 @@
   restent pour l'instant dans js/app.js (liste dans docs/recette/005-groupes-personnes-equipes.md).
   Demande 006 : tous les mots de la création d'un événement, de ses actions et de ses créneaux
   sont dans la liste « association ».
+  Demande 006b : les mots pour modifier, supprimer et refaire un événement sont dans la liste « association ».
   Demande 007 : tous les mots des messages commencent par « msg » ; ils sont dans la liste commune,
   sauf ceux qui nomment le bureau, les organisateurs ou un événement.
 */
@@ -301,6 +302,15 @@ var MOTS = {
       actionMeta: "Le libellé souligné ouvre l'action"
     },
 
+    // Exemples de la page Charte ajoutés par la demande 006b : confirmation d'une suppression, état qui se lit sans se toucher.
+    charteSuppression: {
+      quoi: "Vous allez supprimer l'équipe «\u00A0Les verts\u00A0».",
+      definitif: "On ne peut pas revenir en arrière.",
+      bouton: "Supprimer l'équipe",
+      actionLecture: "État d'une action, en lecture seule",
+      actionLectureMeta: "Une étiquette\u00A0: elle ne se touche pas"
+    },
+
     // Pages d'erreur
     pageIntrouvable: "Cette page n'existe pas.",
     pageIntrouvableAide: "Le lien est peut-être incomplet."
@@ -452,6 +462,43 @@ var MOTS = {
       "{n} personnes sont déjà inscrites : indiquez au moins {n}."
     ],
     creneauIntrouvable: "Ce créneau n'existe plus.",
+
+    // ---------- Demande 006b : modifier, supprimer et refaire un événement ----------
+    // \u00A0 est une espace insécable : après « et avant », avant ? et :, pour qu'aucun de ces signes ne passe seul à la ligne.
+
+    // Modifier l'événement (le formulaire est celui de la création)
+    modifierLEvenement: "Modifier l'événement",
+    enregistrerLEvenement: "Enregistrer l'événement",
+    evenementModifie: "«\u00A0{nom}\u00A0» est enregistré.",
+
+    // Supprimer l'événement : un écran entier, rien à taper
+    supprimerCetEvenement: "Supprimer cet événement",
+    supprimerEvenementTitre: "Supprimer cet événement\u00A0?",
+    supprimerEvenementQuoi: "Vous allez supprimer «\u00A0{nom}\u00A0», prévu le {date}.",
+    supprimerEvenementPerte: "Seront effacés avec lui\u00A0: {liste}.",
+    supprimerEvenementInscrits: "Les personnes inscrites ne seront pas prévenues\u00A0: pensez à le leur dire.",
+    supprimerEvenementDefinitif: "On ne peut pas revenir en arrière.",
+    supprimerLEvenement: "Supprimer l'événement",
+    garderLEvenement: "Garder l'événement",
+    evenementSupprime: "«\u00A0{nom}\u00A0» est supprimé.",
+    nActions: ["{n} action", "{n} actions"],
+    nCreneaux: ["{n} créneau", "{n} créneaux"],
+    nInscrits: ["{n} personne inscrite", "{n} personnes inscrites"],
+    // {liste} : on ne cite que ce qui existe, avec des virgules, et « et » avant le dernier.
+    listeVirgule: ", ",
+    listeEt: "{debut} et {dernier}",
+
+    // Refaire cet événement
+    refaireCetEvenement: "Refaire cet événement",
+    refaireTexte: "La copie reprend {liste}. Les actions repartent à «\u00A0À faire\u00A0» et personne n'est inscrit. «\u00A0{nom}\u00A0» ne change pas.",
+    refaireTexteVide: "La copie reprend le nom, les horaires et le lieu. «\u00A0{nom}\u00A0» ne change pas.",
+    champNouvelleDate: "Nouvelle date",
+    creerLaCopie: "Créer la copie",
+    evenementRefait: "«\u00A0{nom}\u00A0» est recopié au {date}. Vérifiez ses actions et ses créneaux.",
+
+    // Lien personnel d'un parent, après la suppression de l'événement
+    lienEvenementSupprime: "Cet événement n'existe plus.",
+    lienEvenementSupprimeAide: "Le bureau de l'association peut vous renseigner.",
 
     // Messages à envoyer : le nom de l'événement entre guillemets, jamais précédé de « le » ou « la »
     messageCoupsDeMain: "Bonjour, on cherche des parents pour « {nom} », {date}. Même une heure aide beaucoup, sans créer de compte : {lien}",
