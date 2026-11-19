@@ -317,14 +317,19 @@
 
     var m = L.actionsAFaire(G(), p);
     var premiere = m.enRetard[0] || m.cetteSemaine[0] || m.plusTard[0];
-    html += '<a class="carte" id="bloc-actions" href="#mes-actions">' +
+    var blocActions = '<a class="carte" id="bloc-actions" href="#mes-actions">' +
       '<span class="carte-etiquette">Mes actions à faire</span>' +
       '<span class="bloc-chiffre"><span class="grand-nombre">' + m.total + "</span><span>" +
       (m.total ? (m.enRetard.length ? '<span class="texte-alerte">dont ' + m.enRetard.length + " en retard</span>" : "rien en retard") : "tout est fait") +
       "</span></span>" +
-      (premiere ? '<span class="carte-infos">' + esc(premiere.action.libelle) + "</span>" : "") +
-      // Les rappels ne sont plus un bloc de l'accueil : pour le bureau, une ligne de plus, qui mène à « Mes actions ».
-      (rappels().length ? '<span class="carte-infos" id="ligne-rappels">' + esc(Mn("accueilRappelsCreneaux", rappels().length)) + "</span>" : "") + "</a>";
+      (premiere ? '<span class="carte-infos">' + esc(premiere.action.libelle) + "</span>" : "") + "</a>";
+    // Demande 007c : pour le bureau, la ligne des créneaux est un lien à elle, vers la liste des créneaux en manque ;
+    // le reste du bloc ouvre toujours « Mes actions ». Sans la ligne, le bloc reste une carte.
+    var nbManque = rappels().length;
+    html += nbManque
+      ? '<div class="bloc-liens">' + blocActions +
+        '<a class="lien-suite" id="ligne-rappels" href="#creneaux-manquants">' + esc(Mn("accueilRappelsCreneaux", nbManque)) + "</a></div>"
+      : blocActions;
 
     return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
   }
@@ -404,6 +409,32 @@
         ? '<div class="suite-liste" hidden>' + manque.slice(3).map(carteRappel).join("") + "</div>" +
           '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("accueilRappelsVoirAutres", manque.length - 3)) + "</button>"
         : "") + "</section>";
+  }
+
+  // ---------- Créneaux en manque : la liste entière, sur un écran à part, pour le bureau seul (demande 007c) ----------
+
+  // Une ligne : le créneau, « événement · horaire », puis combien il manque. Un toucher ouvre les coups de main de l'événement.
+  function carteCreneauManquant(m) {
+    return '<a class="carte" href="#evenement/' + esc(m.evenement.id) + '/coups-de-main">' +
+      '<span class="carte-titre">' + esc(m.creneau.titre) + "</span>" +
+      // Le point médian tient à l'horaire : si l'horaire passe à la ligne, le point est masqué (jamais seul en bout de ligne).
+      '<span class="carte-quand suite"><span class="suite-part">' + esc(m.evenement.titre) + "</span>" +
+      (m.creneau.horaire ? '<span class="suite-part insecable"><span class="suite-point"> · </span>' + esc(m.creneau.horaire) + "</span>" : "") + "</span>" +
+      '<span class="carte-infos"><span class="etiquette etiquette--alerte">' + esc(Mn("creneauManque", m.manque)) + "</span></span></a>";
+  }
+
+  // Rien entre le titre et le premier créneau, sauf la ligne d'aide : le premier créneau se voit sans défiler.
+  function ecranCreneauxManquants() {
+    var manque = rappels();
+    var html = retour("#accueil", M("ongletAccueil"));
+    if (manque.length) {
+      html += entete(null, M("creneauxManqueTitre"), esc(M("accueilRappelsAide"))) +
+        '<div id="creneaux-manquants">' + manque.map(carteCreneauManquant).join("") + "</div>";
+    } else {
+      html += entete(null, M("creneauxManqueTitre")) +
+        etatVide("calme", M("creneauxManqueVide"), "", '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>");
+    }
+    return { titre: M("creneauxManqueTitre"), onglet: "accueil", html: html };
   }
 
   // ---------- Événements : liste courte, un toucher ouvre l'événement ----------
@@ -2444,7 +2475,7 @@
   }
 
   // Écrans propres aux associations : un groupe simple n'en a pas.
-  var ECRANS_ASSOCIATION = ["mes-actions", "rappels", "evenements", "evenement"];
+  var ECRANS_ASSOCIATION = ["mes-actions", "rappels", "creneaux-manquants", "evenements", "evenement"];
 
   function rendre(options) {
     var morceaux = adresseActuelle().split("/").map(decodeURIComponent);
@@ -2455,6 +2486,8 @@
       case "mes-actions": r = ecranMesActions(morceaux[1] === "toutes"); break;
       // L'écran « Rappels » a disparu : son adresse mène à « Mes actions » (demande 007).
       case "rappels": location.replace("#mes-actions"); return;
+      // Demande 007c : la liste des créneaux en manque, pour le bureau seul ; pour les autres, la page n'existe pas.
+      case "creneaux-manquants": r = gere() && !morceaux[1] ? ecranCreneauxManquants() : introuvable(); break;
       case "messages":
         r = morceaux[1] === "nouveau" && morceaux[2] === "question" ? ecranNouvelleQuestion(morceaux[3]) : morceaux[1] ? introuvable() : ecranMessages();
         break;

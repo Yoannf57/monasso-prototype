@@ -278,7 +278,8 @@ var MOTS = {
     confirmerOuvrir: "Remplacer ce qui est sur ce téléphone par l'essai « {nom} » ?",
     essaiOuvert: "Essai ouvert : {groupes}, {personnes}.",
     essaiIllisible: "Ce fichier n'est pas un essai MonAsso. Choisissez le fichier enregistré avec « Enregistrer mon essai ».",
-    essaiAncien: "Cet essai vient d'une autre version du prototype : il ne peut pas être ouvert ici.",
+    // Demande 007c (journal du 2026-11-19) : la phrase de Yoann, mot pour mot.
+    essaiAncien: "Cet essai vient d'une version précédente et ne peut plus être ouvert.",
 
     // Charte (page interne)
     charteExempleSecondaire: "Inviter un membre",
@@ -518,6 +519,10 @@ var MOTS = {
     accueilRappels: "Rappels",
     accueilRappelsAide: "Les créneaux remplis à moins de la moitié",
     accueilRappelsVoirAutres: ["Voir {n} autre créneau", "Voir les {n} autres créneaux"],
+    // Demande 007c : l'écran « Créneaux qui manquent de monde », ouvert par la ligne de l'accueil (bureau seulement)
+    creneauxManqueTitre: "Créneaux qui manquent de monde",
+    creneauManque: ["Il manque {n} personne", "Il manque {n} personnes"],
+    creneauxManqueVide: "Aucun créneau ne manque de monde.",
 
     aideQuestions: [
       ["Comment créer un événement ?",

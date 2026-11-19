@@ -506,6 +506,12 @@ p + .form-evenement { margin-top: 16px; }
 .bloc-reponse .lien-suite { display: flex; width: fit-content; }
 .message-ok a { display: inline-block; padding: 4px 0; color: var(--texte); }
 
+/* N12 · Un bloc, deux liens (demande 007c) : l'aspect d'une carte, sans marge intérieure. En haut, une carte sans cadre,
+   avec sa flèche ; un trait ; en bas, un lien sur toute la largeur, sa flèche sur le même axe. Deux liens au plus, jamais de bouton. */
+.bloc-liens { margin-bottom: 12px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); box-shadow: var(--ombre); }
+.bloc-liens .carte { margin-bottom: 0; background: none; border: 0; box-shadow: none; }
+.bloc-liens .lien-suite { display: flex; justify-content: space-between; min-height: var(--geste); margin-top: 0; padding: 8px 21px 8px 16px; border-top: 1px solid var(--trait); }
+
 /* N3 · Repère « Rendez-vous » d'un jour du calendrier : carré aux coins arrondis, trait plein. */
 .jour--rendez-vous { background: var(--accent-pale); border-color: var(--accent); }
 .rendez-vous { margin-bottom: 28px; }
