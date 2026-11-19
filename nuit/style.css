@@ -516,12 +516,7 @@ p + .form-evenement { margin-top: 16px; }
 .jour--rendez-vous { background: var(--accent-pale); border-color: var(--accent); }
 .rendez-vous { margin-bottom: 28px; }
 
-/* N5 · Les huit choix du jour sur deux colonnes (les règles de .choix--couleurs), et la case qui ne se coche plus. */
-.choix--deux-colonnes { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
-.choix--deux-colonnes legend { grid-column: 1 / -1; }
-.choix--deux-colonnes .champ-erreur { grid-column: 1 / -1; }
-.choix--deux-colonnes .choix-option { align-items: center; gap: 8px; min-width: 0; padding: 8px 8px; }
-.choix--deux-colonnes .choix-titre { gap: 6px; min-width: 0; }
+/* N5 · La case qui ne se coche plus. (Le choix sur deux colonnes est retiré par la demande 007b : le jour et l'heure sont en liste.) */
 .choix-option--bloquee { background: var(--surface-douce); color: var(--texte-doux); cursor: default; }
 /* La phrase de la limite reste sous les yeux pendant qu'on fait défiler la liste des personnes. */
 .limite-personnes:not(:empty) { position: sticky; top: 36px; z-index: 1; margin: 0 0 6px; padding: 6px 0; background: var(--fond); }

@@ -115,10 +115,14 @@ var MOTS = {
     msgPersonnesCompte: "{n} sur 10",
     msgOptions: "Ajouter une date ou un nombre de Oui",
     msgChampJour: "Jour du rendez-vous",
-    msgJourAujourdhui: "Aujourd'hui",
-    msgJourDemain: "Demain",
+    // Demande 007b : les sept prochains jours, nommés (« jeudi 26 »), puis « Autre date » ; les heures courantes, puis « Autre heure ».
+    // Entre le jour et son numéro, comme dans une heure, l'espace est celle qui ne se coupe pas en fin de ligne.
+    msgJourNomme: "{jour} {numero}",
     msgJourAutre: "Autre date",
+    msgJourAutreAide: "Aujourd'hui est déjà choisi. Touchez la date pour la changer.",
     msgChampHeure: "Heure",
+    msgHeuresCourantes: ["18:00", "19:00", "20:00", "21:00"],
+    msgHeureAutre: "Autre heure",
     msgChampAttendus: "Nombre de Oui attendus",
     msgChampAvantLe: "Réponse avant le",
     msgEnvoyer: "Envoyer la question",
@@ -204,9 +208,9 @@ var MOTS = {
       apresOui: "Après « Oui »",
       apresNon: "Après « Non »",
       bloc: "Bloc « À répondre » de l'accueil",
-      question: "Qui pour jouer jeudi 20 h ?",
+      question: "Qui pour jouer jeudi 20 h ?",
       de: "Samir",
-      rendezVous: "jeudi à 20 h",
+      rendezVous: "jeudi à 20 h",
       autres: 2
     },
 
@@ -329,9 +333,11 @@ var MOTS = {
       organisateur: "Ajoute des personnes et crée les équipes.",
       membre: "Voit le groupe et ses équipes."
     },
-    msgChampQuestionAide: "Par exemple : Qui pour jouer jeudi 20 h ?",
+    msgChampQuestionAide: "Par exemple : Qui pour jouer jeudi 20 h ?",
     msgAGestion: "Les organisateurs",
-    msgReglageAide: "Éteint, seuls les organisateurs écrivent à tout le groupe.",
+    // Demande 007b : la phrase d'aide du réglage suit l'état du bouton.
+    msgReglageAideEteint: "Seuls les organisateurs écrivent à tout le groupe.",
+    msgReglageAideAllume: "Les organisateurs et les membres écrivent à tout le groupe.",
     aideQuestions: [
       ["Comment ajouter une personne ?",
         "Ouvrez « Groupe », puis « Personnes », et touchez « Ajouter une personne ». Seul le prénom est obligatoire."],
@@ -393,8 +399,9 @@ var MOTS = {
     erreurFinAvantDebut: "L'heure de fin doit venir après l'heure de début.",
 
     // Horaires : « 16 h », « 16 h 30 », « 16 h – 18 h », « à partir de 16 h »
-    heureRonde: "{h} h",
-    heureMinutes: "{h} h {min}",
+    // Demande 007b : dans une heure, les espaces sont celles qui ne se coupent pas (une heure tient d'un seul morceau en fin de ligne).
+    heureRonde: "{h} h",
+    heureMinutes: "{h} h {min}",
     horaireDeA: "{debut} – {fin}",
     horaireAPartirDe: "à partir de {debut}",
 
@@ -513,7 +520,9 @@ var MOTS = {
     msgPourEvenement: "Pour : {titre}",
     msgVideAideVisiteur: "Les questions qu'on vous pose apparaîtront ici.",
     msgErreurVisiteur: "Vous pouvez répondre aux questions, pas en poser.",
-    msgReglageAide: "Éteint, seul le bureau écrit à tout le groupe.",
+    // Demande 007b : la phrase d'aide du réglage suit l'état du bouton.
+    msgReglageAideEteint: "Seul le bureau écrit à tout le groupe.",
+    msgReglageAideAllume: "Le bureau et les membres écrivent à tout le groupe.",
     // Les rappels, dans l'écran « Mes actions » (bureau seulement)
     accueilRappelsCreneaux: ["{n} créneau manque de monde", "{n} créneaux manquent de monde"],
     accueilRappels: "Rappels",

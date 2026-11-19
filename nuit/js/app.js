@@ -1276,7 +1276,20 @@
   // La question est le seul texte libre : elle passe partout par esc(), jamais écrite comme du HTML.
 
   var fmtJourMois = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
-  var fmtJourCourt = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric" });
+  var fmtJourNomme = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric" });
+
+  // « jeudi 26 » (demande 007b) : le nom du jour en toutes lettres et son numéro, tels que le téléphone les écrit.
+  function jourNomme(d) {
+    var morceaux = {};
+    fmtJourNomme.formatToParts(d).forEach(function (m) { morceaux[m.type] = m.value; });
+    return M("msgJourNomme", { jour: morceaux.weekday, numero: morceaux.day });
+  }
+  // Les sept prochains jours, de demain à dans sept jours : le même jour de la semaine suivante en fait toujours partie.
+  function joursProposes(aujourdhui) {
+    var jours = [];
+    for (var i = 1; i <= 7; i++) { jours.push(L.ajouterJours(aujourdhui, i)); }
+    return jours;
+  }
 
   function motReponse(r) { return M(r === "oui" ? "msgOui" : "msgNon"); }
 
@@ -1415,19 +1428,37 @@
       options.unshift({ valeur: "memes", titre: M("msgAvecCompte", { nom: M("msgAMemesPersonnes"), compte: Mn("nPersonnes", Msg.destinataires(g, origine).length) }) });
     }
 
-    // Les sept prochains jours en un toucher, puis « Autre date ».
-    var jours = [];
-    for (var i = 0; i < 7; i++) {
-      var d = L.ajouterJours(aujourdhui, i);
-      jours.push({ valeur: Ev.ecrireDate(d), titre: i === 0 ? M("msgJourAujourdhui") : i === 1 ? M("msgJourDemain") : fmtJourCourt.format(d) });
-    }
+    // Les sept prochains jours en un toucher, nommés (« jeudi 26 »), puis « Autre date ».
+    var prochains = joursProposes(aujourdhui);
+    var jours = prochains.map(function (d) { return { valeur: Ev.ecrireDate(d), titre: jourNomme(d) }; });
     jours.push({ valeur: "autre", titre: M("msgJourAutre") });
+    // Les heures courantes en un toucher, puis « Autre heure ».
+    var courantes = M("msgHeuresCourantes");
+    var heures = courantes.map(function (h) { return { valeur: h, titre: heureLisible(h) }; });
+    heures.push({ valeur: "autre", titre: M("msgHeureAutre") });
+
+    // Refaire : le même jour la semaine suivante, déjà choisi ; s'il est déjà passé (question ancienne), le prochain même jour
+    // de la semaine. Hors des sept jours : « Autre date », avec la date dans le champ. Question sans date : aucun jour choisi.
+    var jourChoisi = "", autreDate = "";
+    var rdvOrigine = origine ? Msg.dateRendezVous(origine) : null;
+    if (rdvOrigine) {
+      var suivant = L.ajouterJours(rdvOrigine, 7);
+      if (L.joursJusqua(suivant) < 0) {
+        suivant = prochains.filter(function (d) { return d.getDay() === rdvOrigine.getDay(); })[0];
+      }
+      var ecrit = Ev.ecrireDate(suivant);
+      if (jours.some(function (j) { return j.valeur === ecrit; })) { jourChoisi = ecrit; } else { jourChoisi = "autre"; autreDate = ecrit; }
+    }
+    // L'heure d'origine est gardée : l'une des quatre, ou telle quelle dans « Autre heure ».
+    var heureChoisie = !o.heure ? "" : courantes.indexOf(o.heure) >= 0 ? o.heure : "autre";
+    var autreHeure = heureChoisie === "autre" ? o.heure : "";
 
     var evenements = estAsso() ? L.evenementsAVenir(g) : [];
     var evenementChoisi = evenements.some(function (e) { return e.id === o.evenementId; }) ? o.evenementId : "";
     var titre = M(origine ? "msgRefaire" : "msgDemander");
     var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
-      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '" novalidate>' +
+      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '" data-aujourdhui="' + esc(Ev.ecrireDate(aujourdhui)) + '"' +
+      ' data-choisi-jour="' + esc(jourChoisi) + '" data-choisi-heure="' + esc(heureChoisie) + '" novalidate>' +
       // La question : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
       '<div class="champ"><label for="champ-question">' + esc(M("msgChampQuestion")) + "</label>" +
       '<p class="champ-aide" id="aide-question">' + esc(M("msgChampQuestionAide")) + "</p>" +
@@ -1446,9 +1477,15 @@
       // Les options, repliées (dépliées quand on refait une question).
       '<details class="repli" id="options-question"' + (origine ? " open" : "") + '><summary><span class="repli-titres"><span class="repli-titre">' +
       esc(M("msgOptions")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
-      choix("jour", M("msgChampJour"), jours, [], "radio", "choix--deux-colonnes") +
-      '<div id="zone-autre-date" hidden>' + champ("autre-date", M("msgJourAutre"), min, "", "date") + "</div>" +
-      champ("heure", M("msgChampHeure"), valeur(o.heure), "", "time") +
+      choix("jour", M("msgChampJour"), jours, [jourChoisi], "radio", "choix--liste") +
+      // « Autre date » : le champ arrive rempli avec la date du jour, et la phrase d'aide le dit (voir choisirJourOuHeure).
+      // Refaire avec une date hors des sept jours : le champ porte cette date, sans la phrase.
+      '<div id="zone-autre-date"' + (jourChoisi === "autre" ? "" : " hidden") + ">" +
+      champ("autre-date", M("msgJourAutre"), min + valeur(autreDate), M("msgJourAutreAide"), "date")
+        .replace('id="aide-autre-date"', 'id="aide-autre-date"' + (autreDate ? " hidden" : "")) + "</div>" +
+      choix("heure", M("msgChampHeure"), heures, [heureChoisie], "radio", "choix--liste") +
+      '<div id="zone-autre-heure"' + (heureChoisie === "autre" ? "" : " hidden") + ">" +
+      champ("autre-heure", M("msgHeureAutre"), valeur(autreHeure), "", "time") + "</div>" +
       champ("attendus", M("msgChampAttendus"), 'inputmode="numeric" autocomplete="off" maxlength="4" class="champ-court"' + valeur(o.attendus), "") +
       champ("avant-le", M("msgChampAvantLe"), min, "", "date") +
       (estAsso()
@@ -1471,20 +1508,45 @@
     else if (zone.textContent === M("msgErreurQuestionLongue")) { zone.textContent = ""; }
   }
 
-  // « Des personnes choisies » montre la liste des personnes ; « Autre date » montre le champ de date.
+  // « Des personnes choisies » montre la liste des personnes ; « Autre date » le champ de date ; « Autre heure » le champ d'heure.
   function montrerZonesQuestion(form) {
     form.querySelector("#zone-personnes").hidden = valeurRadio(form, "a-qui") !== "personnes";
     form.querySelector("#zone-autre-date").hidden = valeurRadio(form, "jour") !== "autre";
+    form.querySelector("#zone-autre-heure").hidden = valeurRadio(form, "heure") !== "autre";
+    montrerAideAutreDate(form);
   }
 
-  // Toucher le jour déjà choisi l'enlève : le rendez-vous est une option.
-  function basculerJour(radio) {
-    var form = radio.form;
-    if (radio.getAttribute("data-choisi") === "oui") { radio.checked = false; }
-    Array.prototype.forEach.call(form.querySelectorAll('input[name="jour"]'), function (x) {
-      if (x.checked) { x.setAttribute("data-choisi", "oui"); } else { x.removeAttribute("data-choisi"); }
-    });
+  // « Aujourd'hui est déjà choisi… » ne s'affiche que tant que le champ porte la date du jour.
+  function montrerAideAutreDate(form) {
+    var aide = form.querySelector("#aide-autre-date");
+    if (aide) { aide.hidden = form.elements["autre-date"].value !== form.getAttribute("data-aujourdhui"); }
+  }
+
+  // Le jour et l'heure, même règle : toucher un autre choix remplace le premier ; toucher le choix déjà fait l'enlève
+  // (le rendez-vous est une option). « Autre date » arrive rempli avec la date du jour, « Autre heure » arrive vide ;
+  // quitter l'un ou l'autre cache le champ, et ce qu'il contenait ne compte plus.
+  function choisirJourOuHeure(radio) {
+    var form = radio.form, nom = radio.name, cle = "data-choisi-" + nom;
+    if (form.getAttribute(cle) === radio.value) { radio.checked = false; }
+    var choisi = valeurRadio(form, nom);
+    if (choisi !== form.getAttribute(cle)) {
+      form.elements[nom === "jour" ? "autre-date" : "autre-heure"].value = nom === "jour" && choisi === "autre" ? form.getAttribute("data-aujourdhui") : "";
+    }
+    form.setAttribute(cle, choisi);
     montrerZonesQuestion(form);
+    effacerErreursRendezVous(form, nom);
+  }
+
+  // Une phrase d'erreur disparaît dès que le choix ou le champ est corrigé (comme depuis la demande 006b). Changer le jour
+  // efface aussi « Indiquez aussi le jour du rendez-vous. », écrite sous l'heure : elle porte sur les deux.
+  function effacerErreursRendezVous(form, nom) {
+    var jour = nom === "jour" || nom === "autre-date";
+    (jour ? ["jour", "autre-date", "heure"] : ["heure"]).forEach(function (n) {
+      var zone = form.querySelector("#erreur-" + n);
+      if (zone) { zone.textContent = ""; zone.removeAttribute("data-code"); }
+      var el = form.querySelector("#champ-" + n);
+      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", "false"); }
+    });
   }
 
   // Compteur des personnes cochées. Membre : « 3 sur 10 » ; à dix, les autres cases ne se cochent plus
@@ -1508,10 +1570,12 @@
     var g = G(), el = form.elements;
     var jour = valeurRadio(form, "jour");
     var autre = jour === "autre";
+    var heure = valeurRadio(form, "heure");
+    if (heure === "autre") { heure = el["autre-heure"] ? el["autre-heure"].value : ""; }
     var saisie = {
       texte: el.question.value, a: valeurRadio(form, "a-qui"), memesDe: form.getAttribute("data-refaire"),
       personnes: Array.prototype.map.call(form.querySelectorAll('input[name="personnes"]:checked'), function (x) { return x.value; }),
-      jour: autre ? el["autre-date"].value : jour, heure: el.heure.value, attendus: el.attendus.value, avantLe: el["avant-le"].value,
+      jour: autre ? el["autre-date"].value : jour, heure: heure, attendus: el.attendus.value, avantLe: el["avant-le"].value,
       evenementId: estAsso() ? valeurRadio(form, "evenement") : ""
     };
     var r = Msg.poserQuestion(g, moi(), saisie);
@@ -1752,7 +1816,8 @@
     reglageEnregistre = false;
     return '<section class="section" id="reglage-messages"><h2 class="section-titre">' + esc(M("msgReglageTitre")) + "</h2>" +
       '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("msgReglageToutLeGroupe")) + "</p>" +
-      '<p class="action-meta">' + esc(M("msgReglageAide")) + "</p></div>" +
+      // Demande 007b : la phrase d'aide dit ce qui se passe dans l'état affiché par le bouton.
+      '<p class="action-meta">' + esc(M(allume ? "msgReglageAideAllume" : "msgReglageAideEteint")) + "</p></div>" +
       '<button type="button" class="statut" data-reglage aria-pressed="' + allume + '" aria-label="' + esc(M("msgReglageToutLeGroupe") + " : " + mot) + '">' +
       esc(mot) + "</button></li></ul>" +
       (enregistre ? '<p class="message-ok" role="status">' + esc(M("msgReglageEnregistre")) + "</p>" : "") + "</section>";
@@ -2061,10 +2126,12 @@
   }
 
   // Les composants de la demande 007, montrés une fois chacun : la paire de réponse dans ses trois états (N1),
-  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), le choix sur deux colonnes et la case qui ne se coche plus (N5), le réglage allumé (N6).
+  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), le choix du jour (deux jours nommés, demande 007b) et la case
+  // qui ne se coche plus (N5), le réglage allumé (N6).
   function exemplesMessages() {
     var C = M("chartePaire");
     var F = M("charteFormulaire");
+    var exemplesJours = joursProposes(L.aujourdhui()).slice(0, 2);
     return '<h3 id="charte-paire">' + esc(C.titre) + "</h3>" +
       '<p class="discret">' + esc(C.avant) + "</p>" + paireReponse("", "", true) +
       '<p class="discret">' + esc(C.apresOui) + "</p>" + paireReponse("", "oui", true) +
@@ -2076,9 +2143,9 @@
       paireReponse("", "", true) +
       '<a class="lien-suite" href="#charte">' + esc(Mn("msgAccueilAutres", C.autres)) + "</a></div>" +
       '<ul class="legende">' + legendeRendezVous() + "</ul>" +
-      '<fieldset class="choix choix--deux-colonnes"><legend>' + esc(M("msgChampJour")) + "</legend>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(M("msgJourAujourdhui")) + "</span></span></label>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" disabled><span class="choix-texte"><span class="choix-titre">' + esc(M("msgJourDemain")) + "</span></span></label></fieldset>" +
+      '<fieldset class="choix choix--liste" id="exemple-choix-jour"><legend>' + esc(M("msgChampJour")) + "</legend>" +
+      '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[0])) + "</span></span></label>" +
+      '<label class="choix-option"><input type="radio" name="exemple-jour" disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[1])) + "</span></span></label></fieldset>" +
       '<fieldset class="choix choix--liste"><legend>' + esc(M("msgAPersonnes")) + ' <span class="compte">' + esc(M("msgPersonnesCompte", { n: 10 })) + "</span></legend>" +
       '<label class="choix-option"><input type="checkbox" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[1]) + "</span></span></label>" +
       '<label class="choix-option choix-option--bloquee"><input type="checkbox" disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[2]) + "</span></span></label>" +
@@ -2630,7 +2697,10 @@
   // ---------- Gestes ----------
 
   document.addEventListener("click", function (ev) {
-    if (ev.target.name === "jour" && ev.target.type === "radio") { basculerJour(ev.target); return; }
+    if (ev.target.type === "radio" && (ev.target.name === "jour" || ev.target.name === "heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
+      choisirJourOuHeure(ev.target);
+      return;
+    }
     var cible = ev.target.closest("button, a");
     if (!cible) { return; }
     if (cible.hasAttribute("data-reglage")) { changerReglage(); return; }
@@ -2699,13 +2769,17 @@
     } else if (c.name === "echeance") {
       montrerChampsEcheance(c.form);
     } else if (c.form && c.form.classList.contains("form-question")) {
-      if (c.name === "a-qui" || c.name === "jour") { montrerZonesQuestion(c.form); }
+      if (c.name === "a-qui" || c.name === "jour" || c.name === "heure") { montrerZonesQuestion(c.form); }
       if (c.name === "personnes") { compterPersonnes(c.form); }
     }
   });
 
   document.addEventListener("input", function (ev) {
     if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
+    if ((ev.target.name === "autre-date" || ev.target.name === "autre-heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
+      montrerAideAutreDate(ev.target.form);
+      effacerErreursRendezVous(ev.target.form, ev.target.name);
+    }
     effacerErreur(ev.target);
   });
 
