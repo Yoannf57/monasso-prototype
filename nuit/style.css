@@ -50,6 +50,7 @@
   --rayon-petit: 10px;
   --geste: 52px;                  /* hauteur minimale des zones tactiles */
   --barre-bas: 72px;
+  --bande: 79px;                  /* hauteur de la bande du bouton : 12 + 54 (un bouton) + 12, et 1 px de trait */
   --ombre: 0 1px 2px rgba(42, 33, 28, 0.06), 0 6px 18px -10px rgba(42, 33, 28, 0.25);
 }
 
@@ -516,13 +517,58 @@ p + .form-evenement { margin-top: 16px; }
 .jour--rendez-vous { background: var(--accent-pale); border-color: var(--accent); }
 .rendez-vous { margin-bottom: 28px; }
 
-/* N5 · La case qui ne se coche plus. (Le choix sur deux colonnes est retiré par la demande 007b : le jour et l'heure sont en liste.) */
+/* N5 · La case qui ne se coche plus. (Le choix sur deux colonnes de la 007 est retiré depuis la 007b ; le jour et l'heure sont des cases, N13.) */
 .choix-option--bloquee { background: var(--surface-douce); color: var(--texte-doux); cursor: default; }
 /* La phrase de la limite reste sous les yeux pendant qu'on fait défiler la liste des personnes. */
 .limite-personnes:not(:empty) { position: sticky; top: 36px; z-index: 1; margin: 0 0 6px; padding: 6px 0; background: var(--fond); }
 
 /* N6 · Réglage allumé : l'aspect de « En cours ». Le mot change avec l'état, la couleur n'est jamais seule. */
 .statut[aria-pressed="true"] { background: var(--accent-pale); border-color: var(--accent); color: var(--accent); }
+
+/* N13 · La case à toucher, sans rond (demande 007d) : les jours en grille de deux colonnes (.choix--cases), les heures sur une
+   seule ligne (.choix--ligne). Le bouton radio est caché (.visuellement-cache), la case entière est son étiquette.
+   Texte de 16 px, jamais coupé. La case choisie se lit sans la couleur : trait foncé, et une coche dans un rond foncé,
+   à cheval sur le coin haut droit (elle ne prend aucune largeur au mot). */
+.quand > .choix { margin-bottom: 16px; }
+.quand > .choix--ligne { margin-bottom: 0; }
+.quand > div > .champ { margin: 12px 0 0; }
+.quand > #zone-autre-date > .champ { margin: 0 0 16px; }
+.choix--cases, .choix--ligne { display: grid; gap: 8px; }
+.choix--cases { grid-template-columns: 1fr 1fr; }
+.choix--ligne { grid-template-columns: repeat(4, 1fr) auto; gap: 6px; }
+.choix--cases .choix-option, .choix--ligne .choix-option {
+  position: relative; align-items: center; justify-content: center; gap: 0; min-width: 0; margin: 0; padding: 4px 8px;
+  font-size: var(--taille-petit); white-space: nowrap; text-align: center;
+}
+/* Le bouton radio caché ne garde pas les 24 px du rond de .choix-option. */
+.choix--cases .choix-option input, .choix--ligne .choix-option input { width: 1px; height: 1px; margin: -1px; }
+.choix--ligne .choix-option { padding: 4px; }
+.choix--ligne .choix-option:last-of-type { padding: 4px 6px; }
+.choix--cases .choix-titre, .choix--ligne .choix-titre { display: block; }
+.choix--cases .champ-erreur, .choix--ligne .champ-erreur { grid-column: 1 / -1; }
+.choix--cases .champ-erreur:empty, .choix--ligne .champ-erreur:empty { display: none; }
+.choix--cases .champ-erreur:not(:empty), .choix--ligne .champ-erreur:not(:empty) { margin-top: 0; }
+.choix--cases .choix-option:has(input:focus-visible), .choix--ligne .choix-option:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 3px; }
+.choix--cases .choix-option:has(input:checked)::after, .choix--ligne .choix-option:has(input:checked)::after {
+  content: ""; position: absolute; top: -8px; right: -8px; z-index: 1; width: 20px; height: 20px; border-radius: 50%; background: var(--texte);
+}
+.choix--cases .choix-option:has(input:checked)::before, .choix--ligne .choix-option:has(input:checked)::before {
+  content: ""; position: absolute; top: -2px; right: -3px; z-index: 2; width: 10px; height: 5px;
+  border-left: 2.5px solid var(--surface); border-bottom: 2.5px solid var(--surface); transform: rotate(-45deg);
+}
+
+/* N14 · La bande du bouton (demande 007d) : fixe, juste au-dessus du menu, un seul bouton dedans. La page passe dessous ;
+   elle garde en bas une réserve de la hauteur de la bande (--bande), pour que rien ne reste caché. */
+.bande-action {
+  position: fixed; left: 0; right: 0; bottom: calc(var(--barre-bas) + env(safe-area-inset-bottom)); z-index: 8;
+  padding: 12px 16px; background: var(--fond); border-top: 1px solid var(--trait);
+  box-shadow: 0 -6px 18px -12px rgba(42, 33, 28, 0.3);
+}
+.bande-action .bouton { max-width: 528px; margin: 0 auto; }
+.bande-action--exemple { position: static; }
+.avec-bande .vue { padding-bottom: calc(var(--barre-bas) + 40px + var(--bande) + env(safe-area-inset-bottom)); }
+/* Un champ que l'on touche pour écrire s'arrête sous le bandeau du testeur et au-dessus de la bande. */
+html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--bande) + 8px + env(safe-area-inset-bottom)); }
 
 /* Nouvelle question, écran du message, listes */
 .form-question { margin-top: 4px; }

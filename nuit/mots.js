@@ -113,13 +113,18 @@ var MOTS = {
     msgAMemesPersonnes: "Les mêmes personnes",
     msgAvecCompte: "{nom} · {compte}",
     msgPersonnesCompte: "{n} sur 10",
+    // Demande 007d : « Quand ? » est le seul titre affiché au-dessus du jour et de l'heure, hors du repli.
+    msgQuand: "Quand ?",
     msgOptions: "Ajouter une date ou un nombre de Oui",
+    // Depuis la 007d, « Jour du rendez-vous » et « Heure » nomment la grille et la ligne pour les lecteurs d'écran, sans être affichés.
     msgChampJour: "Jour du rendez-vous",
+    // Demande 007d : la grille des jours commence par « Aujourd'hui » et « Demain », puis cinq jours nommés.
+    msgJourAujourdhui: "Aujourd'hui",
+    msgJourDemain: "Demain",
     // Demande 007b : les sept prochains jours, nommés (« jeudi 26 »), puis « Autre date » ; les heures courantes, puis « Autre heure ».
     // Entre le jour et son numéro, comme dans une heure, l'espace est celle qui ne se coupe pas en fin de ligne.
     msgJourNomme: "{jour} {numero}",
     msgJourAutre: "Autre date",
-    msgJourAutreAide: "Aujourd'hui est déjà choisi. Touchez la date pour la changer.",
     msgChampHeure: "Heure",
     msgHeuresCourantes: ["18:00", "19:00", "20:00", "21:00"],
     msgHeureAutre: "Autre heure",
@@ -513,6 +518,8 @@ var MOTS = {
     evenementRefait: "«\u00A0{nom}\u00A0» est recopié au {date}. Vérifiez ses actions et ses créneaux.",
 
     // Lien personnel d'un parent, après la suppression de l'événement
+    // Demande 007d : la phrase n'a pas de point final, {nom} finit déjà par le point de l'initiale (« Olivier H. »).
+    lienInscritAuNom: "Inscrit au nom de {nom}",
     lienEvenementSupprime: "Cet événement n'existe plus.",
     lienEvenementSupprimeAide: "Le bureau de l'association peut vous renseigner.",
 

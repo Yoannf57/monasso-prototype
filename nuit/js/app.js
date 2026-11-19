@@ -1262,12 +1262,36 @@
     fmtJourNomme.formatToParts(d).forEach(function (m) { morceaux[m.type] = m.value; });
     return M("msgJourNomme", { jour: morceaux.weekday, numero: morceaux.day });
   }
-  // Les sept prochains jours, de demain à dans sept jours : le même jour de la semaine suivante en fait toujours partie.
+  // Demande 007d : sept jours en tout, d'aujourd'hui au sixième jour après aujourd'hui. Le même jour de la semaine
+  // suivante n'en fait plus partie : il passe par « Autre date ».
   function joursProposes(aujourdhui) {
     var jours = [];
-    for (var i = 1; i <= 7; i++) { jours.push(L.ajouterJours(aujourdhui, i)); }
+    for (var i = 0; i < 7; i++) { jours.push(L.ajouterJours(aujourdhui, i)); }
     return jours;
   }
+  // « Aujourd'hui », « Demain », puis le jour nommé (« jeudi 19 »).
+  function titreJour(d, rang) { return rang === 0 ? M("msgJourAujourdhui") : rang === 1 ? M("msgJourDemain") : jourNomme(d); }
+
+  // N13 (demande 007d) : des cases à toucher sans rond, un seul choix possible. Le bouton radio reste dans la page pour le
+  // clavier et les lecteurs d'écran, caché ; la case entière est son étiquette. La légende nomme le groupe sans être affichée.
+  // inerte : exemple de la page Charte (rien ne se touche, aucun nom de champ).
+  function choixCases(nom, legende, options, choisi, classe, inerte) {
+    return '<fieldset class="choix ' + classe + '"' + (inerte ? "" : ' id="champ-' + nom + '" aria-describedby="erreur-' + nom + '"') + ">" +
+      '<legend class="visuellement-cache">' + esc(legende) + "</legend>" +
+      options.map(function (o) {
+        return '<label class="choix-option"><input class="visuellement-cache" type="radio" name="' + nom + '" value="' + esc(o.valeur) + '"' +
+          (o.valeur === choisi ? " checked" : "") + (inerte ? " disabled" : "") + '><span class="choix-titre">' + esc(o.titre) + "</span></label>";
+      }).join("") +
+      (inerte ? "" : '<p class="champ-erreur" id="erreur-' + nom + '"></p>') + "</fieldset>";
+  }
+  // Les quatre heures courantes puis « Autre heure ».
+  function heuresProposees() {
+    var heures = M("msgHeuresCourantes").map(function (h) { return { valeur: h, titre: heureLisible(h) }; });
+    heures.push({ valeur: "autre", titre: M("msgHeureAutre") });
+    return heures;
+  }
+  // N14 (demande 007d) : la bande fixe au-dessus du menu, qui ne porte qu'un bouton.
+  function bandeAction(bouton) { return '<div class="bande-action" id="bande-action">' + bouton + "</div>"; }
 
   function motReponse(r) { return M(r === "oui" ? "msgOui" : "msgNon"); }
 
@@ -1406,23 +1430,25 @@
       options.unshift({ valeur: "memes", titre: M("msgAvecCompte", { nom: M("msgAMemesPersonnes"), compte: Mn("nPersonnes", Msg.destinataires(g, origine).length) }) });
     }
 
-    // Les sept prochains jours en un toucher, nommés (« jeudi 26 »), puis « Autre date ».
-    var prochains = joursProposes(aujourdhui);
-    var jours = prochains.map(function (d) { return { valeur: Ev.ecrireDate(d), titre: jourNomme(d) }; });
+    // Demande 007d : « Aujourd'hui », « Demain », cinq jours nommés (« jeudi 19 »), puis « Autre date » ; un toucher chacun.
+    var jours = joursProposes(aujourdhui).map(function (d, i) { return { valeur: Ev.ecrireDate(d), titre: titreJour(d, i) }; });
     jours.push({ valeur: "autre", titre: M("msgJourAutre") });
     // Les heures courantes en un toucher, puis « Autre heure ».
     var courantes = M("msgHeuresCourantes");
-    var heures = courantes.map(function (h) { return { valeur: h, titre: heureLisible(h) }; });
-    heures.push({ valeur: "autre", titre: M("msgHeureAutre") });
+    var heures = heuresProposees();
 
     // Refaire : le même jour la semaine suivante, déjà choisi ; s'il est déjà passé (question ancienne), le prochain même jour
-    // de la semaine. Hors des sept jours : « Autre date », avec la date dans le champ. Question sans date : aucun jour choisi.
+    // de la semaine, à partir de demain. Hors de la grille : « Autre date », avec la date dans le champ. Question sans date :
+    // aucun jour choisi.
     var jourChoisi = "", autreDate = "";
     var rdvOrigine = origine ? Msg.dateRendezVous(origine) : null;
     if (rdvOrigine) {
       var suivant = L.ajouterJours(rdvOrigine, 7);
       if (L.joursJusqua(suivant) < 0) {
-        suivant = prochains.filter(function (d) { return d.getDay() === rdvOrigine.getDay(); })[0];
+        for (var i = 1; i <= 7; i++) {
+          suivant = L.ajouterJours(aujourdhui, i);
+          if (suivant.getDay() === rdvOrigine.getDay()) { break; }
+        }
       }
       var ecrit = Ev.ecrireDate(suivant);
       if (jours.some(function (j) { return j.valeur === ecrit; })) { jourChoisi = ecrit; } else { jourChoisi = "autre"; autreDate = ecrit; }
@@ -1435,7 +1461,7 @@
     var evenementChoisi = evenements.some(function (e) { return e.id === o.evenementId; }) ? o.evenementId : "";
     var titre = M(origine ? "msgRefaire" : "msgDemander");
     var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
-      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '" data-aujourdhui="' + esc(Ev.ecrireDate(aujourdhui)) + '"' +
+      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '"' +
       ' data-choisi-jour="' + esc(jourChoisi) + '" data-choisi-heure="' + esc(heureChoisie) + '" novalidate>' +
       // La question : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
       '<div class="champ"><label for="champ-question">' + esc(M("msgChampQuestion")) + "</label>" +
@@ -1452,18 +1478,19 @@
       '<p class="champ-erreur limite-personnes" id="erreur-personnes" role="status"></p>' +
       Msg.personnesProposees(g, p).map(function (x) { return optionChoix("personnes", "checkbox", { valeur: x.id, titre: Gr.nomComplet(x) }, false); }).join("") +
       "</fieldset></div>" +
-      // Les options, repliées (dépliées quand on refait une question).
-      '<details class="repli" id="options-question"' + (origine ? " open" : "") + '><summary><span class="repli-titres"><span class="repli-titre">' +
-      esc(M("msgOptions")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
-      choix("jour", M("msgChampJour"), jours, [jourChoisi], "radio", "choix--liste") +
-      // « Autre date » : le champ arrive rempli avec la date du jour, et la phrase d'aide le dit (voir choisirJourOuHeure).
-      // Refaire avec une date hors des sept jours : le champ porte cette date, sans la phrase.
+      // Demande 007d : « Quand ? » est affiché d'emblée, sans repli. La grille des jours, puis la ligne des heures ;
+      // « Autre date » et « Autre heure » montrent leur champ, vide, sous la grille et sous la ligne.
+      '<fieldset class="choix quand" id="quand"><legend>' + esc(M("msgQuand")) + "</legend>" +
+      choixCases("jour", M("msgChampJour"), jours, jourChoisi, "choix--cases") +
       '<div id="zone-autre-date"' + (jourChoisi === "autre" ? "" : " hidden") + ">" +
-      champ("autre-date", M("msgJourAutre"), min + valeur(autreDate), M("msgJourAutreAide"), "date")
-        .replace('id="aide-autre-date"', 'id="aide-autre-date"' + (autreDate ? " hidden" : "")) + "</div>" +
-      choix("heure", M("msgChampHeure"), heures, [heureChoisie], "radio", "choix--liste") +
+      champ("autre-date", M("msgJourAutre"), min + valeur(autreDate), "", "date") + "</div>" +
+      choixCases("heure", M("msgChampHeure"), heures, heureChoisie, "choix--ligne") +
       '<div id="zone-autre-heure"' + (heureChoisie === "autre" ? "" : " hidden") + ">" +
       champ("autre-heure", M("msgHeureAutre"), valeur(autreHeure), "", "time") + "</div>" +
+      "</fieldset>" +
+      // Les autres options, repliées (dépliées quand on refait une question, pour que le nombre de Oui repris se voie).
+      '<details class="repli" id="options-question"' + (origine ? " open" : "") + '><summary><span class="repli-titres"><span class="repli-titre">' +
+      esc(M("msgOptions")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
       champ("attendus", M("msgChampAttendus"), 'inputmode="numeric" autocomplete="off" maxlength="4" class="champ-court"' + valeur(o.attendus), "") +
       champ("avant-le", M("msgChampAvantLe"), min, "", "date") +
       (estAsso()
@@ -1472,9 +1499,10 @@
         : "") +
       "</div></details>" +
       '<p class="erreur-generale" role="alert"></p>' +
-      '<button type="submit" class="bouton bouton--principal">' + esc(M("msgEnvoyer")) + "</button>" +
+      // « Envoyer la question » reste en bas de l'écran, seul dans la bande fixe au-dessus du menu.
+      bandeAction('<button type="submit" class="bouton bouton--principal">' + esc(M("msgEnvoyer")) + "</button>") +
       "</form>";
-    return { titre: titre, onglet: "messages", html: html, champ: origine ? null : "question" };
+    return { titre: titre, onglet: "messages", html: html, champ: origine ? null : "question", bande: true };
   }
 
   // Le compteur « 24 sur 80 » ; à 80, la phrase qui dit que la question ne peut pas être plus longue.
@@ -1491,24 +1519,17 @@
     form.querySelector("#zone-personnes").hidden = valeurRadio(form, "a-qui") !== "personnes";
     form.querySelector("#zone-autre-date").hidden = valeurRadio(form, "jour") !== "autre";
     form.querySelector("#zone-autre-heure").hidden = valeurRadio(form, "heure") !== "autre";
-    montrerAideAutreDate(form);
-  }
-
-  // « Aujourd'hui est déjà choisi… » ne s'affiche que tant que le champ porte la date du jour.
-  function montrerAideAutreDate(form) {
-    var aide = form.querySelector("#aide-autre-date");
-    if (aide) { aide.hidden = form.elements["autre-date"].value !== form.getAttribute("data-aujourdhui"); }
   }
 
   // Le jour et l'heure, même règle : toucher un autre choix remplace le premier ; toucher le choix déjà fait l'enlève
-  // (le rendez-vous est une option). « Autre date » arrive rempli avec la date du jour, « Autre heure » arrive vide ;
+  // (le rendez-vous est une option). « Autre date » et « Autre heure » arrivent vides (demande 007d) ;
   // quitter l'un ou l'autre cache le champ, et ce qu'il contenait ne compte plus.
   function choisirJourOuHeure(radio) {
     var form = radio.form, nom = radio.name, cle = "data-choisi-" + nom;
     if (form.getAttribute(cle) === radio.value) { radio.checked = false; }
     var choisi = valeurRadio(form, nom);
     if (choisi !== form.getAttribute(cle)) {
-      form.elements[nom === "jour" ? "autre-date" : "autre-heure"].value = nom === "jour" && choisi === "autre" ? form.getAttribute("data-aujourdhui") : "";
+      form.elements[nom === "jour" ? "autre-date" : "autre-heure"].value = "";
     }
     form.setAttribute(cle, choisi);
     montrerZonesQuestion(form);
@@ -1560,8 +1581,8 @@
     // Visiteur, ou personne retirée entre-temps : l'écran se redessine et le dit.
     if (r.raison === "droits" || r.raison === "introuvable") { rendre({ focus: true }); return; }
     var e = r.erreurs || {};
-    // Une erreur dans les options ouvre les options ; une erreur sur les personnes montre la liste.
-    if (e.jour || e.heure || e.attendus || e.avantLe) { form.querySelector("#options-question").open = true; }
+    // Une erreur dans le repli ouvre le repli (le jour et l'heure n'y sont plus, demande 007d) ; une erreur sur les personnes montre la liste.
+    if (e.attendus || e.avantLe) { form.querySelector("#options-question").open = true; }
     var erreurs = { question: e.texte, "a-qui": e.a, personnes: e.personnes, heure: e.heure, attendus: e.attendus, "avant-le": e.avantLe };
     erreurs[autre ? "autre-date" : "jour"] = e.jour;
     var fautes = montrerErreurs(form, ["question", "a-qui", "personnes", "jour", "autre-date", "heure", "attendus", "avant-le"], erreurs, {
@@ -1575,6 +1596,8 @@
       // Les phrases qui ne sont pas des erreurs d'envoi (limite atteinte, 80 caractères) restent affichées.
       if (!e.personnes) { compterPersonnes(form); }
       if (!e.texte) { compterCaracteres(el.question); }
+      // Demande 007d : le bouton ne bouge plus ; le premier choix ou champ en erreur est amené à l'écran, avec sa phrase.
+      amenerErreurALEcran(form);
       return;
     }
     if (!r.ok) { rendre({ focus: true }); return; }
@@ -1584,6 +1607,21 @@
     if (rdv) { moisAffiche = new Date(rdv.getFullYear(), rdv.getMonth(), 1); }
     // Rien n'est envoyé : l'écran suivant montre le message qui partirait.
     aller("#message/" + r.message.id + "/envoi");
+  }
+
+  // Envoi refusé (demande 007d) : le premier choix ou champ en erreur se place entre le bandeau du testeur et la bande
+  // du bouton, avec sa phrase. Plus haut que la place libre (longue liste) : son début, ou sa phrase si elle est plus bas.
+  function amenerErreurALEcran(form) {
+    var phrase = Array.prototype.filter.call(form.querySelectorAll(".champ-erreur"), function (z) { return z.textContent && z.getClientRects().length; })[0];
+    if (!phrase) { return; }
+    var bandeau = document.querySelector(".demo-bandeau"), bande = document.getElementById("bande-action");
+    var haut = (bandeau ? bandeau.getBoundingClientRect().bottom : 0) + 8;
+    var bas = (bande ? bande.getBoundingClientRect().top : window.innerHeight) - 8;
+    var bloc = (phrase.closest(".champ, .choix") || phrase).getBoundingClientRect(), p = phrase.getBoundingClientRect();
+    var de = bloc.top, a = bloc.bottom;
+    if (a - de > bas - haut) { if (p.bottom - de <= bas - haut) { a = de + (bas - haut); } else { de = p.top; a = p.bottom; } }
+    if (de < haut) { window.scrollBy(0, de - haut); }
+    else if (a > bas) { window.scrollBy(0, a - bas); }
   }
 
   // ----- Écrans 3 et 5 : ce qui serait envoyé, ce qui serait relancé -----
@@ -1691,11 +1729,15 @@
     if (gerable) {
       if (!close && c.sans.length) { boutons += '<a class="' + classe("relancer") + '" id="relancer" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgRelancer")) + "</a>"; }
       if (!close) { boutons += '<button type="button" class="bouton bouton--secondaire" data-clore="' + esc(m.id) + '">' + esc(M("msgClore")) + "</button>"; }
-      boutons += '<a class="' + classe("refaire") + '" id="refaire" href="#messages/nouveau/question/' + esc(m.id) + '">' + esc(M("msgRefaire")) + "</a>";
     }
     if (boutons) { html += '<div class="section" id="gestion-question">' + boutons + "</div>"; }
+    // Demande 007d : « Refaire cette question » quitte le bas de la page pour la bande fixe au-dessus du menu, visible sans
+    // défiler. Même poids qu'avant : secondaire tant que la question est ouverte, principal une fois close.
+    if (gerable) {
+      html += bandeAction('<a class="' + classe("refaire") + '" id="refaire" href="#messages/nouveau/question/' + esc(m.id) + '">' + esc(M("msgRefaire")) + "</a>");
+    }
     // Places gardées en bas pour les commentaires (demande 008) et le partage par lien (demande 010) : rien pour l'instant.
-    return { titre: m.texte, onglet: "messages", html: html };
+    return { titre: m.texte, onglet: "messages", html: html, bande: gerable };
   }
 
   // Oui ou Non, en un geste : depuis l'écran du message comme depuis le bloc « À répondre » de l'accueil.
@@ -2104,12 +2146,13 @@
   }
 
   // Les composants de la demande 007, montrés une fois chacun : la paire de réponse dans ses trois états (N1),
-  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), le choix du jour (deux jours nommés, demande 007b) et la case
-  // qui ne se coche plus (N5), le réglage allumé (N6).
+  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), la case à toucher en grille et en ligne (N13, demande 007d),
+  // la bande du bouton (N14, demande 007d), la case qui ne se coche plus (N5), le réglage allumé (N6).
   function exemplesMessages() {
     var C = M("chartePaire");
     var F = M("charteFormulaire");
-    var exemplesJours = joursProposes(L.aujourdhui()).slice(0, 2);
+    // N13 (demande 007d) : quatre cases de la grille des jours, la première choisie ; la ligne des heures, « 20 h » choisie.
+    var exemplesJours = joursProposes(L.aujourdhui()).slice(0, 4).map(function (d, i) { return { valeur: String(i), titre: titreJour(d, i) }; });
     return '<h3 id="charte-paire">' + esc(C.titre) + "</h3>" +
       '<p class="discret">' + esc(C.avant) + "</p>" + paireReponse("", "", true) +
       '<p class="discret">' + esc(C.apresOui) + "</p>" + paireReponse("", "oui", true) +
@@ -2125,9 +2168,12 @@
       '<div class="bloc-liens" id="charte-bloc-liens"><a class="carte" href="#charte"><span class="carte-titre">' + esc(M("charteBlocLiens").haut) + "</span></a>" +
       '<a class="lien-suite" href="#charte">' + esc(M("charteBlocLiens").bas) + "</a></div>" +
       '<ul class="legende">' + legendeRendezVous() + "</ul>" +
-      '<fieldset class="choix choix--liste" id="exemple-choix-jour"><legend>' + esc(M("msgChampJour")) + "</legend>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[0])) + "</span></span></label>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[1])) + "</span></span></label></fieldset>" +
+      '<fieldset class="choix quand" id="exemple-choix-jour"><legend>' + esc(M("msgQuand")) + "</legend>" +
+      choixCases("exemple-jour", M("msgChampJour"), exemplesJours, "0", "choix--cases", true) +
+      choixCases("exemple-heure", M("msgChampHeure"), heuresProposees(), "20:00", "choix--ligne", true) + "</fieldset>" +
+      // N14 (demande 007d) : la bande du bouton, posée à plat dans la page (fixe, elle couvrirait la Charte).
+      '<div class="bande-action bande-action--exemple" id="exemple-bande-action"><button type="button" class="bouton bouton--secondaire" data-exemple>' +
+      esc(M("msgEnvoyer")) + "</button></div>" +
       '<fieldset class="choix choix--liste"><legend>' + esc(M("msgAPersonnes")) + ' <span class="compte">' + esc(M("msgPersonnesCompte", { n: 10 })) + "</span></legend>" +
       '<label class="choix-option"><input type="checkbox" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[1]) + "</span></span></label>" +
       '<label class="choix-option choix-option--bloquee"><input type="checkbox" disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[2]) + "</span></span></label>" +
@@ -2455,12 +2501,14 @@
     }
     var t = inscriptionPartout(jeton);
     if (!t) { return lienSansInscription(jeton); }
+    var inscritAuNom = MA("lienInscritAuNom").split("{nom}");
     var html = '<section class="confirmation">' +
       '<p class="surtitre">' + esc(t.groupe.nom) + "</p>" +
       '<h1 tabindex="-1">Votre coup de main</h1>' +
       '<p class="confirmation-quoi"><strong>' + esc(t.creneau.titre) + "</strong><br>" +
       esc(dateLongue(L.dateEvenement(t.evenement))) + " · " + esc(t.creneau.horaire) + "<br>" + esc(t.evenement.titre) + "</p>" +
-      "<p>Inscrit au nom de <strong>" + esc(L.nomPublic(t.volontaire)) + "</strong>.</p>" +
+      // Demande 007d : un seul point, celui de l'initiale ; la phrase vient de mots.js.
+      '<p id="inscrit-au-nom">' + esc(inscritAuNom[0]) + "<strong>" + esc(L.nomPublic(t.volontaire)) + "</strong>" + esc(inscritAuNom[1] || "") + "</p>" +
       "<p>Un empêchement ? Annulez ici : la place sera libérée pour un autre parent.</p>" +
       '<button type="button" class="bouton bouton--alerte" data-annuler="' + esc(jeton) + '">Annuler mon inscription</button>' +
       '<a class="lien-suite" href="#inscription/' + esc(t.evenement.id) + '">Garder mon inscription</a>' +
@@ -2564,6 +2612,8 @@
     var parent = !!r.parent;
     document.body.classList.toggle("espace-parent", parent);
     document.body.classList.toggle("espace-bureau", !parent);
+    // Demande 007d : un écran qui porte la bande du bouton garde en bas de page une réserve de sa hauteur.
+    document.body.classList.toggle("avec-bande", !!r.bande);
     document.getElementById("onglets").hidden = parent;
     document.getElementById("demo-retour").hidden = !parent;
 
@@ -2576,6 +2626,7 @@
     var aide = parent || r.aide ? "" : '<a class="lien-aide" id="lien-aide" href="#aide">' + esc(M("lienAide")) + "</a>";
     vue.innerHTML = aide + r.html;
     ouverts.forEach(function (id) { var d = document.getElementById(id); if (d && d.tagName === "DETAILS") { d.open = true; } });
+    poserBande();
     document.title = r.titre + " — " + (parent ? "" : G().nom + " — ") + "prototype";
     Array.prototype.forEach.call(document.querySelectorAll("[data-onglet]"), function (a) {
       if (a.getAttribute("data-onglet") === r.onglet) { a.setAttribute("aria-current", "page"); }
@@ -2591,6 +2642,13 @@
       else if (h1 && options && options.focus) { h1.focus({ preventScroll: true }); }
     }
   }
+
+  // La bande du bouton se pose juste au-dessus du menu, quelle que soit sa hauteur réelle (marge basse du téléphone comprise).
+  function poserBande() {
+    var bande = document.getElementById("bande-action"), menu = document.getElementById("onglets");
+    if (bande && menu && !menu.hidden && menu.offsetHeight) { bande.style.bottom = menu.offsetHeight + "px"; }
+  }
+  window.addEventListener("resize", poserBande);
 
   function copier(idSource) {
     var texte = document.getElementById(idSource).textContent;
@@ -2764,7 +2822,6 @@
     effacerErreur(ev.target);
     if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
     if ((ev.target.name === "autre-date" || ev.target.name === "autre-heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
-      montrerAideAutreDate(ev.target.form);
       effacerErreursRendezVous(ev.target.form, ev.target.name);
     }
   });
