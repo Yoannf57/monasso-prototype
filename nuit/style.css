@@ -534,7 +534,6 @@ p + .form-evenement { margin-top: 16px; }
 .confirmation-quoi + .bouton { margin-top: 16px; }
 .calme + .bouton { margin-top: 16px; }
 .suite-liste[hidden] { display: none; }
-#section-rappels > .discret { margin: -4px 0 10px; }
 
 /* ---------- Espace parent ---------- */
 

@@ -367,49 +367,27 @@
         '</span><span class="compte">' + liste.length + "</span></h2>" +
         '<ul class="actions">' + liste.map(function (x) { return ligneAction(x.action, x.evenement, contexte); }).join("") + "</ul></section>";
     }
-    // Sections, dans cet ordre : « En retard », « Cette semaine », « Rappels » (bureau seulement), « Plus tard ».
+    // Sections, dans cet ordre : « En retard », « Cette semaine », « Plus tard ». Plus aucun créneau ici (décision du 2026-11-19, soir) :
+    // la section « Rappels » faisait doublon avec l'écran des créneaux en manque.
     var groupes = [["En retard", r.enRetard, true], ["Cette semaine", r.cetteSemaine, false]];
-    var manque = rappels();
-    if (manque.length) { groupes.push(["rappels", manque, false]); }
     if (!toutes) { groupes.push(["Plus tard", r.plusTard, false]); }
     groupes = groupes.filter(function (g) { return g[1].length; });
     if (!groupes.length) {
       html += '<div class="section">' + etatVide("calme", toutes ? "Rien en retard ni cette semaine." : "Tout est fait.", "Les nouvelles actions apparaîtront ici.") + "</div>";
     } else {
-      groupes.forEach(function (g) { html += g[0] === "rappels" ? sectionRappels(g[1]) : section(g[0], g[1], g[2]); });
+      groupes.forEach(function (g) { html += section(g[0], g[1], g[2]); });
     }
-    // Les rappels sont des créneaux, pas des actions : ils ne comptent pas pour la phrase sur l'étiquette.
-    groupes = groupes.filter(function (g) { return g[0] !== "rappels"; });
     // La phrase sur l'étiquette ne s'affiche que si la personne peut changer l'état d'une action de l'écran.
-    var touchable = (!groupes.length && !manque.length) || groupes.some(function (g) { return g[1].some(function (x) { return peutChangerEtat(x.action); }); });
+    var touchable = !groupes.length || groupes.some(function (g) { return g[1].some(function (x) { return peutChangerEtat(x.action); }); });
     var note = (touchable ? "Touchez l\'étiquette d\'une action pour changer son statut." : "") + (toutes ? " Les autres actions sont dans chaque événement." : "");
     if (note) { html += '<p class="discret note-bas">' + note.trim() + "</p>"; }
     return { titre: toutes ? "Toutes les actions" : "Mes actions", onglet: "accueil", html: html };
   }
 
-  // ---------- Rappels : une section de « Mes actions », pour le bureau seul (demande 007) ----------
+  // ---------- Créneaux en manque, pour le bureau seul ----------
 
   // Les créneaux remplis à moins de la moitié. Personne d'autre que le bureau ne les reçoit.
   function rappels() { return estAsso() && gere() ? L.creneauxEnManque(G()) : []; }
-
-  function carteRappel(m) {
-    return '<a class="carte" href="#evenement/' + esc(m.evenement.id) + '/coups-de-main">' +
-      '<span class="carte-titre">' + esc(m.creneau.titre) + "</span>" +
-      '<span class="carte-quand">' + esc(m.evenement.titre) + " · " + esc(m.creneau.horaire) + "</span>" +
-      '<span class="carte-infos"><span class="etiquette etiquette--alerte">' + m.creneau.inscrits.length + " sur " + esc(m.creneau.places) + "</span></span></a>";
-  }
-
-  // Trois rappels au plus, le reste se déplie sur place. Un toucher ouvre les coups de main de l'événement.
-  function sectionRappels(manque) {
-    return '<section class="section" id="section-rappels"><h2 class="section-titre"><span>' + esc(M("accueilRappels")) +
-      '</span><span class="compte">' + manque.length + "</span></h2>" +
-      '<p class="discret">' + esc(M("accueilRappelsAide")) + "</p>" +
-      manque.slice(0, 3).map(carteRappel).join("") +
-      (manque.length > 3
-        ? '<div class="suite-liste" hidden>' + manque.slice(3).map(carteRappel).join("") + "</div>" +
-          '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("accueilRappelsVoirAutres", manque.length - 3)) + "</button>"
-        : "") + "</section>";
-  }
 
   // ---------- Créneaux en manque : la liste entière, sur un écran à part, pour le bureau seul (demande 007c) ----------
 
@@ -904,17 +882,17 @@
     return !!premier;
   }
 
-  // Une phrase d'erreur disparaît dès que le champ est corrigé (demande 006b), sur les formulaires d'événement,
-  // d'action et de créneau : dès que le contenu du champ change, sa phrase et sa bordure d'erreur s'effacent,
-  // sans attendre l'enregistrement, qui refait le contrôle complet. Les phrases des autres champs restent.
-  var FORMULAIRES_EVENEMENT = ["form-evenement", "form-action", "form-creneau"];
+  // Une phrase d'erreur disparaît dès que le champ est corrigé (demande 006b), sur tous les formulaires du prototype,
+  // « Ajouter une personne » compris (décision du 2026-11-19, soir) : dès que le contenu du champ change, sa phrase
+  // et sa bordure d'erreur s'effacent, sans attendre l'enregistrement, qui refait le contrôle complet.
+  // Les phrases des autres champs restent.
   // La phrase sous l'heure de fin porte aussi sur l'heure de début quand elle les compare : elle s'efface si l'une des deux change.
   var ERREURS_A_DEUX = { "debut-evenement": "fin-evenement", "debut-creneau": "fin-creneau" };
   var CODES_A_DEUX = ["sans-debut", "avant"];
 
   function effacerErreur(c) {
     var form = c.form;
-    if (!form || !c.name || !FORMULAIRES_EVENEMENT.some(function (classe) { return form.classList.contains(classe); })) { return; }
+    if (!form || !c.name) { return; }
     function effacer(nom, codes) {
       var zone = form.querySelector("#erreur-" + nom);
       if (!zone || !zone.textContent || (codes && codes.indexOf(zone.getAttribute("data-code")) < 0)) { return; }
@@ -2142,6 +2120,10 @@
       '<span class="carte-quand">' + esc(M("msgDe", { prenom: C.de }) + " · " + C.rendezVous) + "</span>" +
       paireReponse("", "", true) +
       '<a class="lien-suite" href="#charte">' + esc(Mn("msgAccueilAutres", C.autres)) + "</a></div>" +
+      // Le bloc à deux liens de l'accueil (N12, demande 007c ; décision du 2026-11-19, soir) : deux zones, aucun bouton.
+      '<p class="discret">' + esc(M("charteBlocLiens").titre) + "</p>" +
+      '<div class="bloc-liens" id="charte-bloc-liens"><a class="carte" href="#charte"><span class="carte-titre">' + esc(M("charteBlocLiens").haut) + "</span></a>" +
+      '<a class="lien-suite" href="#charte">' + esc(M("charteBlocLiens").bas) + "</a></div>" +
       '<ul class="legende">' + legendeRendezVous() + "</ul>" +
       '<fieldset class="choix choix--liste" id="exemple-choix-jour"><legend>' + esc(M("msgChampJour")) + "</legend>" +
       '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[0])) + "</span></span></label>" +
@@ -2551,8 +2533,9 @@
     switch (morceaux[0]) {
       case "accueil": r = ecranAccueil(); break;
       case "mes-actions": r = ecranMesActions(morceaux[1] === "toutes"); break;
-      // L'écran « Rappels » a disparu : son adresse mène à « Mes actions » (demande 007).
-      case "rappels": location.replace("#mes-actions"); return;
+      // Décision du 2026-11-19 (soir) : l'adresse #rappels ouvre l'écran des créneaux en manque, sans écran
+      // intermédiaire ; elle suit donc la même règle que lui, pour chacun.
+      case "rappels": location.replace("#creneaux-manquants"); return;
       // Demande 007c : la liste des créneaux en manque, pour le bureau seul ; pour les autres, la page n'existe pas.
       case "creneaux-manquants": r = gere() && !morceaux[1] ? ecranCreneauxManquants() : introuvable(); break;
       case "messages":
@@ -2749,6 +2732,8 @@
   document.addEventListener("change", function (ev) {
     var c = ev.target;
     effacerErreur(c);
+    // La phrase des 80 caractères n'est pas une erreur d'envoi : elle reste écrite tant que la limite est atteinte.
+    if (c.id === "champ-question") { compterCaracteres(c); }
     if (c.id === "demo-groupe") {
       etat.groupeActif = c.value;
       sauver();
@@ -2775,12 +2760,13 @@
   });
 
   document.addEventListener("input", function (ev) {
+    // D'abord la phrase d'erreur du champ, puis le compteur de la question, qui peut écrire la sienne (« … pas plus longue »).
+    effacerErreur(ev.target);
     if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
     if ((ev.target.name === "autre-date" || ev.target.name === "autre-heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
       montrerAideAutreDate(ev.target.form);
       effacerErreursRendezVous(ev.target.form, ev.target.name);
     }
-    effacerErreur(ev.target);
   });
 
   document.addEventListener("submit", function (ev) {

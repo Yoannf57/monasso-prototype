@@ -214,6 +214,14 @@ var MOTS = {
       autres: 2
     },
 
+    // Page Charte : l'exemple du bloc à deux liens de l'accueil (décision du 2026-11-19, soir).
+    // Mots communs : la page s'ouvre aussi dans un groupe simple.
+    charteBlocLiens: {
+      titre: "Bloc à deux liens",
+      haut: "Le bloc ouvre un écran",
+      bas: "Ouvrir un autre écran"
+    },
+
     // Page du groupe
     apparence: "Apparence",
     apparenceTexte: "Couleurs, tailles de texte et composants de l'application.",
@@ -523,11 +531,9 @@ var MOTS = {
     // Demande 007b : la phrase d'aide du réglage suit l'état du bouton.
     msgReglageAideEteint: "Seul le bureau écrit à tout le groupe.",
     msgReglageAideAllume: "Le bureau et les membres écrivent à tout le groupe.",
-    // Les rappels, dans l'écran « Mes actions » (bureau seulement)
-    accueilRappelsCreneaux: ["{n} créneau manque de monde", "{n} créneaux manquent de monde"],
-    accueilRappels: "Rappels",
+    // La ligne des créneaux à l'accueil du bureau, et la ligne d'aide de l'écran « Créneaux qui manquent de monde »
+    accueilRappelsCreneaux: ["Voir le créneau qui manque de monde", "Voir les {n} créneaux qui manquent de monde"],
     accueilRappelsAide: "Les créneaux remplis à moins de la moitié",
-    accueilRappelsVoirAutres: ["Voir {n} autre créneau", "Voir les {n} autres créneaux"],
     // Demande 007c : l'écran « Créneaux qui manquent de monde », ouvert par la ligne de l'accueil (bureau seulement)
     creneauxManqueTitre: "Créneaux qui manquent de monde",
     creneauManque: ["Il manque {n} personne", "Il manque {n} personnes"],

@@ -19,6 +19,8 @@
 
   Créneaux : jour (0 = le jour J, -1 = la veille), debut et fin ("HH:MM") servent
   à l'ajout dans l'agenda ; horaire est le texte affiché.
+  Heures : dans « 9 h » ou « 9 h 30 », l'espace est celle qui ne se coupe pas (elle ressemble à une espace ordinaire),
+  pour qu'une heure tienne d'un seul morceau en fin de ligne (décision du 2026-11-19, soir). En recopier une existante.
   Un événement passé a une date fixe (date: "AAAA-MM-JJ") et peut avoir un bilan.
 
   Inscrits : « jeton » est le lien personnel de la personne. C'est un identifiant d'allure aléatoire (24 caractères,
@@ -44,7 +46,7 @@
   les téléphones qui ont déjà ouvert la démo repartiront des nouvelles données.
 */
 var DONNEES = {
-  version: 6,
+  version: 7,
 
   // Groupe ouvert au démarrage (changeable dans le menu de démo).
   groupeParDefaut: "coquelicots",
@@ -152,13 +154,13 @@ var DONNEES = {
             { id: "vg-signaletique", libelle: "Poser le fléchage dans la rue", referent: "Julien", echeance: "La veille", joursAvant: 1, statut: "a-faire" },
             { id: "vg-frais", libelle: "Mettre les boissons au frais", referent: "Nadia", echeance: "La veille", joursAvant: 1, statut: "a-faire" },
 
-            { id: "vg-accueil", libelle: "Accueillir les exposants à 7 h", referent: "Thomas", echeance: "Le jour J", joursAvant: 0, statut: "a-faire" },
+            { id: "vg-accueil", libelle: "Accueillir les exposants à 7 h", referent: "Thomas", echeance: "Le jour J", joursAvant: 0, statut: "a-faire" },
             { id: "vg-signatures", libelle: "Faire signer le registre", referent: "Sophie", echeance: "Le jour J", joursAvant: 0, statut: "a-faire" },
             { id: "vg-comptage", libelle: "Compter la caisse à deux", referent: "Malik", echeance: "Le jour J", joursAvant: 0, statut: "a-faire" },
             { id: "vg-rendre", libelle: "Ranger et rendre la salle", referent: "Claire", echeance: "Le jour J", joursAvant: 0, statut: "a-faire" }
           ],
           creneaux: [
-            { id: "vg-installation", jour: -1, debut: "18:00", fin: "20:00", titre: "Installation de la salle", horaire: "La veille, 18 h – 20 h", places: 6, inscrits: [
+            { id: "vg-installation", jour: -1, debut: "18:00", fin: "20:00", titre: "Installation de la salle", horaire: "La veille, 18 h – 20 h", places: 6, inscrits: [
               { prenom: "Karim", initiale: "B", contact: "06 00 00 00 01", jeton: "ab0045b9747d6f750fb92f39" },
               { prenom: "Élodie", initiale: "R", contact: "elodie.demo@exemple.fr", jeton: "7a1c0c4de505d47c9dadde24" },
               { prenom: "Paul", initiale: "T", contact: "06 00 00 00 02", jeton: "d4f7e329e02854f7ba5000e0" },
@@ -166,24 +168,24 @@ var DONNEES = {
               { prenom: "Marc", initiale: "L", contact: "marc.demo@exemple.fr", jeton: "29071d208c1e9d2a19253ce9" },
               { prenom: "Aurélie", initiale: "F", contact: "06 00 00 00 04", jeton: "9ec8dc23191c595ce9d8ba23" }
             ] },
-            { id: "vg-accueil-exposants", jour: 0, debut: "07:00", fin: "09:00", titre: "Accueil des exposants", horaire: "7 h – 9 h", places: 4, inscrits: [
+            { id: "vg-accueil-exposants", jour: 0, debut: "07:00", fin: "09:00", titre: "Accueil des exposants", horaire: "7 h – 9 h", places: 4, inscrits: [
               { prenom: "Yasmine", initiale: "K", contact: "06 00 00 00 05", jeton: "cb31c931990d8bc1e642df14" },
               { prenom: "Hugo", initiale: "P", contact: "hugo.demo@exemple.fr", jeton: "f58c6794d1a4529bfb90e950" },
               { prenom: "Camille", initiale: "D", contact: "06 00 00 00 06", jeton: "5d73af17b34f9a659f8ace13" }
             ] },
-            { id: "vg-buvette-matin", jour: 0, debut: "09:00", fin: "12:00", titre: "Buvette", horaire: "9 h – 12 h", places: 3, inscrits: [
+            { id: "vg-buvette-matin", jour: 0, debut: "09:00", fin: "12:00", titre: "Buvette", horaire: "9 h – 12 h", places: 3, inscrits: [
               { prenom: "Fatou", initiale: "S", contact: "06 00 00 00 07", jeton: "33a741d058a66489ecc0cdbb" }
             ] },
-            { id: "vg-buvette-midi", jour: 0, debut: "12:00", fin: "15:00", titre: "Buvette", horaire: "12 h – 15 h", places: 3, inscrits: [] },
-            { id: "vg-gateaux-matin", jour: 0, debut: "09:00", fin: "13:00", titre: "Stand gâteaux", horaire: "9 h – 13 h", places: 2, inscrits: [
+            { id: "vg-buvette-midi", jour: 0, debut: "12:00", fin: "15:00", titre: "Buvette", horaire: "12 h – 15 h", places: 3, inscrits: [] },
+            { id: "vg-gateaux-matin", jour: 0, debut: "09:00", fin: "13:00", titre: "Stand gâteaux", horaire: "9 h – 13 h", places: 2, inscrits: [
               { prenom: "Léonie", initiale: "G", contact: "06 00 00 00 08", jeton: "4ea32513bd2a37227d607ffd" },
               { prenom: "Romain", initiale: "V", contact: "romain.demo@exemple.fr", jeton: "dfbf7af060446603dc5095b3" }
             ] },
-            { id: "vg-gateaux-aprem", jour: 0, debut: "13:00", fin: "17:00", titre: "Stand gâteaux", horaire: "13 h – 17 h", places: 2, inscrits: [] },
-            { id: "vg-rangement", jour: 0, debut: "17:00", fin: "19:00", titre: "Rangement", horaire: "17 h – 19 h", places: 6, inscrits: [
+            { id: "vg-gateaux-aprem", jour: 0, debut: "13:00", fin: "17:00", titre: "Stand gâteaux", horaire: "13 h – 17 h", places: 2, inscrits: [] },
+            { id: "vg-rangement", jour: 0, debut: "17:00", fin: "19:00", titre: "Rangement", horaire: "17 h – 19 h", places: 6, inscrits: [
               { prenom: "Damien", initiale: "C", contact: "06 00 00 00 09", jeton: "0fd3e924961983f672e31dac" }
             ] },
-            { id: "vg-gateau-maison", jour: 0, debut: "07:30", fin: "09:00", titre: "Apporter un gâteau maison", horaire: "Le matin, avant 9 h", places: 10, inscrits: [
+            { id: "vg-gateau-maison", jour: 0, debut: "07:30", fin: "09:00", titre: "Apporter un gâteau maison", horaire: "Le matin, avant 9 h", places: 10, inscrits: [
               { prenom: "Sarah", initiale: "N", contact: "06 00 00 00 10", jeton: "599a6056014790c8bbce5320" },
               { prenom: "Lucas", initiale: "A", contact: "06 00 00 00 11", jeton: "1e429ea5384637c739dcd9f5" },
               { prenom: "Manon", initiale: "J", contact: "manon.demo@exemple.fr", jeton: "89ccf79c3d37574b12be5816" },
@@ -291,7 +293,7 @@ var DONNEES = {
 
       messages: [
         {
-          id: "q-foot-jeudi", sorte: "question", texte: "Qui pour jouer jeudi 20 h ?",
+          id: "q-foot-jeudi", sorte: "question", texte: "Qui pour jouer jeudi 20 h ?",
           auteurId: "j-lucie-bernard", auteur: "Lucie Bernard", creeDansJours: -1,
           a: { sorte: "tous" }, destinataires: ["j-samir-ouali", "j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-damien-colin", "j-jeremy-vidal", "j-alexandre-roche", "j-mamadou-diallo", "j-florian-marie", "j-youssef-cherif", "j-maxime-brun", "j-vincent-perret", "j-ibrahim-toure", "j-cedric-blanc", "j-julie-mercier", "j-romain-dupuis", "j-anthony-lopez", "j-bruno-guerin", "j-thibault-muller", "j-karim-mansouri", "j-laurent-barbier", "j-hamza-belkacem", "j-olivier-renaud", "j-pierre-arnaud", "j-david-meunier", "j-aissa-ndiaye"],
           jourDansJours: 1, jourSemaine: 4, heure: "20:00", attendus: 10, avantLeJoursAvant: 1,
