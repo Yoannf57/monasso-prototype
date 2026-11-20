@@ -42,6 +42,11 @@
   avantLeJoursAvant: 1 place la date limite la veille du rendez-vous.
   Une question se clôt d'elle-même après sa date limite, à défaut après son rendez-vous.
 
+  Commentaires (demande 008) : sous une question, « commentaires » ; chacun a un numéro d'ordre (n), son auteur, son texte
+  (300 caractères au plus), le jour (dansJours) et l'heure. « vus » note, par personne, le numéro du dernier commentaire lu.
+  Ce qui serait envoyé (demande 008) : « envois », dans le groupe ; une entrée par notification simulée (nouvelle question,
+  relance, commentaire), avec les personnes qui la recevraient (a). Rien n'est envoyé.
+
   Après une modification, changez le numéro de « version » ci-dessous :
   les téléphones qui ont déjà ouvert la démo repartiront des nouvelles données.
 */
@@ -298,7 +303,14 @@ var DONNEES = {
           a: { sorte: "tous" }, destinataires: ["j-samir-ouali", "j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-damien-colin", "j-jeremy-vidal", "j-alexandre-roche", "j-mamadou-diallo", "j-florian-marie", "j-youssef-cherif", "j-maxime-brun", "j-vincent-perret", "j-ibrahim-toure", "j-cedric-blanc", "j-julie-mercier", "j-romain-dupuis", "j-anthony-lopez", "j-bruno-guerin", "j-thibault-muller", "j-karim-mansouri", "j-laurent-barbier", "j-hamza-belkacem", "j-olivier-renaud", "j-pierre-arnaud", "j-david-meunier", "j-aissa-ndiaye"],
           jourDansJours: 1, jourSemaine: 4, heure: "20:00", attendus: 10, avantLeJoursAvant: 1,
           oui: ["j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-nicolas-faure", "j-rachid-amrani", "j-julie-mercier", "j-hamza-belkacem"],
-          non: ["j-damien-colin", "j-florian-marie", "j-olivier-renaud"]
+          non: ["j-damien-colin", "j-florian-marie", "j-olivier-renaud"],
+          commentaires: [
+            { id: "c-foot-retard", n: 1, auteurId: "j-mehdi-saidi", auteur: "Mehdi Saïdi", texte: "Je viens mais j'arrive à 20 h 15.", dansJours: -1, heure: "18:40" },
+            { id: "c-foot-chasubles", n: 2, auteurId: "j-antoine-robin", auteur: "Antoine Robin", texte: "Qui amène les chasubles ?", dansJours: -1, heure: "19:05" }
+          ],
+          dernierCommentaire: 2,
+          // Lucie, qui a posé la question, a déjà lu le premier commentaire.
+          vus: { "j-lucie-bernard": 1, "j-mehdi-saidi": 1, "j-antoine-robin": 2 }
         },
         {
           id: "q-foot-tournoi", sorte: "question", texte: "Qui est partant pour inscrire le groupe au tournoi du printemps ?",
@@ -330,10 +342,26 @@ var DONNEES = {
           id: "q-foot-dernier", sorte: "question", texte: "Qui jouait jeudi dernier ?",
           auteurId: "j-samir-ouali", auteur: "Samir Ouali", creeDansJours: -9,
           a: { sorte: "tous" }, destinataires: ["j-samir-ouali", "j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-damien-colin", "j-jeremy-vidal", "j-alexandre-roche", "j-mamadou-diallo", "j-florian-marie", "j-youssef-cherif", "j-maxime-brun", "j-vincent-perret", "j-ibrahim-toure", "j-cedric-blanc", "j-julie-mercier", "j-romain-dupuis", "j-anthony-lopez", "j-bruno-guerin", "j-thibault-muller", "j-karim-mansouri", "j-laurent-barbier", "j-hamza-belkacem", "j-olivier-renaud", "j-pierre-arnaud", "j-david-meunier", "j-aissa-ndiaye"],
-          jourDansJours: -6, heure: "20:00", attendus: 10,
+          // « Jeudi dernier » : le dernier jeudi avant aujourd'hui, quel que soit le jour où l'on ouvre la démo
+          // (il y a sept jours, avancé jusqu'au jeudi : de sept jours à un jour avant aujourd'hui).
+          jourDansJours: -7, jourSemaine: 4, heure: "20:00", attendus: 10,
           oui: ["j-samir-ouali", "j-lucie-bernard", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-jeremy-vidal", "j-julie-mercier"],
           non: ["j-damien-colin", "j-mamadou-diallo", "j-bruno-guerin", "j-pierre-arnaud"]
         }
+      ],
+
+      // Ce qui serait envoyé (demande 008) : rien n'est envoyé, le menu Démo montre ces notifications simulées.
+      envois: [
+        { id: "n-foot-repas", sorte: "question", messageId: "q-foot-repas", de: "Samir", dansJours: -5, heure: "12:15",
+          a: ["j-lucie-bernard", "j-mehdi-saidi", "j-sebastien-gauthier", "j-rachid-amrani", "j-jeremy-vidal", "j-mamadou-diallo", "j-youssef-cherif", "j-vincent-perret", "j-cedric-blanc", "j-romain-dupuis"] },
+        { id: "n-foot-jeudi", sorte: "question", messageId: "q-foot-jeudi", de: "Lucie", dansJours: -1, heure: "18:02",
+          a: ["j-samir-ouali", "j-antoine-robin", "j-mehdi-saidi", "j-kevin-lefevre", "j-sebastien-gauthier", "j-nicolas-faure", "j-rachid-amrani", "j-damien-colin", "j-jeremy-vidal", "j-alexandre-roche", "j-mamadou-diallo", "j-florian-marie", "j-youssef-cherif", "j-maxime-brun", "j-vincent-perret", "j-ibrahim-toure", "j-cedric-blanc", "j-julie-mercier", "j-romain-dupuis", "j-anthony-lopez", "j-bruno-guerin", "j-thibault-muller", "j-karim-mansouri", "j-laurent-barbier", "j-hamza-belkacem", "j-olivier-renaud", "j-pierre-arnaud", "j-david-meunier", "j-aissa-ndiaye"] },
+        { id: "n-foot-retard", sorte: "commentaire", messageId: "q-foot-jeudi", de: "Mehdi", dansJours: -1, heure: "18:40",
+          a: ["j-lucie-bernard"], commentaireId: "c-foot-retard", commentaire: "Je viens mais j'arrive à 20 h 15." },
+        { id: "n-foot-chasubles", sorte: "commentaire", messageId: "q-foot-jeudi", de: "Antoine", dansJours: -1, heure: "19:05",
+          a: ["j-lucie-bernard"], commentaireId: "c-foot-chasubles", commentaire: "Qui amène les chasubles ?" },
+        { id: "n-foot-relance", sorte: "relance", messageId: "q-foot-jeudi", de: "Lucie", dansJours: -1, heure: "21:30",
+          a: ["j-samir-ouali", "j-sebastien-gauthier", "j-jeremy-vidal", "j-alexandre-roche", "j-mamadou-diallo", "j-youssef-cherif", "j-maxime-brun", "j-vincent-perret", "j-ibrahim-toure", "j-cedric-blanc", "j-romain-dupuis", "j-anthony-lopez", "j-bruno-guerin", "j-thibault-muller", "j-karim-mansouri", "j-laurent-barbier", "j-pierre-arnaud", "j-david-meunier", "j-aissa-ndiaye"] }
       ]
     }
   ]

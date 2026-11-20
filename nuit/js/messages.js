@@ -27,6 +27,21 @@
   (creeDansJours, closeDansJours, jourDansJours, avantLeDansJours) ; jourSemaine avance le rendez-vous
   jusqu'à ce jour de la semaine (4 = jeudi) ; avantLeJoursAvant compte à rebours du rendez-vous.
 
+  Commentaires (demande 008), rangés dans la question (commentaires) :
+  - id, n (numéro d'ordre sous ce message, jamais réutilisé), auteurId, auteur (le nom noté ce jour-là),
+    texte (300 caractères au plus), le ("AAAA-MM-JJ") et heure ("HH:MM") ; dans les données d'exemple, dansJours à la place de « le » ;
+  - dernierCommentaire : le dernier numéro donné ; vus : pour chaque personne, le numéro du dernier commentaire
+    qu'elle avait sous les yeux à sa dernière ouverture du message (sert à « 2 nouveaux commentaires »).
+  Qui voit le message voit ses commentaires et peut en écrire un, visiteur compris, tant que le message est ouvert.
+  Chacun supprime le sien ; le bureau ou les organisateurs suppriment tous ceux des messages qu'ils voient.
+
+  Ce qui serait envoyé (demande 008), rangé dans groupe.envois : une entrée par envoi simulé, jamais rien d'envoyé.
+  - id, sorte ("question", "relance", "commentaire"), messageId, le et heure (ou dansJours), de (le prénom de qui envoie),
+    a (les personnes qui recevraient la notification) ; pour un commentaire : commentaireId, commentaire (son texte, gardé
+    tel qu'il serait parti) et supprime (le commentaire a été supprimé depuis).
+  Nouvelle question : tous les destinataires sauf l'auteur. Relance : ceux qui n'ont pas répondu.
+  Commentaire : l'auteur du message seul (décision du 2026-11-19), et rien s'il commente son propre message.
+
   Les erreurs de saisie sont rendues sous forme de codes ; leurs textes sont dans mots.js.
 */
 (function (racine) {
@@ -38,7 +53,7 @@
 
   var HEURE = /^([01]\d|2[0-3]):[0-5]\d$/;
   var NOMBRE = /^\d{1,4}$/;
-  var LIMITES = { texte: 80, personnesMembre: 10 };
+  var LIMITES = { texte: 80, personnesMembre: 10, commentaire: 300 };
 
   function nettoyer(t) { return String(t == null ? "" : t).replace(/\s+/g, " ").trim(); }
 
@@ -286,6 +301,8 @@
     if (v.valeurs.evenementId) { m.evenementId = v.valeurs.evenementId; }
     groupe.messages = groupe.messages || [];
     groupe.messages.push(m);
+    // Ce qui serait envoyé : tous les destinataires sauf l'auteur.
+    noterEnvoi(groupe, { sorte: "question", messageId: m.id, de: p.prenom, a: m.destinataires.filter(function (x) { return x !== p.id; }) }, reference);
     return { ok: true, message: m };
   }
 
@@ -366,6 +383,133 @@
       .sort(function (x, y) { return (x.date - y.date) || String(x.message.heure || "").localeCompare(String(y.message.heure || "")); });
   }
 
+  // ---------- Commentaires (demande 008) ----------
+
+  function deux(n) { return (n < 10 ? "0" : "") + n; }
+  function heureDe(reference) { var d = reference ? new Date(reference) : new Date(); return deux(d.getHours()) + ":" + deux(d.getMinutes()); }
+
+  // Du plus ancien au plus récent.
+  function commentaires(m) {
+    return ((m && m.commentaires) || []).slice().sort(function (x, y) { return (x.n || 0) - (y.n || 0); });
+  }
+  function trouverCommentaire(m, id) {
+    return ((m && m.commentaires) || []).filter(function (c) { return c.id === id; })[0] || null;
+  }
+  function dateCommentaire(c, reference) { return dateEcrite(c, "le", "dansJours", reference); }
+
+  // Qui voit le message peut commenter dessous, visiteur compris, tant qu'il est ouvert.
+  function peutCommenter(groupe, personne, m, reference) {
+    return estVisible(groupe, personne, m) && !estClose(m, reference);
+  }
+
+  // Texte seul, 300 caractères au plus ; les espaces du début et de la fin sont retirés, un retour à la ligne devient une espace.
+  function commenter(groupe, personne, id, texte, reference) {
+    var p = membre(groupe, personne);
+    var m = trouverVisible(groupe, p, id);
+    if (!m) { return { ok: false, raison: "introuvable" }; }
+    if (estClose(m, reference)) { return { ok: false, raison: "close" }; }
+    var t = nettoyer(texte);
+    if (!t) { return { ok: false, raison: "saisie", erreur: "vide" }; }
+    if (t.length > LIMITES.commentaire) { return { ok: false, raison: "saisie", erreur: "long" }; }
+    var n = Math.max.apply(null, [m.dernierCommentaire || 0].concat((m.commentaires || []).map(function (c) { return c.n || 0; }))) + 1;
+    var c = { id: nouvelId("c"), n: n, auteurId: p.id, auteur: Gr.nomComplet(p), texte: t, le: Ev.ecrireDate(L.aujourdhui(reference)), heure: heureDe(reference) };
+    m.commentaires = m.commentaires || [];
+    m.commentaires.push(c);
+    m.dernierCommentaire = n;
+    // Qui publie a la liste sous les yeux.
+    m.vus = m.vus || {};
+    m.vus[p.id] = n;
+    // Seul l'auteur du message est prévenu, s'il est encore dans le groupe ; il n'est pas prévenu de son propre commentaire.
+    if (m.auteurId !== p.id && auteur(groupe, m)) {
+      noterEnvoi(groupe, { sorte: "commentaire", messageId: m.id, de: p.prenom, a: [m.auteurId], commentaireId: c.id, commentaire: c.texte }, reference);
+    }
+    return { ok: true, message: m, commentaire: c };
+  }
+
+  // Chacun supprime le sien ; le bureau ou les organisateurs suppriment tous ceux des messages qu'ils voient.
+  // L'auteur du message, sans ce rôle, ne supprime que les siens.
+  function peutSupprimerCommentaire(groupe, personne, m, c) {
+    var p = membre(groupe, personne);
+    return !!p && !!c && estVisible(groupe, p, m) && (c.auteurId === p.id || Gr.peutGerer(groupe, p));
+  }
+
+  function supprimerCommentaire(groupe, personne, id, commentaireId) {
+    var p = membre(groupe, personne);
+    var m = trouverVisible(groupe, p, id);
+    var c = m ? trouverCommentaire(m, commentaireId) : null;
+    if (!c) { return { ok: false, raison: "introuvable" }; }
+    if (!peutSupprimerCommentaire(groupe, p, m, c)) { return { ok: false, raison: "droits" }; }
+    m.commentaires = m.commentaires.filter(function (x) { return x !== c; });
+    // La notification déjà partie ne se rattrape pas : son entrée reste, et dit que le commentaire a été supprimé depuis.
+    (groupe.envois || []).forEach(function (e) { if (e.sorte === "commentaire" && e.commentaireId === c.id) { e.supprime = true; } });
+    return { ok: true, message: m, commentaire: c };
+  }
+
+  // Les commentaires des autres publiés depuis ma dernière ouverture du message.
+  function nouveauxCommentaires(groupe, personne, m) {
+    var p = membre(groupe, personne);
+    if (!p || !estVisible(groupe, p, m)) { return 0; }
+    var vu = (m.vus && m.vus[p.id]) || 0;
+    return ((m.commentaires) || []).filter(function (c) { return c.auteurId !== p.id && (c.n || 0) > vu; }).length;
+  }
+
+  // À l'ouverture du message : tout ce qui est publié est vu. Rend vrai si quelque chose a changé.
+  function marquerVus(groupe, personne, m) {
+    var p = membre(groupe, personne);
+    if (!p || !estVisible(groupe, p, m)) { return false; }
+    var dernier = Math.max.apply(null, [0].concat((m.commentaires || []).map(function (c) { return c.n || 0; })));
+    if (((m.vus && m.vus[p.id]) || 0) >= dernier) { return false; }
+    m.vus = m.vus || {};
+    m.vus[p.id] = dernier;
+    return true;
+  }
+
+  // ---------- Ce qui serait envoyé (demande 008) : rien n'est envoyé, chaque envoi simulé est noté ----------
+
+  function noterEnvoi(groupe, envoi, reference) {
+    if (!envoi.a || !envoi.a.length) { return null; }
+    envoi.id = nouvelId("n");
+    envoi.le = Ev.ecrireDate(L.aujourdhui(reference));
+    envoi.heure = heureDe(reference);
+    groupe.envois = groupe.envois || [];
+    groupe.envois.push(envoi);
+    return envoi;
+  }
+
+  // La relance est notée au moment où elle est demandée : elle ne vise que ceux qui n'ont pas encore répondu.
+  function noterRelance(groupe, personne, id, reference) {
+    var r = relance(groupe, personne, id, reference);
+    if (!r.ok) { return r; }
+    var p = membre(groupe, personne);
+    r.envoi = noterEnvoi(groupe, { sorte: "relance", messageId: r.message.id, de: p.prenom, a: r.personnes.map(function (x) { return x.id; }) }, reference);
+    return r;
+  }
+
+  function dateEnvoi(e, reference) { return dateEcrite(e, "le", "dansJours", reference); }
+
+  // Les envois du groupe, le plus récent d'abord ; au même instant, le dernier noté d'abord.
+  function envois(groupe, reference) {
+    return ((groupe && groupe.envois) || []).map(function (e, i) { return { e: e, i: i, d: dateEnvoi(e, reference) }; })
+      .filter(function (x) { return !!x.d && !!trouver(groupe, x.e.messageId); })
+      .sort(function (x, y) { return (y.d - x.d) || String(y.e.heure || "").localeCompare(String(x.e.heure || "")) || (y.i - x.i); })
+      .map(function (x) { return x.e; });
+  }
+
+  // ---------- Accueil (demande 008) ----------
+
+  // Le nombre de messages qui attendent ma réponse : celui de la pastille, de la liste « À répondre » et du bloc d'accueil.
+  function nombreARepondre(groupe, personne, reference) { return listes(groupe, personne, reference).aRepondre.length; }
+
+  // « Prochains rendez-vous » : les questions datées, à venir, auxquelles j'ai répondu Oui, et celles que j'ai posées sans en
+  // être destinataire ; ouvertes ou closes. Le plus proche d'abord.
+  function prochainsRendezVous(groupe, personne, reference) {
+    var p = membre(groupe, personne);
+    return rendezVous(groupe, p, reference).filter(function (x) {
+      var m = x.message;
+      return reponse(m, p) === "oui" || (estAuteur(groupe, p, m) && !estDestinataire(groupe, p, m));
+    });
+  }
+
   // ---------- Agenda ----------
 
   // Fichier .ics du rendez-vous d'une question : une heure à partir de l'heure dite, ou la journée entière sans heure.
@@ -431,6 +575,20 @@
     relance: relance,
     listes: listes,
     rendezVous: rendezVous,
+    commentaires: commentaires,
+    trouverCommentaire: trouverCommentaire,
+    dateCommentaire: dateCommentaire,
+    peutCommenter: peutCommenter,
+    commenter: commenter,
+    peutSupprimerCommentaire: peutSupprimerCommentaire,
+    supprimerCommentaire: supprimerCommentaire,
+    nouveauxCommentaires: nouveauxCommentaires,
+    marquerVus: marquerVus,
+    noterRelance: noterRelance,
+    dateEnvoi: dateEnvoi,
+    envois: envois,
+    nombreARepondre: nombreARepondre,
+    prochainsRendezVous: prochainsRendezVous,
     fichierAgenda: fichierAgenda
   };
 

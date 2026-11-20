@@ -18,6 +18,9 @@
   Demande 006b : les mots pour modifier, supprimer et refaire un événement sont dans la liste « association ».
   Demande 007 : tous les mots des messages commencent par « msg » ; ils sont dans la liste commune,
   sauf ceux qui nomment le bureau, les organisateurs ou un événement.
+  Demande 008 : les mots des commentaires (msgCom…), de leur notification (msgNotifCom…), de la pastille du menu
+  (msgPastille…) et de l'écran Démo « Ce qui serait envoyé » (msgDemo…) sont dans la liste commune ;
+  « Prochains rendez-vous » (msgAccueilRendezVous) est dans la liste du groupe simple.
 */
 var MOTS = {
   commun: {
@@ -198,6 +201,65 @@ var MOTS = {
     msgAucunRendezVous: "Aucun rendez-vous à venir.",
     msgAucunRendezVousAide: "Ajoutez une date à une question : elle apparaîtra ici.",
 
+    // ---------- Demande 008 : commentaires, pastille du menu, ce qui serait envoyé ----------
+
+    // Les commentaires, sous le message. Couples : un, plusieurs.
+    msgComTitre: "Commentaires",
+    msgComVoirAnciens: ["Voir {n} commentaire plus ancien", "Voir les {n} commentaires plus anciens"],
+    msgComSigne: "{nom} · le {quand}",
+    msgComChamp: "Votre commentaire",
+    // Le compteur d'un texte de 300 caractères : la même clé sert à la demande 009 (décision du 2026-11-19).
+    msgCompteCaracteres300: "{n} sur 300",
+    msgComPublier: "Publier le commentaire",
+    msgComPublie: "Commentaire publié.",
+    msgComSupprimer: "Supprimer ce commentaire",
+    msgComSupprimerLecture: "Supprimer le commentaire de {nom}, du {quand}",
+    msgComConfirmerSupprimer: "Supprimer ce commentaire ? Il disparaîtra pour tout le monde.",
+    msgComSupprime: "Commentaire supprimé.",
+    msgComNouveaux: ["{n} nouveau commentaire", "{n} nouveaux commentaires"],
+    msgComVide: "Aucun commentaire pour l'instant.",
+    msgComErreurVide: "Écrivez votre commentaire.",
+    msgComErreurLong: "Un commentaire tient en 300 caractères au plus.",
+    msgComClos: "Ce message est clos : on ne peut plus commenter.",
+    msgComErreurSupprimer: "Vous ne pouvez supprimer que vos commentaires.",
+
+    // La pastille sur l'entrée « Messages » du menu : un nombre de 1 à 9, puis « 9+ » ; le nom lu de l'onglet.
+    msgPastilleLecture: ["Messages, {n} message à répondre", "Messages, {n} messages à répondre"],
+    msgPastilleMax: "9+",
+
+    // Démo › « Voir ce qui serait envoyé » (le titre de l'écran est msgEnvoiTitre)
+    msgDemoEnvoisTexte: "Ce prototype n'envoie rien. Voici ce qui serait parti dans ce groupe, le plus récent d'abord.",
+    msgDemoSorteQuestion: "Nouvelle question",
+    msgDemoSorteRelance: "Relance",
+    msgDemoSorteCommentaire: "Commentaire",
+    msgDemoQuand: "le {quand}",
+    msgDemoVoirAnciennes: ["Voir {n} notification plus ancienne", "Voir les {n} notifications plus anciennes"],
+    msgDemoComSupprime: "Commentaire supprimé depuis.",
+    msgDemoVide: "Rien ne serait parti pour l'instant.",
+    msgDemoVideAide: "Posez une question ou relancez-la : la notification apparaîtra ici.",
+
+    // La notification d'un commentaire, pour l'auteur du message seul
+    msgNotifComEntete: "{groupe} · {prenom} a commenté votre message :",
+    msgNotifComCitation: "« {commentaire} »",
+    msgNotifComFin: "Lisez les commentaires dans MonAsso.",
+
+    // Page Charte : les exemples de la demande 008 (zone de saisie, lien sous un commentaire, pastille du menu, lignes d'un bloc)
+    charteCommentaires: {
+      titre: "Commentaires",
+      commentaire: "Je viens mais j'arrive à 20\u00A0h\u00A015.",
+      nom: "Mehdi Saïdi",
+      quand: "17 novembre à 18\u00A0h\u00A040",
+      saisie: "Qui amène les chasubles ?",
+      pastille: "Pastille du menu",
+      pastilleNombres: [2, 12],
+      lignes: "Lignes dans un bloc",
+      lignesTitre: "Prochains rendez-vous",
+      rendezVous: [
+        ["jeudi 19 novembre à 20\u00A0h", "Qui pour jouer jeudi 20\u00A0h ?", "8 Oui sur 10 attendus"],
+        ["mardi 1 décembre à 19\u00A0h\u00A030", "Qui vient au repas de fin d'année ?", "5 Oui sur 5 attendus"]
+      ]
+    },
+
     // Réglage, sur la page du groupe
     msgReglageTitre: "Messages",
     msgReglageToutLeGroupe: "Les membres peuvent écrire à tout le groupe",
@@ -249,6 +311,8 @@ var MOTS = {
       changerDePersonne: "Changer de personne",
       creerUnGroupe: "Créer un groupe",
       voirEspaceParent: "Voir l'espace parent (vide-grenier)",
+      // Demande 008 : les notifications simulées, avec leur texte
+      voirEnvois: "Voir ce qui serait envoyé",
       enregistrerMonEssai: "Enregistrer mon essai",
       ouvrirUnEssai: "Ouvrir un essai",
       retourEspace: "Revenir à l'application"
@@ -351,6 +415,8 @@ var MOTS = {
     // Demande 007b : la phrase d'aide du réglage suit l'état du bouton.
     msgReglageAideEteint: "Seuls les organisateurs écrivent à tout le groupe.",
     msgReglageAideAllume: "Les organisateurs et les membres écrivent à tout le groupe.",
+    // Demande 008 : le second bloc de l'accueil d'un groupe simple.
+    msgAccueilRendezVous: "Prochains rendez-vous",
     aideQuestions: [
       ["Comment ajouter une personne ?",
         "Ouvrez « Groupe », puis « Personnes », et touchez « Ajouter une personne ». Seul le prénom est obligatoire."],
@@ -361,7 +427,9 @@ var MOTS = {
       ["Pourquoi je ne peux pas modifier la liste ?",
         "Seuls les organisateurs ajoutent, modifient ou retirent des personnes. Il en reste toujours au moins un."],
       ["Comment demander qui est partant ?",
-        "Ouvrez « Messages » et touchez « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."]
+        "Ouvrez « Messages » et touchez « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."],
+      ["Comment ajouter une précision à ma réponse ?",
+        "Ouvrez le message et écrivez sous « Commentaires », tout en bas. 300 caractères au plus."]
     ],
     aideAutreTexte: "Demandez à un organisateur du groupe.",
     lienInconnuAide: "Un organisateur du groupe peut vous aider.",
@@ -562,7 +630,9 @@ var MOTS = {
       ["Comment ajouter une personne ou une équipe ?",
         "Ouvrez « Association », puis « Personnes » ou « Équipes ». Seul le bureau peut modifier ces listes ; l'équipe « Le bureau » se forme d'office."],
       ["Comment demander qui est partant ?",
-        "Ouvrez « Messages » et touchez « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."]
+        "Ouvrez « Messages » et touchez « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."],
+      ["Comment ajouter une précision à ma réponse ?",
+        "Ouvrez le message et écrivez sous « Commentaires », tout en bas. 300 caractères au plus."]
     ],
     aideAutreTexte: "Demandez à un membre du bureau. Dans la vraie application, un bouton permettra d'écrire à l'équipe MonAsso.",
     lienInconnuAide: "Le bureau de l'association peut vous aider.",

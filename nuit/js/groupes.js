@@ -309,7 +309,25 @@
       (m.attendus === undefined || m.attendus === null || (estNombre(m.attendus) && m.attendus >= 1 && Math.floor(m.attendus) === m.attendus)) &&
       idOuRien(m.evenementId) &&
       !!m.a && typeof m.a === "object" && SORTES_A.indexOf(m.a.sorte) >= 0 && idOuRien(m.a.equipeId) && texteOuRien(m.a.nom) &&
-      listeIds(m.destinataires) && listeIds(m.oui) && listeIds(m.non);
+      listeIds(m.destinataires) && listeIds(m.oui) && listeIds(m.non) &&
+      // Commentaires (demande 008) : un texte, un numéro d'ordre, une date et une heure ; « vus » : un numéro par personne.
+      (m.commentaires === undefined || m.commentaires === null || liste(m.commentaires, commentaireValide)) &&
+      nombreOuRien(m.dernierCommentaire) && vusValides(m.vus);
+  }
+  function commentaireValide(c) {
+    return estId(c.id) && estNombre(c.n) && estId(c.auteurId) && texteOuRien(c.auteur) && estTexte(c.texte) &&
+      dateOuRien(c.le) && nombreOuRien(c.dansJours) && heureOuRien(c.heure);
+  }
+  function vusValides(v) {
+    return v === undefined || v === null ||
+      (typeof v === "object" && !Array.isArray(v) && Object.keys(v).every(function (k) { return estId(k) && estNombre(v[k]); }));
+  }
+  // Ce qui serait envoyé (demande 008) : des identifiants, une date, une heure, et le texte du commentaire cité.
+  var SORTES_ENVOI = ["question", "relance", "commentaire"];
+  function envoiValide(e) {
+    return estId(e.id) && SORTES_ENVOI.indexOf(e.sorte) >= 0 && estId(e.messageId) && dateOuRien(e.le) && nombreOuRien(e.dansJours) &&
+      heureOuRien(e.heure) && texteOuRien(e.de) && listeIds(e.a) && idOuRien(e.commentaireId) && texteOuRien(e.commentaire) &&
+      (e.supprime === undefined || e.supprime === null || typeof e.supprime === "boolean");
   }
 
   function reglagesValides(r) {
@@ -327,6 +345,7 @@
       liste(g.equipes, function (e) { return estId(e.id) && estTexte(e.nom) && Array.isArray(e.personnes) && e.personnes.every(estId); }) &&
       (g.sorte === "simple" ? g.evenements === undefined || g.evenements === null || liste(g.evenements, evenementValide) : liste(g.evenements, evenementValide)) &&
       (g.messages === undefined || g.messages === null || liste(g.messages, messageValide)) && reglagesValides(g.reglages) &&
+      (g.envois === undefined || g.envois === null || liste(g.envois, envoiValide)) &&
       // jetonsSupprimes : jetons des inscrits d'un événement supprimé (demande 006b), des identifiants et rien d'autre.
       (g.jetonsSupprimes === undefined || g.jetonsSupprimes === null || listeIds(g.jetonsSupprimes)) &&
       gestionnaires(g).length >= 1;

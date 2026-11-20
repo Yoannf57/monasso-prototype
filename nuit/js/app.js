@@ -27,6 +27,8 @@
   var message = null;         // phrase de confirmation montrée une fois sur l'écran suivant
   var reponseAccueil = null;  // dernière réponse donnée depuis l'accueil : { id, reponse }
   var reglageEnregistre = false; // « Réglage enregistré. », montré une fois sur la page du groupe
+  var commentaireFait = null; // dernier geste sur un commentaire, dit une fois sous le champ : { id, quoi }
+  var anciensDeplies = null;  // message dont les commentaires plus anciens sont dépliés
 
   // ---------- Mémoire du navigateur ----------
 
@@ -65,6 +67,8 @@
     message = null;
     reponseAccueil = null;
     reglageEnregistre = false;
+    commentaireFait = null;
+    anciensDeplies = null;
     appliquerCouleur();
   }
 
@@ -305,7 +309,8 @@
     if (prochain) {
       var retards = prochain.actions.filter(function (a) { return L.estEnRetard(a, prochain); }).length;
       var infos = [];
-      if (retards) { infos.push('<span class="texte-alerte">' + pluriel(retards, "action en retard", "actions en retard") + "</span>"); }
+      // Demande 008 : la ligne « N actions en retard » de ce bloc n'est montrée qu'au bureau.
+      if (retards && gere()) { infos.push('<span class="texte-alerte">' + pluriel(retards, "action en retard", "actions en retard") + "</span>"); }
       if (prochain.creneaux.length) { infos.push(L.compterInscrits(prochain) + " coups de main sur " + esc(L.compterPlaces(prochain))); }
       html += '<a class="carte" id="bloc-prochain" href="#evenement/' + esc(prochain.id) + '">' +
         '<span class="carte-etiquette">Prochain événement ' + etiquettePreparation(prochain) + "</span>" +
@@ -326,28 +331,47 @@
     // Demande 007c : pour le bureau, la ligne des créneaux est un lien à elle, vers la liste des créneaux en manque ;
     // le reste du bloc ouvre toujours « Mes actions ». Sans la ligne, le bloc reste une carte.
     var nbManque = rappels().length;
-    html += nbManque
-      ? '<div class="bloc-liens">' + blocActions +
-        '<a class="lien-suite" id="ligne-rappels" href="#creneaux-manquants">' + esc(Mn("accueilRappelsCreneaux", nbManque)) + "</a></div>"
-      : blocActions;
+    // Demande 008 (décisions du 2026-11-19) : pas de bloc pour qui n'a aucune action, faite ou à faire, quel que soit son rôle.
+    // Seule exception, pour tenir aussi « la ligne des créneaux reste dans Mes actions à faire » : une personne du bureau sans action
+    // garde le bloc tant qu'il reste des créneaux en manque ; il porte alors cette ligne (nbManque vaut toujours 0 hors du bureau).
+    if (L.aDesActions(G(), p) || nbManque) {
+      html += nbManque
+        ? '<div class="bloc-liens">' + blocActions +
+          '<a class="lien-suite" id="ligne-rappels" href="#creneaux-manquants">' + esc(Mn("accueilRappelsCreneaux", nbManque)) + "</a></div>"
+        : blocActions;
+    }
 
     return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
   }
 
-  // Accueil d'un groupe simple : « À répondre », ses personnes et mes équipes.
+  // Accueil d'un groupe simple (demande 008, décision du 2026-11-19) : deux blocs, « À répondre » et « Prochains rendez-vous ».
+  // « Personnes » et « Mes équipes » sont dans l'onglet « Groupe ».
   function ecranAccueilGroupe() {
     var g = G(), p = moi();
-    var miennes = Gr.equipesDePersonne(g, p.id).map(nomEquipe);
-    var html = entete(g.nom, M("bonjour", { prenom: p.prenom }), esc(dateLongue(L.aujourdhui()))) + bandeauMessage() + blocARepondre() +
-      '<a class="carte" id="bloc-personnes" href="#personnes">' +
-      '<span class="carte-etiquette">' + esc(M("accueilPersonnes")) + "</span>" +
-      '<span class="carte-titre">' + esc(Mn("nPersonnes", g.personnes.length)) + "</span>" +
-      '<span class="carte-quand">' + esc(compteRoles(g)) + "</span></a>" +
-      '<a class="carte" id="bloc-equipes" href="#equipes">' +
-      '<span class="carte-etiquette">' + esc(M("accueilMesEquipes")) + "</span>" +
-      '<span class="carte-titre">' + esc(miennes.length ? miennes.join(", ") : M("accueilAucuneEquipe")) + "</span>" +
-      '<span class="carte-quand">' + esc(Mn("nEquipes", Gr.equipes(g).length)) + "</span></a>";
+    var html = entete(g.nom, M("bonjour", { prenom: p.prenom }), esc(dateLongue(L.aujourdhui()))) + bandeauMessage() + blocARepondre() + blocRendezVous();
     return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
+  }
+
+  // N10 : une ligne de rendez-vous dans un bloc. La ligne entière ouvre le message.
+  function ligneRendezVous(href, quand, question, compteur) {
+    return '<li><a class="personne personne--lien" href="' + href + '">' +
+      '<span class="personne-detail">' + esc(quand) + "</span>" +
+      '<span class="personne-nom">' + esc(question) + "</span>" +
+      '<span class="personne-detail">' + esc(compteur) + "</span></a></li>";
+  }
+
+  // « Prochains rendez-vous » : les trois prochains au plus, le plus proche d'abord ; « Voir le calendrier » en dernière ligne, toujours.
+  function blocRendezVous() {
+    var g = G();
+    var liste = Msg.prochainsRendezVous(g, moi()).slice(0, 3);
+    return '<section class="bloc-reponse" id="bloc-rendez-vous" aria-labelledby="titre-rendez-vous">' +
+      '<h2 class="carte-etiquette" id="titre-rendez-vous">' + esc(M("msgAccueilRendezVous")) + "</h2>" +
+      (liste.length
+        ? '<ul class="lignes-bloc">' + liste.map(function (x) {
+          return ligneRendezVous("#message/" + esc(x.message.id), quandRendezVous(x.message), x.message.texte, texteCompteur(Msg.decompte(g, x.message)));
+        }).join("") + "</ul>"
+        : '<p class="calme">' + esc(M("msgAucunRendezVous")) + '</p><p class="calme">' + esc(M("msgAucunRendezVousAide")) + "</p>") +
+      '<a class="lien-suite" id="voir-calendrier" href="#calendrier">' + esc(M("msgVoirCalendrier")) + "</a></section>";
   }
 
   // ---------- Détail : mes actions (ou toutes) ----------
@@ -899,7 +923,7 @@
       zone.textContent = "";
       zone.removeAttribute("data-code");
       var el = form.querySelector("#champ-" + nom);
-      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", "false"); }
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) { el.setAttribute("aria-invalid", "false"); }
     }
     effacer(c.name);
     if (ERREURS_A_DEUX[c.name]) { effacer(ERREURS_A_DEUX[c.name], CODES_A_DEUX); }
@@ -1339,12 +1363,15 @@
   // ----- Écran 1 : Messages, en trois listes -----
 
   function carteMessage(m) {
-    var c = Msg.decompte(G(), m), close = Msg.estClose(m);
+    var c = Msg.decompte(G(), m), close = Msg.estClose(m), nouveaux = Msg.nouveauxCommentaires(G(), moi(), m);
     return '<a class="carte' + (close ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" href="#message/' + esc(m.id) + '">' +
       '<span class="carte-titre">' + esc(m.texte) + "</span>" +
       '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
       '<span class="carte-infos">' + esc(texteCompteur(c)) + (c.complet ? " " + etiquetteComplet() : "") +
-      (close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "") + "</span></a>";
+      (close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "") + "</span>" +
+      // Demande 008 : les commentaires des autres publiés depuis ma dernière ouverture du message, en toutes lettres.
+      (nouveaux ? '<span class="carte-statut nouveaux-commentaires"><span class="etiquette etiquette--ok">' + esc(Mn("msgComNouveaux", nouveaux)) + "</span></span>" : "") +
+      "</a>";
   }
 
   // Trois messages au plus, puis « Voir les N autres messages » qui déplie le reste sur place.
@@ -1626,21 +1653,35 @@
 
   // ----- Écrans 3 et 5 : ce qui serait envoyé, ce qui serait relancé -----
 
+  // Le texte d'une notification, ligne par ligne : la première en gras, puis une ligne par phrase.
+  // sorte : "question", "relance" ou "commentaire" ; prenom : qui envoie ; commentaire : le texte cité.
+  function lignesNotification(m, sorte, prenom, commentaire) {
+    var g = G();
+    var premiere = M(sorte === "relance" ? "msgNotifRelanceEntete" : sorte === "commentaire" ? "msgNotifComEntete" : "msgNotifEntete", { groupe: g.nom, prenom: prenom });
+    var lignes = [m.texte];
+    if (sorte === "commentaire") {
+      lignes.push(M("msgNotifComCitation", { commentaire: commentaire }), M("msgNotifComFin"));
+      return { premiere: premiere, lignes: lignes };
+    }
+    var quand = quandRendezVous(m), avant = Msg.dateAvantLe(m);
+    if (quand) { lignes.push(M("msgRendezVous", { quand: quand })); }
+    if (sorte !== "relance" && avant) { lignes.push(M("msgNotifAvantLe", { date: fmtLong.format(avant) })); }
+    lignes.push(M(sorte === "relance" ? "msgNotifRelanceFin" : "msgNotifFin"));
+    return { premiere: premiere, lignes: lignes };
+  }
+  function blocNotification(n, id) {
+    return '<p class="confirmation-quoi"' + (id ? ' id="' + id + '"' : "") + "><strong>" + esc(n.premiere) + "</strong>" +
+      n.lignes.map(function (l) { return "<br>" + esc(l); }).join("") + "</p>";
+  }
+
   function ecranEnvoi(m, relance) {
     var g = G(), p = moi();
     // La relance ne vise que ceux qui n'ont pas encore répondu ; elle porte le prénom de la personne qui relance.
     var n = relance ? Msg.decompte(g, m).sans.length : Msg.destinataires(g, m).length;
-    var premiere = relance ? M("msgNotifRelanceEntete", { groupe: g.nom, prenom: p.prenom }) : M("msgNotifEntete", { groupe: g.nom, prenom: prenomAuteur(m) });
-    var lignes = [m.texte];
-    var quand = quandRendezVous(m), avant = Msg.dateAvantLe(m);
-    if (quand) { lignes.push(M("msgRendezVous", { quand: quand })); }
-    if (!relance && avant) { lignes.push(M("msgNotifAvantLe", { date: fmtLong.format(avant) })); }
-    lignes.push(M(relance ? "msgNotifRelanceFin" : "msgNotifFin"));
     var titre = M(relance ? "msgRelanceTitre" : "msgEnvoiTitre");
     var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
       '<p class="astuce" id="envoi-combien">' + esc(Mn(relance ? "msgRelanceTexte" : "msgEnvoiTexte", n)) + "</p>" +
-      '<p class="confirmation-quoi" id="message-qui-partirait"><strong>' + esc(premiere) + "</strong>" +
-      lignes.map(function (l) { return "<br>" + esc(l); }).join("") + "</p>" +
+      blocNotification(lignesNotification(m, relance ? "relance" : "question", relance ? p.prenom : prenomAuteur(m)), "message-qui-partirait") +
       '<a class="bouton bouton--principal" href="#message/' + esc(m.id) + '">' + esc(M("msgVoirLaQuestion")) + "</a>";
     return { titre: titre, onglet: "messages", html: html };
   }
@@ -1727,7 +1768,7 @@
     }
     // Relancer, clore, refaire : l'auteur, plus le bureau ou les organisateurs destinataires.
     if (gerable) {
-      if (!close && c.sans.length) { boutons += '<a class="' + classe("relancer") + '" id="relancer" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgRelancer")) + "</a>"; }
+      if (!close && c.sans.length) { boutons += '<a class="' + classe("relancer") + '" id="relancer" data-relancer="' + esc(m.id) + '" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgRelancer")) + "</a>"; }
       if (!close) { boutons += '<button type="button" class="bouton bouton--secondaire" data-clore="' + esc(m.id) + '">' + esc(M("msgClore")) + "</button>"; }
     }
     if (boutons) { html += '<div class="section" id="gestion-question">' + boutons + "</div>"; }
@@ -1736,9 +1777,162 @@
     if (gerable) {
       html += bandeAction('<a class="' + classe("refaire") + '" id="refaire" href="#messages/nouveau/question/' + esc(m.id) + '">' + esc(M("msgRefaire")) + "</a>");
     }
-    // Places gardées en bas pour les commentaires (demande 008) et le partage par lien (demande 010) : rien pour l'instant.
+    // Place gardée pour le partage par lien (demande 010), avec les boutons de l'auteur. Les commentaires (demande 008)
+    // sont le dernier élément de la page.
+    // Ouvrir le message, c'est avoir lu ses commentaires : la mention « N nouveaux commentaires » disparaît de la liste.
+    if (Msg.marquerVus(g, p, m)) { sauver(); }
+    html += sectionCommentaires(m, close);
     return { titre: m.texte, onglet: "messages", html: html, bande: gerable };
   }
+
+  // ----- Demande 008 : les commentaires, sous le message -----
+  // Le commentaire est le second texte libre, après la question : il passe partout par esc(), jamais écrit comme du HTML.
+
+  // « 17 novembre à 18 h 40 » : le jour et l'heure d'un commentaire ou d'un envoi.
+  function quandPrecis(date, heure) {
+    if (!date) { return ""; }
+    return heure ? M("msgDateHeure", { date: fmtJourMois.format(date), heure: heureLisible(heure) }) : fmtJourMois.format(date);
+  }
+
+  // Le nom comme dans « Personnes » ; si la personne n'est plus dans le groupe, le nom noté sur le commentaire.
+  function nomCommentaire(c) { var x = Gr.trouverPersonne(G(), c.auteurId); return x ? Gr.nomComplet(x) : (c.auteur || ""); }
+
+  // N8 : un commentaire. Le texte, la signature dessous, puis le lien « Supprimer ce commentaire » pour qui en a le droit.
+  // exemple : ligne inerte de la page Charte.
+  function ligneCommentaire(o) {
+    // « Mehdi Saïdi · le 17 novembre à 18 h 40 » : le point médian tient à la date, qui ne se coupe pas.
+    var morceaux = M("msgComSigne").split(" · ");
+    var nom = function (t) { return esc(remplacer(t, { nom: o.nom, quand: o.quand })) + (o.moi && t.indexOf("{nom}") >= 0 ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : ""); };
+    var signature = morceaux.length === 2
+      ? '<span class="suite-part">' + nom(morceaux[0]) + '</span><span class="suite-part insecable"><span class="suite-point"> · </span>' + nom(morceaux[1]) + "</span>"
+      : '<span class="suite-part">' + nom(morceaux.join(" · ")) + "</span>";
+    return '<li class="personne commentaire"' + (o.id ? ' id="commentaire-' + esc(o.id) + '"' : "") + (o.cache ? " hidden" : "") + ">" +
+      '<p class="commentaire-texte">' + esc(o.texte) + "</p>" +
+      '<span class="personne-detail suite">' + signature + "</span>" +
+      (o.supprimable
+        ? '<button type="button" class="lien-bouton lien-bouton--ligne"' +
+          (o.exemple ? " data-exemple" : ' data-supprimer-commentaire="' + esc(o.id) + '" data-message="' + esc(o.messageId) + '"') + ">" +
+          '<span aria-hidden="true">' + esc(M("msgComSupprimer")) + "</span>" +
+          '<span class="visuellement-cache">' + esc(M("msgComSupprimerLecture", { nom: o.nom, quand: o.quand })) + "</span></button>"
+        : "") + "</li>";
+  }
+
+  // N7 : la zone de saisie sur plusieurs lignes, avec son compteur dessous. Le champ n'accepte pas le 301e caractère.
+  function champCommentaire(id, valeur, inerte) {
+    return '<div class="champ"><label for="' + id + '">' + esc(M("msgComChamp")) + "</label>" +
+      '<textarea id="' + id + '"' + (inerte ? " readonly" : ' name="commentaire"') + ' rows="3" maxlength="' + Msg.LIMITES.commentaire + '" autocapitalize="sentences"' +
+      (inerte ? "" : ' aria-describedby="compte-commentaire erreur-commentaire"') + ">" + esc(valeur || "") + "</textarea>" +
+      '<p class="discret compte-commentaire"' + (inerte ? "" : ' id="compte-commentaire"') + ">" + esc(M("msgCompteCaracteres300", { n: (valeur || "").length })) + "</p>" +
+      (inerte ? "" : '<p class="champ-erreur" id="erreur-commentaire"></p>') + "</div>";
+  }
+
+  function sectionCommentaires(m, close) {
+    var g = G(), p = moi();
+    var liste = Msg.commentaires(m);
+    // Les trois plus récents sont affichés ; les plus anciens se déplient sur place, sans changer l'ordre.
+    var caches = anciensDeplies === m.id ? 0 : Math.max(0, liste.length - 3);
+    var fait = commentaireFait && commentaireFait.id === m.id ? commentaireFait.quoi : "";
+    commentaireFait = null;
+    var html = '<section class="section" id="commentaires"><h2 class="section-titre"><span>' + esc(M("msgComTitre")) +
+      '</span><span class="compte" id="compte-commentaires">' + liste.length + "</span></h2>";
+    if (caches) { html += '<button type="button" class="lien-bouton" data-voir-anciens="' + esc(m.id) + '">' + esc(Mn("msgComVoirAnciens", caches)) + "</button>"; }
+    html += liste.length
+      ? '<ul class="personnes" id="liste-commentaires">' + liste.map(function (c, i) {
+        return ligneCommentaire({
+          id: c.id, messageId: m.id, texte: c.texte, nom: nomCommentaire(c), moi: c.auteurId === p.id,
+          quand: quandPrecis(Msg.dateCommentaire(c), c.heure), cache: i < caches, supprimable: Msg.peutSupprimerCommentaire(g, p, m, c)
+        });
+      }).join("") + "</ul>"
+      : '<p class="calme" id="aucun-commentaire">' + esc(M("msgComVide")) + "</p>";
+    var statut = '<p class="message-ok" id="commentaire-statut" role="status" tabindex="-1"' + (fait === "publie" || fait === "supprime" ? "" : " hidden") + ">" +
+      esc(fait === "publie" ? M("msgComPublie") : fait === "supprime" ? M("msgComSupprime") : "") + "</p>" +
+      '<p class="champ-erreur" id="erreur-supprimer-commentaire" role="alert">' + esc(fait === "droits" ? M("msgComErreurSupprimer") : "") + "</p>";
+    if (close) {
+      // Message clos : les commentaires restent lisibles, on ne peut plus en écrire.
+      html += '<p class="calme" id="commentaires-clos">' + esc(M("msgComClos")) + "</p>" + statut;
+    } else {
+      // Le champ est toujours visible ; « Publier le commentaire » n'est jamais le bouton principal de l'écran.
+      html += '<form class="form-commentaire" data-message="' + esc(m.id) + '" novalidate>' + champCommentaire("champ-commentaire", "") +
+        '<button type="submit" class="bouton bouton--secondaire" id="publier-commentaire">' + esc(M("msgComPublier")) + "</button>" + statut + "</form>";
+    }
+    return html + "</section>";
+  }
+
+  // Le compteur « 24 sur 300 » ; à 300, la phrase de la limite. Un texte posé d'un coup est coupé à 300.
+  function compterCommentaire(zone) {
+    var max = Msg.LIMITES.commentaire;
+    if (zone.value.length > max) { zone.value = zone.value.slice(0, max); }
+    var n = zone.value.length;
+    document.getElementById("compte-commentaire").textContent = M("msgCompteCaracteres300", { n: n });
+    var erreur = document.getElementById("erreur-commentaire");
+    if (n >= max) { erreur.textContent = M("msgComErreurLong"); }
+    else if (erreur.textContent === M("msgComErreurLong")) { erreur.textContent = ""; }
+  }
+
+  // Un élément est amené entre le bandeau du testeur et la bande du bouton (ou le menu), s'il n'y est pas déjà.
+  function amenerALEcran(el) {
+    if (!el || !el.getClientRects().length) { return; }
+    var bandeau = document.querySelector(".demo-bandeau"), bande = document.getElementById("bande-action"), menu = document.getElementById("onglets");
+    var haut = (bandeau ? bandeau.getBoundingClientRect().bottom : 0) + 8;
+    var bas = (bande ? bande.getBoundingClientRect().top : menu && !menu.hidden ? menu.getBoundingClientRect().top : window.innerHeight) - 8;
+    var r = el.getBoundingClientRect();
+    if (r.bottom > bas) { window.scrollBy(0, r.bottom - bas); }
+    else if (r.top < haut) { window.scrollBy(0, r.top - haut); }
+  }
+
+  // Publier : aucun changement d'écran. Le commentaire apparaît en dernier, le champ se vide, la phrase le dit.
+  function publierCommentaire(form) {
+    var id = form.getAttribute("data-message"), zone = form.elements.commentaire;
+    var r = Msg.commenter(G(), moi(), id, zone.value);
+    if (r.raison === "saisie") {
+      document.getElementById("erreur-commentaire").textContent = M(r.erreur === "long" ? "msgComErreurLong" : "msgComErreurVide");
+      zone.setAttribute("aria-invalid", "true");
+      zone.focus();
+      amenerALEcran(document.getElementById("erreur-commentaire"));
+      return;
+    }
+    // Message clos entre-temps, ou qui ne m'est plus adressé : l'écran se redessine et le dit ; rien n'est publié.
+    if (!r.ok) { rendre({ garderDefilement: true, garderReplis: true }); return; }
+    sauver();
+    commentaireFait = { id: id, quoi: "publie" };
+    rendre({ garderDefilement: true, garderReplis: true });
+    montrerStatutCommentaire();
+  }
+
+  function montrerStatutCommentaire() {
+    var statut = document.getElementById("commentaire-statut");
+    if (statut && !statut.hidden) { statut.focus({ preventScroll: true }); amenerALEcran(statut); }
+  }
+
+  // Supprimer : toujours une confirmation, qui ne recopie pas le texte. Le droit est contrôlé par les règles, avant la question.
+  function supprimerCommentaire(bouton) {
+    var g = G(), p = moi();
+    var id = bouton.getAttribute("data-message"), cid = bouton.getAttribute("data-supprimer-commentaire");
+    var m = Msg.trouverVisible(g, p, id);
+    var c = m ? Msg.trouverCommentaire(m, cid) : null;
+    if (!c) { rendre({ garderDefilement: true, garderReplis: true }); return; }
+    if (!Msg.peutSupprimerCommentaire(g, p, m, c)) {
+      commentaireFait = { id: id, quoi: "droits" };
+      rendre({ garderDefilement: true, garderReplis: true });
+      amenerALEcran(document.getElementById("erreur-supprimer-commentaire"));
+      return;
+    }
+    if (!window.confirm(M("msgComConfirmerSupprimer"))) { return; }
+    if (Msg.supprimerCommentaire(g, p, id, cid).ok) {
+      sauver();
+      commentaireFait = { id: id, quoi: "supprime" };
+    }
+    rendre({ garderDefilement: true, garderReplis: true });
+    montrerStatutCommentaire();
+  }
+
+  // « Voir les N commentaires plus anciens » : ils se déplient sur place, au-dessus des trois plus récents.
+  function voirAnciens(bouton) {
+    anciensDeplies = bouton.getAttribute("data-voir-anciens");
+    Array.prototype.forEach.call(document.querySelectorAll("#liste-commentaires > li[hidden]"), function (li) { li.hidden = false; });
+    bouton.remove();
+  }
+
 
   // Oui ou Non, en un geste : depuis l'écran du message comme depuis le bloc « À répondre » de l'accueil.
   function repondreQuestion(bouton) {
@@ -1781,7 +1975,9 @@
     var liste = Msg.listes(g, p).aRepondre;
     var m = liste[0];
     var html = '<section class="bloc-reponse" id="bloc-repondre" aria-labelledby="titre-repondre">' +
-      '<h2 class="carte-etiquette" id="titre-repondre">' + esc(M("msgListeARepondre")) + "</h2>";
+      // Demande 008 : le titre porte le nombre de messages qui attendent, le même que la pastille du menu ; à zéro, pas de nombre.
+      '<h2 class="carte-etiquette" id="titre-repondre">' + esc(M("msgListeARepondre")) +
+      (liste.length ? ' <span class="compte" id="nombre-repondre">' + liste.length + "</span>" : "") + "</h2>";
     var faite = reponseAccueil ? Msg.trouverVisible(g, p, reponseAccueil.id) : null;
     if (faite) {
       html += '<p class="message-ok" role="status" tabindex="-1">' +
@@ -1796,8 +1992,7 @@
       html += '<p class="calme">' + esc(M("msgRienARepondre")) + "</p>";
     }
     if (liste.length > 1) { html += '<a class="lien-suite" id="autres-questions" href="#messages">' + esc(Mn("msgAccueilAutres", liste.length - 1)) + "</a>"; }
-    // Groupe simple : le calendrier s'ouvre d'ici, toujours, même quand il n'y a rien à répondre.
-    if (!estAsso()) { html += '<a class="lien-suite" id="voir-calendrier" href="#calendrier">' + esc(M("msgVoirCalendrier")) + "</a>"; }
+    // Groupe simple : « Voir le calendrier » est en bas du bloc « Prochains rendez-vous », juste dessous (demande 008).
     return html + "</section>";
   }
 
@@ -2179,7 +2374,27 @@
       '<label class="choix-option choix-option--bloquee"><input type="checkbox" disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[2]) + "</span></span></label>" +
       '<p class="champ-erreur">' + esc(M("msgErreurDixPersonnes")) + "</p></fieldset>" +
       '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("msgReglageToutLeGroupe")) + "</p></div>" +
-      '<span class="statut" aria-pressed="true" style="display:inline-flex;align-items:center;justify-content:center">' + esc(M("msgReglageAllume")) + "</span></li></ul>";
+      '<span class="statut" aria-pressed="true" style="display:inline-flex;align-items:center;justify-content:center">' + esc(M("msgReglageAllume")) + "</span></li></ul>" +
+      exemplesCommentaires();
+  }
+
+  // Les composants de la demande 008, montrés une fois chacun, tous inertes : un commentaire avec son lien de suppression (N8),
+  // la zone de saisie sur plusieurs lignes et son compteur (N7), la pastille du menu, « 2 » et « 9+ » (N9),
+  // les lignes d'un bloc avec son lien de fin (N10).
+  function exemplesCommentaires() {
+    var C = M("charteCommentaires");
+    return '<h3 id="charte-commentaires">' + esc(C.titre) + "</h3>" +
+      '<ul class="personnes" id="exemple-commentaire">' +
+      ligneCommentaire({ texte: C.commentaire, nom: C.nom, quand: C.quand, supprimable: true, exemple: true }) + "</ul>" +
+      '<div id="exemple-champ-commentaire">' + champCommentaire("exemple-commentaire-champ", C.saisie, true) + "</div>" +
+      '<p class="discret">' + esc(C.pastille) + "</p>" +
+      '<div class="onglets onglets--exemple" id="exemple-pastille">' + C.pastilleNombres.map(function (n) {
+        return lienOnglet("messages", "#charte", M("ongletMessages"), n, true);
+      }).join("") + "</div>" +
+      '<p class="discret">' + esc(C.lignes) + "</p>" +
+      '<div class="bloc-reponse" id="exemple-lignes-bloc"><p class="carte-etiquette">' + esc(C.lignesTitre) + "</p>" +
+      '<ul class="lignes-bloc">' + C.rendezVous.map(function (r) { return ligneRendezVous("#charte", r[0], r[1], r[2]); }).join("") + "</ul>" +
+      '<a class="lien-suite" href="#charte">' + esc(M("msgVoirCalendrier")) + "</a></div>";
   }
 
   // Réservé au bureau ou aux organisateurs : le geste est refusé même sans passer par les boutons.
@@ -2243,6 +2458,45 @@
     remplirDemo();
     message = M("groupeCree", { nom: r.groupe.nom });
     aller("#personnes");
+  }
+
+  // Démo › « Voir ce qui serait envoyé » (demande 008) : les notifications simulées du groupe en cours, la plus récente
+  // d'abord, chacune avec ses destinataires et son texte complet. Lecture seule : rien n'est envoyé, rien ne se touche pour répondre.
+  function entreeEnvoi(e) {
+    var g = G();
+    var m = Msg.trouver(g, e.messageId);
+    var personnes = Gr.personnesTriees(g).filter(function (x) { return (e.a || []).indexOf(x.id) >= 0; });
+    var sorte = M(e.sorte === "relance" ? "msgDemoSorteRelance" : e.sorte === "commentaire" ? "msgDemoSorteCommentaire" : "msgDemoSorteQuestion");
+    var a = personnes.length === 1
+      ? '<p class="envoi-a">' + esc(M("msgA", { destinataires: Gr.nomComplet(personnes[0]) })) + "</p>"
+      : '<details class="repli envoi-a"><summary><span class="repli-titres"><span class="repli-titre">' +
+        esc(M("msgA", { destinataires: Mn("nPersonnes", personnes.length) })) + "</span></span></summary>" +
+        '<div class="repli-corps"><ul class="noms">' + personnes.map(function (x) {
+          return '<li><span class="personne-nom">' + esc(Gr.nomComplet(x)) + "</span></li>";
+        }).join("") + "</ul></div></details>";
+    return '<section class="section confirmation envoi" id="envoi-' + esc(e.id) + '" data-sorte="' + esc(e.sorte) + '">' +
+      "<h2>" + esc(sorte) + "</h2>" +
+      '<p class="discret envoi-quand"><span class="insecable">' + esc(M("msgDemoQuand", { quand: quandPrecis(Msg.dateEnvoi(e), e.heure) })) + "</span></p>" + a +
+      blocNotification(lignesNotification(m, e.sorte, e.de || "", e.commentaire || "")) +
+      (e.sorte === "commentaire" && e.supprime ? '<p class="calme envoi-supprime">' + esc(M("msgDemoComSupprime")) + "</p>" : "") +
+      "</section>";
+  }
+
+  function ecranEnvois() {
+    var liste = Msg.envois(G());
+    var html = retour("#accueil", M("ongletAccueil")) + entete(D("etiquette"), M("msgEnvoiTitre"));
+    if (!liste.length) {
+      html += etatVide("panneau", M("msgDemoVide"), esc(M("msgDemoVideAide")));
+    } else {
+      // Les cinq plus récentes, puis « Voir les N notifications plus anciennes », dépliées sur place.
+      html += '<p class="astuce" id="envois-texte">' + esc(M("msgDemoEnvoisTexte")) + "</p>" +
+        '<div id="envois">' + liste.slice(0, 5).map(entreeEnvoi).join("") +
+        (liste.length > 5
+          ? '<div class="suite-liste" hidden>' + liste.slice(5).map(entreeEnvoi).join("") + "</div>" +
+            '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("msgDemoVoirAnciennes", liste.length - 5)) + "</button>"
+          : "") + "</div>";
+    }
+    return { titre: M("msgEnvoiTitre"), onglet: null, html: html };
   }
 
   function ecranEnregistrer() {
@@ -2602,7 +2856,7 @@
       case "aide": r = ecranAide(); break;
       case "demo":
         r = morceaux[1] === "groupe" ? ecranCreerGroupe() : morceaux[1] === "enregistrer" ? ecranEnregistrer() :
-          morceaux[1] === "ouvrir" ? ecranOuvrir() : introuvable();
+          morceaux[1] === "ouvrir" ? ecranOuvrir() : morceaux[1] === "envois" && !morceaux[2] ? ecranEnvois() : introuvable();
         break;
       case "inscription": r = ecranInscription(morceaux[1]); break;
       case "merci": r = ecranMerci(morceaux[1]); break;
@@ -2627,6 +2881,7 @@
     vue.innerHTML = aide + r.html;
     ouverts.forEach(function (id) { var d = document.getElementById(id); if (d && d.tagName === "DETAILS") { d.open = true; } });
     poserBande();
+    poserPastille();
     document.title = r.titre + " — " + (parent ? "" : G().nom + " — ") + "prototype";
     Array.prototype.forEach.call(document.querySelectorAll("[data-onglet]"), function (a) {
       if (a.getAttribute("data-onglet") === r.onglet) { a.setAttribute("aria-current", "page"); }
@@ -2681,10 +2936,30 @@
     var entrees = [["accueil", "#accueil", M("ongletAccueil")], ["messages", "#messages", M("ongletMessages")]];
     if (estAsso()) { entrees.push(["evenements", "#evenements", M("ongletEvenements")]); }
     entrees.push(["groupe", hrefGroupe(), M("ongletGroupe")]);
-    document.getElementById("onglets").innerHTML = entrees.map(function (x) {
-      return '<a href="' + x[1] + '" data-onglet="' + x[0] + '"><span class="icone"><svg viewBox="0 0 24 24" aria-hidden="true">' + ICONES[x[0]] +
-        "</svg></span><span>" + esc(x[2]) + "</span></a>";
-    }).join("");
+    document.getElementById("onglets").innerHTML = entrees.map(function (x) { return lienOnglet(x[0], x[1], x[2], 0); }).join("");
+    poserPastille();
+  }
+
+  // Une entrée du menu. N9 (demande 008) : sur « Messages », le nombre de messages qui attendent ma réponse, posé sur l'icône ;
+  // de 1 à 9, puis « 9+ ». Le nom lu de l'onglet donne le nombre exact. exemple : entrée inerte de la page Charte.
+  // Le nombre est écrit par la feuille de style (attribut data-nombre) : le mot de l'onglet reste son seul texte, son nom lu dit le nombre.
+  function nombreOnglet(n) { return '<span class="onglet-nombre" aria-hidden="true" data-nombre="' + esc(n > 9 ? M("msgPastilleMax") : n) + '"></span>'; }
+  function lienOnglet(nom, href, libelle, n, exemple) {
+    return '<a href="' + href + '"' + (exemple ? "" : ' data-onglet="' + nom + '"') + (n ? ' aria-label="' + esc(Mn("msgPastilleLecture", n)) + '"' : "") + ">" +
+      '<span class="icone">' + (n ? nombreOnglet(n) : "") + '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICONES[nom] + "</svg></span>" +
+      '<span class="onglet-mot">' + esc(libelle) + "</span></a>";
+  }
+
+  // La pastille suit chaque écran dessiné : elle baisse ou disparaît dès la réponse donnée, sans recharger. À zéro, elle est absente.
+  function poserPastille() {
+    var lien = document.querySelector('#onglets [data-onglet="messages"]');
+    if (!lien) { return; }
+    var n = Msg.nombreARepondre(G(), moi());
+    var icone = lien.querySelector(".icone"), pastille = icone.querySelector(".onglet-nombre");
+    if (pastille) { pastille.remove(); }
+    if (!n) { lien.removeAttribute("aria-label"); return; }
+    icone.insertAdjacentHTML("afterbegin", nombreOnglet(n));
+    lien.setAttribute("aria-label", Mn("msgPastilleLecture", n));
   }
 
   // ---------- Menu de démo (outil du testeur, ouvert à tous les rôles) ----------
@@ -2707,6 +2982,7 @@
       }).join("") + "</select></label>" +
       '<a class="demo-ligne" href="#demo/groupe">' + esc(D("creerUnGroupe")) + "</a>" +
       (vg && vg.creneaux.length ? '<a class="demo-ligne" href="#inscription/vide-grenier">' + esc(D("voirEspaceParent")) + "</a>" : "") +
+      '<a class="demo-ligne" href="#demo/envois">' + esc(D("voirEnvois")) + "</a>" +
       '<a class="demo-ligne" href="#demo/enregistrer">' + esc(D("enregistrerMonEssai")) + "</a>" +
       '<a class="demo-ligne" href="#demo/ouvrir">' + esc(D("ouvrirUnEssai")) + "</a>" +
       '<button type="button" class="demo-ligne demo-reinit" data-reinitialiser>' + esc(M("reinitialiser")) + "</button>";
@@ -2749,6 +3025,12 @@
     if (cible.hasAttribute("data-clore")) { cloreQuestion(cible.getAttribute("data-clore")); return; }
     if (cible.hasAttribute("data-agenda-question")) { ajouterAgendaQuestion(cible.getAttribute("data-agenda-question")); return; }
     if (cible.hasAttribute("data-voir-suite")) { voirSuite(cible); return; }
+    if (cible.hasAttribute("data-voir-anciens")) { voirAnciens(cible); return; }
+    if (cible.hasAttribute("data-supprimer-commentaire")) { supprimerCommentaire(cible); return; }
+    // « Relancer ceux qui n'ont pas répondu » : la relance est notée dans « Ce qui serait envoyé », puis le lien ouvre son écran.
+    if (cible.hasAttribute("data-relancer")) {
+      if (Msg.noterRelance(G(), moi(), cible.getAttribute("data-relancer")).ok) { sauver(); }
+    }
     if (cible.classList.contains("statut")) { changerStatut(cible); return; }
     if (cible.hasAttribute("data-ouvrir")) { ouvrirFormulaire(cible.getAttribute("data-ouvrir")); return; }
     if (cible.hasAttribute("data-fermer")) { creneauOuvert = null; rendre({ garderDefilement: true }); return; }
@@ -2821,6 +3103,7 @@
     // D'abord la phrase d'erreur du champ, puis le compteur de la question, qui peut écrire la sienne (« … pas plus longue »).
     effacerErreur(ev.target);
     if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
+    if (ev.target.id === "champ-commentaire") { compterCommentaire(ev.target); }
     if ((ev.target.name === "autre-date" || ev.target.name === "autre-heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
       effacerErreursRendezVous(ev.target.form, ev.target.name);
     }
@@ -2831,7 +3114,7 @@
     var envois = {
       formulaire: envoyerFormulaire, "form-personne": envoyerPersonne, "form-equipe": envoyerEquipe, "form-groupe": envoyerGroupe,
       "form-evenement": envoyerEvenement, "form-action": envoyerAction, "form-creneau": envoyerCreneau,
-      "form-question": envoyerQuestion
+      "form-question": envoyerQuestion, "form-commentaire": publierCommentaire
     };
     Object.keys(envois).forEach(function (classe) {
       if (f.classList.contains(classe)) { ev.preventDefault(); envois[classe](f); }
@@ -2842,6 +3125,8 @@
     creneauOuvert = null;
     qrVisible = false;
     reponseAccueil = null;
+    commentaireFait = null;
+    anciensDeplies = null;
     rendre({ focus: true });
   });
 
