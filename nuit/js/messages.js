@@ -42,6 +42,22 @@
   Nouvelle question : tous les destinataires sauf l'auteur. Relance : ceux qui n'ont pas répondu.
   Commentaire : l'auteur du message seul (décision du 2026-11-19), et rien s'il commente son propre message.
 
+  Demande 009 : deux autres sortes de messages, et pas une de plus. Même liste, même règle des destinataires.
+  Une idée (sorte "idee") :
+  - texte (son titre, 80 caractères au plus), explication (facultative, 300 caractères au plus, retours à la ligne gardés) ;
+  - destinataires : le choix fait dans « À qui ? », plus toutes les personnes du bureau (ou tous les organisateurs), une fois
+    chacune (décision du 2026-11-19), sans l'auteur, qui ne répond pas à sa propre idée ;
+  - bonneIdee : les personnes qui ont dit « Bonne idée » (aucune date gardée) ;
+  - etat ("retenue" ou "classee", absent tant qu'elle est ouverte), decideLe ("AAAA-MM-JJ") ;
+  - evenementId : l'événement né de l'idée (association) ; l'événement garde ideeId en retour.
+  Seuls le bureau ou les organisateurs retiennent ou classent ; l'auteur est prévenu à chaque passage, sauf s'il décide lui-même.
+  Une info (sorte "info") :
+  - texte (300 caractères au plus, retours à la ligne gardés), destinataires (sans l'auteur) ;
+  - vu : les personnes qui ont touché « Vu » (aucune date gardée ; ouvrir l'info ne compte pas) ;
+  - closeLe si l'auteur l'a close. Seul l'auteur lit qui a vu, relance et clôt.
+  Envois de plus (groupe.envois) : "idee", "info", "idee-retenue" et "idee-classee" (vers l'auteur de l'idée seul) ;
+  la relance d'une info garde la sorte "relance".
+
   Les erreurs de saisie sont rendues sous forme de codes ; leurs textes sont dans mots.js.
 */
 (function (racine) {
@@ -53,9 +69,15 @@
 
   var HEURE = /^([01]\d|2[0-3]):[0-5]\d$/;
   var NOMBRE = /^\d{1,4}$/;
-  var LIMITES = { texte: 80, personnesMembre: 10, commentaire: 300 };
+  var LIMITES = { texte: 80, personnesMembre: 10, commentaire: 300, explication: 300, info: 300 };
+  // Les trois sortes de messages. Il n'y en a pas de quatrième.
+  var SORTES = ["question", "idee", "info"];
 
   function nettoyer(t) { return String(t == null ? "" : t).replace(/\s+/g, " ").trim(); }
+  // Un texte sur plusieurs lignes : les retours à la ligne sont gardés, les espaces du début et de la fin retirés.
+  // Un texte fait seulement d'espaces compte comme vide.
+  function nettoyerLignes(t) { return String(t == null ? "" : t).replace(/\r\n?/g, "\n").trim(); }
+  function sorteDe(m) { return m && SORTES.indexOf(m.sorte) >= 0 ? m.sorte : "question"; }
 
   function nouvelId(prefixe) {
     var octets = new Uint8Array(6);
@@ -97,9 +119,12 @@
   }
 
   // Le jour où la question a été close (à la main, ou d'elle-même le lendemain de sa date limite), ou null si elle est ouverte.
+  // Une idée est « close » dès qu'elle est retenue ou classée ; une info, quand son auteur l'a close.
   function dateCloture(m, reference) {
+    if (sorteDe(m) === "idee") { return m.etat ? (dateEcrite(m, "decideLe", "decideDansJours", reference) || dateCreation(m, reference) || L.aujourdhui(reference)) : null; }
     var main = dateEcrite(m, "closeLe", "closeDansJours", reference);
     if (main) { return main; }
+    if (sorteDe(m) !== "question") { return null; }
     var limite = dateAvantLe(m, reference) || dateRendezVous(m, reference);
     return limite && L.joursJusqua(limite, reference) < 0 ? L.ajouterJours(limite, 1) : null;
   }
@@ -190,6 +215,9 @@
   function peutGerer(groupe, personne, m) {
     var p = membre(groupe, personne);
     if (!p || !m) { return false; }
+    // Une info : son auteur seul la relance et la clôt. Une idée ne se relance pas, ne se clôt pas, ne se refait pas.
+    if (sorteDe(m) === "info") { return m.auteurId === p.id; }
+    if (sorteDe(m) === "idee") { return false; }
     return m.auteurId === p.id || (Gr.peutGerer(groupe, p) && contient(m.destinataires, p.id));
   }
 
@@ -213,6 +241,26 @@
 
   // ---------- Poser une question ----------
 
+  // Le choix fait dans « À qui ? », le même pour les trois sortes : il doit faire partie des lignes proposées à cette personne.
+  // Rend dest (les personnes, ou null), a (ce qui a été choisi) et erreurPersonnes ("aucune", "trop").
+  function choisirDestinataires(groupe, p, saisie) {
+    var r = { dest: null, a: null, erreurPersonnes: "" };
+    var ligne = destinatairesPossibles(groupe, p).filter(function (l) { return l.valeur === saisie.a; })[0];
+    if (ligne && ligne.sorte === "personnes") {
+      var proposees = personnesProposees(groupe, p).map(function (x) { return x.id; });
+      var choisies = (saisie.personnes || []).filter(function (id, i, t) { return proposees.indexOf(id) >= 0 && t.indexOf(id) === i; });
+      r.a = { sorte: "personnes" };
+      if (!choisies.length) { r.erreurPersonnes = "aucune"; }
+      else if (!Gr.peutGerer(groupe, p) && choisies.length > LIMITES.personnesMembre) { r.erreurPersonnes = "trop"; }
+      else { r.dest = choisies; }
+    } else if (ligne) {
+      r.dest = ligne.personnes.slice();
+      r.a = { sorte: ligne.sorte };
+      if (ligne.equipe) { r.a.equipeId = ligne.equipe.id; r.a.nom = ligne.equipe.nom; }
+    }
+    return r;
+  }
+
   // saisie : texte, a ("tous", "gestion", "e:identifiant", "personnes" ou "memes"), personnes (identifiants cochés),
   // memesDe (la question refaite), jour, heure, attendus, avantLe, evenementId.
   function validerQuestion(groupe, personne, saisie, reference) {
@@ -226,7 +274,7 @@
     var dest = null;
     if (saisie.a === "memes") {
       var origine = trouver(groupe, saisie.memesDe);
-      if (origine && peutGerer(groupe, p, origine)) {
+      if (origine && sorteDe(origine) === "question" && peutGerer(groupe, p, origine)) {
         // La liste d'origine, telle quelle : elle a déjà respecté la règle de son auteur.
         dest = destinataires(groupe, origine).map(function (x) { return x.id; });
         valeurs.a = { sorte: origine.a.sorte };
@@ -234,19 +282,10 @@
         if (origine.a.nom) { valeurs.a.nom = origine.a.nom; }
       }
     } else {
-      var ligne = destinatairesPossibles(groupe, p).filter(function (l) { return l.valeur === saisie.a; })[0];
-      if (ligne && ligne.sorte === "personnes") {
-        var proposees = personnesProposees(groupe, p).map(function (x) { return x.id; });
-        var choisies = (saisie.personnes || []).filter(function (id, i, t) { return proposees.indexOf(id) >= 0 && t.indexOf(id) === i; });
-        valeurs.a = { sorte: "personnes" };
-        if (!choisies.length) { erreurs.personnes = "aucune"; }
-        else if (!Gr.peutGerer(groupe, p) && choisies.length > LIMITES.personnesMembre) { erreurs.personnes = "trop"; }
-        else { dest = choisies; }
-      } else if (ligne) {
-        dest = ligne.personnes.slice();
-        valeurs.a = { sorte: ligne.sorte };
-        if (ligne.equipe) { valeurs.a.equipeId = ligne.equipe.id; valeurs.a.nom = ligne.equipe.nom; }
-      }
+      var choix = choisirDestinataires(groupe, p, saisie);
+      dest = choix.dest;
+      if (choix.a) { valeurs.a = choix.a; }
+      if (choix.erreurPersonnes) { erreurs.personnes = choix.erreurPersonnes; }
     }
     if (!erreurs.personnes && (!dest || !dest.length)) { erreurs.a = "invalide"; }
     valeurs.destinataires = dest || [];
@@ -313,6 +352,7 @@
     var p = membre(groupe, personne);
     var m = trouverVisible(groupe, p, id);
     if (!m) { return { ok: false, raison: "introuvable" }; }
+    if (sorteDe(m) !== "question") { return { ok: false, raison: "sorte" }; }
     if (!estDestinataire(groupe, p, m)) { return { ok: false, raison: "droits" }; }
     if (estClose(m, reference)) { return { ok: false, raison: "close" }; }
     if (valeur !== "oui" && valeur !== "non") { return { ok: false, raison: "saisie" }; }
@@ -338,7 +378,12 @@
     var m = trouverVisible(groupe, p, id);
     if (!m) { return { ok: false, raison: "introuvable" }; }
     if (!peutGerer(groupe, p, m)) { return { ok: false, raison: "droits" }; }
-    if (estClose(m, reference)) { return { ok: false, raison: "close" }; }
+    if (estClose(m, reference)) { return { ok: false, raison: "close", message: m }; }
+    // Une info : ceux qui n'ont pas vu, et eux seuls.
+    if (sorteDe(m) === "info") {
+      var pasVu = decompteInfo(groupe, m).pasVu;
+      return pasVu.length ? { ok: true, message: m, personnes: pasVu } : { ok: false, raison: "tout-vu", message: m };
+    }
     var sans = decompte(groupe, m).sans;
     if (!sans.length) { return { ok: false, raison: "tout-repondu", message: m }; }
     return { ok: true, message: m, personnes: sans };
@@ -360,18 +405,37 @@
   function listes(groupe, personne, reference) {
     var p = membre(groupe, personne);
     var r = { aRepondre: [], enCours: [], termines: [] };
-    visibles(groupe, p).forEach(function (m) {
-      if (estClose(m, reference)) { r.termines.push(m); }
-      else if (estDestinataire(groupe, p, m) && !reponse(m, p)) { r.aRepondre.push(m); }
-      else { r.enCours.push(m); }
-    });
+    visibles(groupe, p).forEach(function (m) { r[rangement(groupe, p, m, reference)].push(m); });
     // Tri stable : à égalité, l'ordre d'arrivée est gardé.
     r.aRepondre.sort(parUrgence(reference));
-    r.enCours.sort(parUrgence(reference));
-    r.termines = r.termines.map(function (m, i) { return { m: m, i: i }; }).sort(function (x, y) {
-      return (dateCloture(y.m, reference) - dateCloture(x.m, reference)) || (y.i - x.i);
-    }).map(function (x) { return x.m; });
+    // « En cours » et « Terminés » : le plus récent d'abord (demande 009) ; le même jour, le dernier arrivé d'abord.
+    // En cours : le jour de l'envoi. Terminés : le jour de la clôture ; pour une info vue, sans clôture, le jour de son envoi.
+    var recents = function (liste, jour) {
+      return liste.map(function (m, i) { return { m: m, i: i }; }).sort(function (x, y) {
+        return (jour(y.m) - jour(x.m)) || (y.i - x.i);
+      }).map(function (x) { return x.m; });
+    };
+    r.enCours = recents(r.enCours, function (m) { return dateCreation(m, reference) || 0; });
+    r.termines = recents(r.termines, function (m) { return dateCloture(m, reference) || dateCreation(m, reference) || 0; });
     return r;
+  }
+
+  // La liste où se range un message pour cette personne : "aRepondre", "enCours" ou "termines".
+  function rangement(groupe, p, m, reference) {
+    var sorte = sorteDe(m);
+    if (estClose(m, reference)) { return "termines"; }
+    if (sorte === "idee") {
+      // Idée ouverte : le bureau ou les organisateurs qui l'ont reçue ont à la retenir ou à la classer. « Bonne idée » n'est
+      // jamais due : pour l'auteur et les autres destinataires, l'idée est « en cours ».
+      return estDestinataire(groupe, p, m) && Gr.peutGerer(groupe, p) ? "aRepondre" : "enCours";
+    }
+    if (sorte === "info") {
+      // Pour un destinataire : à répondre tant qu'il n'a pas touché « Vu », terminée ensuite. Pour l'auteur : en cours tant
+      // que quelqu'un ne l'a pas vue, terminée quand tous ont vu.
+      if (estDestinataire(groupe, p, m)) { return contient(m.vu, p.id) ? "termines" : "aRepondre"; }
+      return decompteInfo(groupe, m).pasVu.length ? "enCours" : "termines";
+    }
+    return estDestinataire(groupe, p, m) && !reponse(m, p) ? "aRepondre" : "enCours";
   }
 
   // Les rendez-vous à venir de cette personne : questions datées dont elle est l'auteur ou l'un des
@@ -382,6 +446,198 @@
       .filter(function (x) { return x.date && L.joursJusqua(x.date, reference) >= 0 && reponse(x.message, p) !== "non"; })
       .sort(function (x, y) { return (x.date - y.date) || String(x.message.heure || "").localeCompare(String(y.message.heure || "")); });
   }
+
+  // ---------- Demande 009 : lancer une idée, donner une info ----------
+
+  // Le bureau ou les organisateurs, toujours destinataires d'une idée (décision du 2026-11-19).
+  function ajouterGestion(groupe, dest) {
+    var r = dest.slice();
+    Gr.gestionnaires(groupe).forEach(function (x) { if (r.indexOf(x.id) < 0) { r.push(x.id); } });
+    return r;
+  }
+
+  // saisie : texte (le titre), explication, a, personnes. Les dix personnes d'un membre se comptent sur ce qu'il coche :
+  // le bureau ou les organisateurs, ajoutés d'office, n'en font pas partie.
+  function validerIdee(groupe, personne, saisie) {
+    var p = membre(groupe, personne);
+    var texte = nettoyer(saisie.texte), explication = nettoyerLignes(saisie.explication);
+    var erreurs = {};
+    if (!texte) { erreurs.texte = "vide"; } else if (texte.length > LIMITES.texte) { erreurs.texte = "long"; }
+    if (explication.length > LIMITES.explication) { erreurs.explication = "long"; }
+    var choix = choisirDestinataires(groupe, p, saisie);
+    if (choix.erreurPersonnes) { erreurs.personnes = choix.erreurPersonnes; }
+    else if (!choix.dest || !choix.dest.length) { erreurs.a = "invalide"; }
+    // L'auteur ne répond pas à sa propre idée : il n'est pas compté parmi ses destinataires.
+    var dest = choix.dest && choix.dest.length ? ajouterGestion(groupe, choix.dest).filter(function (id) { return id !== p.id; }) : [];
+    if (!erreurs.personnes && !erreurs.a && !dest.length) { erreurs.a = "invalide"; }
+    return { ok: Object.keys(erreurs).length === 0, erreurs: erreurs, valeurs: { texte: texte, explication: explication, a: choix.a, destinataires: dest } };
+  }
+
+  function lancerIdee(groupe, personne, saisie, reference) {
+    var p = membre(groupe, personne);
+    if (!p) { return { ok: false, raison: "introuvable" }; }
+    if (!peutLancer(groupe, p)) { return { ok: false, raison: "droits" }; }
+    var v = validerIdee(groupe, p, saisie || {});
+    if (!v.ok) { return { ok: false, raison: "saisie", erreurs: v.erreurs }; }
+    var m = {
+      id: nouvelId("m"), sorte: "idee", texte: v.valeurs.texte,
+      auteurId: p.id, auteur: Gr.nomComplet(p), creeLe: Ev.ecrireDate(L.aujourdhui(reference)),
+      a: v.valeurs.a, destinataires: v.valeurs.destinataires, bonneIdee: []
+    };
+    if (v.valeurs.explication) { m.explication = v.valeurs.explication; }
+    groupe.messages = groupe.messages || [];
+    groupe.messages.push(m);
+    noterEnvoi(groupe, { sorte: "idee", messageId: m.id, de: p.prenom, a: m.destinataires.slice() }, reference);
+    return { ok: true, message: m };
+  }
+
+  // saisie : texte (300 caractères au plus, retours à la ligne gardés), a, personnes. La règle des destinataires de la 007, telle quelle.
+  function validerInfo(groupe, personne, saisie) {
+    var p = membre(groupe, personne);
+    var texte = nettoyerLignes(saisie.texte);
+    var erreurs = {};
+    if (!texte) { erreurs.texte = "vide"; } else if (texte.length > LIMITES.info) { erreurs.texte = "long"; }
+    var choix = choisirDestinataires(groupe, p, saisie);
+    if (choix.erreurPersonnes) { erreurs.personnes = choix.erreurPersonnes; }
+    else if (!choix.dest || !choix.dest.length) { erreurs.a = "invalide"; }
+    // L'auteur n'est jamais compté parmi les destinataires de son info.
+    var dest = (choix.dest || []).filter(function (id) { return id !== p.id; });
+    if (!erreurs.personnes && !erreurs.a && !dest.length) { erreurs.a = "invalide"; }
+    return { ok: Object.keys(erreurs).length === 0, erreurs: erreurs, valeurs: { texte: texte, a: choix.a, destinataires: dest } };
+  }
+
+  function donnerInfo(groupe, personne, saisie, reference) {
+    var p = membre(groupe, personne);
+    if (!p) { return { ok: false, raison: "introuvable" }; }
+    if (!peutLancer(groupe, p)) { return { ok: false, raison: "droits" }; }
+    var v = validerInfo(groupe, p, saisie || {});
+    if (!v.ok) { return { ok: false, raison: "saisie", erreurs: v.erreurs }; }
+    var m = {
+      id: nouvelId("m"), sorte: "info", texte: v.valeurs.texte,
+      auteurId: p.id, auteur: Gr.nomComplet(p), creeLe: Ev.ecrireDate(L.aujourdhui(reference)),
+      a: v.valeurs.a, destinataires: v.valeurs.destinataires, vu: []
+    };
+    groupe.messages = groupe.messages || [];
+    groupe.messages.push(m);
+    noterEnvoi(groupe, { sorte: "info", messageId: m.id, de: p.prenom, a: m.destinataires.slice() }, reference);
+    return { ok: true, message: m };
+  }
+
+  // Le choix fait dans « À qui ? » est suivi de « et le bureau » (ou « et les organisateurs ») quand ils ont été ajoutés d'office.
+  function gestionAjoutee(m) {
+    return sorteDe(m) === "idee" && !!m.a && (m.a.sorte === "equipe" || m.a.sorte === "personnes");
+  }
+
+  // « Bonne idée » : une fois par personne, les destinataires seuls, tant que l'idée est ouverte. dit === false la retire.
+  function direBonneIdee(groupe, personne, id, dit) {
+    var p = membre(groupe, personne);
+    var m = trouverVisible(groupe, p, id);
+    if (!m) { return { ok: false, raison: "introuvable" }; }
+    if (sorteDe(m) !== "idee") { return { ok: false, raison: "sorte" }; }
+    if (!estDestinataire(groupe, p, m)) { return { ok: false, raison: "droits" }; }
+    if (m.etat) { return { ok: false, raison: "close" }; }
+    m.bonneIdee = (m.bonneIdee || []).filter(function (x) { return x !== p.id; });
+    if (dit !== false) { m.bonneIdee.push(p.id); }
+    return { ok: true, message: m, dit: dit !== false };
+  }
+
+  function aDitBonneIdee(m, personne) { return !!personne && contient(m.bonneIdee, personne.id); }
+
+  // Les personnes qui ont dit « Bonne idée », et les destinataires encore dans le groupe.
+  function decompteIdee(groupe, m) {
+    var dest = destinataires(groupe, m);
+    return { destinataires: dest, bonneIdee: dest.filter(function (p) { return contient(m.bonneIdee, p.id); }) };
+  }
+
+  // Retenir ou classer : le bureau ou les organisateurs, pour une idée qu'ils voient (ils en sont toujours destinataires).
+  function peutDecider(groupe, personne, m) {
+    var p = membre(groupe, personne);
+    return !!p && !!m && sorteDe(m) === "idee" && Gr.peutGerer(groupe, p) && estVisible(groupe, p, m);
+  }
+
+  // etat : "retenue" ou "classee". On peut changer d'avis. L'auteur est prévenu à chaque passage, sauf s'il décide lui-même.
+  function deciderIdee(groupe, personne, id, etat, reference) {
+    var p = membre(groupe, personne);
+    var m = trouverVisible(groupe, p, id);
+    if (!m) { return { ok: false, raison: "introuvable" }; }
+    if (sorteDe(m) !== "idee") { return { ok: false, raison: "sorte" }; }
+    if (!peutDecider(groupe, p, m)) { return { ok: false, raison: "droits" }; }
+    if (etat !== "retenue" && etat !== "classee") { return { ok: false, raison: "saisie" }; }
+    if (m.etat === etat) { return { ok: false, raison: "deja", message: m }; }
+    m.etat = etat;
+    m.decideLe = Ev.ecrireDate(L.aujourdhui(reference));
+    if (m.auteurId !== p.id && auteur(groupe, m)) {
+      noterEnvoi(groupe, { sorte: etat === "retenue" ? "idee-retenue" : "idee-classee", messageId: m.id, de: p.prenom, a: [m.auteurId] }, reference);
+    }
+    return { ok: true, message: m };
+  }
+
+  // L'événement né de l'idée, s'il existe encore (association).
+  function evenementDeLIdee(groupe, m) {
+    if (!m || sorteDe(m) !== "idee" || !m.evenementId || !Gr.estAssociation(groupe)) { return null; }
+    var e = L.trouverEvenement(groupe, m.evenementId);
+    return e && e.ideeId === m.id ? e : null;
+  }
+
+  // « En faire un événement » : association, bureau, idée retenue, et une seule fois (tant que l'événement existe).
+  function peutEnFaireUnEvenement(groupe, personne, m) {
+    return Gr.estAssociation(groupe) && peutDecider(groupe, personne, m) && m.etat === "retenue" && !evenementDeLIdee(groupe, m);
+  }
+
+  // Le nom proposé pour l'événement : le titre de l'idée, coupé à la limite d'un nom d'événement.
+  function nomEvenementPropose(m) {
+    var titre = String(m.texte || "");
+    return { nom: titre.slice(0, Ev.LIMITES.titre).trim(), raccourci: titre.length > Ev.LIMITES.titre };
+  }
+
+  // L'événement est créé par les règles de la demande 006 ; l'idée et l'événement gardent le lien l'un vers l'autre.
+  function creerEvenementDepuisIdee(groupe, personne, id, saisie, reference) {
+    var p = membre(groupe, personne);
+    var m = trouverVisible(groupe, p, id);
+    if (!m || sorteDe(m) !== "idee") { return { ok: false, raison: "introuvable" }; }
+    if (!peutEnFaireUnEvenement(groupe, p, m)) { return { ok: false, raison: "droits" }; }
+    var r = Ev.creerEvenement(groupe, p, saisie, reference);
+    if (!r.ok) { return r; }
+    r.evenement.ideeId = m.id;
+    m.evenementId = r.evenement.id;
+    r.message = m;
+    return r;
+  }
+
+  // L'idée d'où vient un événement, pour qui a le droit de la voir ; sinon null, comme si elle n'existait pas.
+  function ideeDeLEvenement(groupe, personne, evenement) {
+    if (!evenement || !evenement.ideeId) { return null; }
+    var m = trouverVisible(groupe, personne, evenement.ideeId);
+    return m && sorteDe(m) === "idee" && m.evenementId === evenement.id ? m : null;
+  }
+
+  // « Vu » : un geste voulu, une fois par personne, sans retour. Les destinataires seuls, tant que l'info est ouverte.
+  function marquerVu(groupe, personne, id, reference) {
+    var p = membre(groupe, personne);
+    var m = trouverVisible(groupe, p, id);
+    if (!m) { return { ok: false, raison: "introuvable" }; }
+    if (sorteDe(m) !== "info") { return { ok: false, raison: "sorte" }; }
+    if (!estDestinataire(groupe, p, m)) { return { ok: false, raison: "droits" }; }
+    if (estClose(m, reference)) { return { ok: false, raison: "close" }; }
+    if (contient(m.vu, p.id)) { return { ok: false, raison: "deja", message: m }; }
+    m.vu = (m.vu || []).concat([p.id]);
+    return { ok: true, message: m };
+  }
+
+  function aVu(m, personne) { return !!personne && contient(m.vu, personne.id); }
+
+  // Les deux listes de l'auteur : leur total égale le nombre de destinataires.
+  function decompteInfo(groupe, m) {
+    var dest = destinataires(groupe, m);
+    return {
+      destinataires: dest,
+      vu: dest.filter(function (p) { return contient(m.vu, p.id); }),
+      pasVu: dest.filter(function (p) { return !contient(m.vu, p.id); })
+    };
+  }
+
+  // Seul l'auteur d'une info lit qui a vu (décision du 2026-11-19).
+  function peutLireQuiAVu(groupe, personne, m) { return sorteDe(m) === "info" && estAuteur(groupe, personne, m); }
 
   // ---------- Commentaires (demande 008) ----------
 
@@ -545,6 +801,27 @@
 
   var Messages = {
     LIMITES: LIMITES,
+    SORTES: SORTES,
+    sorte: sorteDe,
+    validerIdee: validerIdee,
+    lancerIdee: lancerIdee,
+    validerInfo: validerInfo,
+    donnerInfo: donnerInfo,
+    gestionAjoutee: gestionAjoutee,
+    direBonneIdee: direBonneIdee,
+    aDitBonneIdee: aDitBonneIdee,
+    decompteIdee: decompteIdee,
+    peutDecider: peutDecider,
+    deciderIdee: deciderIdee,
+    evenementDeLIdee: evenementDeLIdee,
+    peutEnFaireUnEvenement: peutEnFaireUnEvenement,
+    nomEvenementPropose: nomEvenementPropose,
+    creerEvenementDepuisIdee: creerEvenementDepuisIdee,
+    ideeDeLEvenement: ideeDeLEvenement,
+    marquerVu: marquerVu,
+    aVu: aVu,
+    decompteInfo: decompteInfo,
+    peutLireQuiAVu: peutLireQuiAVu,
     dateCreation: dateCreation,
     dateRendezVous: dateRendezVous,
     dateAvantLe: dateAvantLe,

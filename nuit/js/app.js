@@ -595,6 +595,8 @@
   function ecranEvenement(id, onglet, sous) {
     // Créer un événement : le bureau seul ; les autres retrouvent la liste, sans message.
     if (id === "nouveau" && !onglet) { return gere() ? ecranCreerEvenement() : ecranEvenements(); }
+    // Demande 009, écran 9 : le même écran, prérempli avec le titre d'une idée retenue ; même règle pour qui n'est pas du bureau.
+    if (id === "nouveau" && onglet === "idee" && sous) { return gere() ? ecranCreerEvenement(sous) : ecranEvenements(); }
     var e = L.trouverEvenement(G(), id);
     if (!e) { return introuvable(); }
     // Modifier, supprimer et refaire l'événement (demande 006b) : le bureau seul, événement à venir ou passé ;
@@ -617,8 +619,11 @@
       onglet = passe && e.bilan ? "bilan" : "actions";
     }
     var date = L.dateEvenement(e);
+    // Demande 009 : l'idée d'où vient l'événement, pour qui a le droit de la voir ; les autres ne voient rien à cette place.
+    var idee = Msg.ideeDeLEvenement(G(), moi(), e);
     var html = retour("#evenements", "Événements") +
       entete(quandOu(e, dateLongue(date) + (passe ? " " + date.getFullYear() : "")), e.titre, etiquettePreparation(e)) +
+      (idee ? '<p><a class="lien-suite" id="vient-idee" href="#message/' + esc(idee.id) + '">' + esc(M("msgEvenementVientIdee", { titre: idee.texte })) + "</a></p>" : "") +
       bandeauMessage() +
       // Rubrique Actions, bureau seulement : « Modifier l'événement », entre l'en-tête et les rubriques.
       (onglet === "actions" && gere() ? '<p><a class="lien-suite" id="modifier-evenement" href="' + hrefEvenement(e, "modifier") + '">' + esc(M("modifierLEvenement")) + "</a></p>" : "") +
@@ -899,8 +904,10 @@
         if (texte) { zone.setAttribute("data-code", code); } else { zone.removeAttribute("data-code"); }
       }
       var el = form.querySelector("#champ-" + n);
-      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", texte ? "true" : "false"); }
-      if (texte && !premier) { premier = el && el.tagName === "INPUT" ? el : form.querySelector("#champ-" + n + " input"); }
+      // Une zone de saisie sur plusieurs lignes est un champ comme un autre (demande 009).
+      var saisie = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+      if (saisie) { el.setAttribute("aria-invalid", texte ? "true" : "false"); }
+      if (texte && !premier) { premier = saisie ? el : form.querySelector("#champ-" + n + " input"); }
     });
     if (premier) { premier.focus(); }
     return !!premier;
@@ -956,10 +963,21 @@
   }
 
   // Écran 2 : créer un événement. Seuls le nom et la date sont obligatoires.
-  function ecranCreerEvenement() {
-    var html = retour("#evenements", M("ongletEvenements")) + entete(G().nom, M("creerUnEvenement")) +
-      '<form class="form-evenement" novalidate>' +
-      champ("nom-evenement", M("champNomEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"', M("champNomEvenementAide")) +
+  // Demande 009, écran 9 (ideeId) : le nom est rempli avec le titre d'une idée retenue, coupé à 60 caractères ; le curseur est
+  // dans la date ; le retour mène à l'idée. Rien d'autre ne change.
+  function ecranCreerEvenement(ideeId) {
+    var idee = null, propose = null;
+    if (ideeId) {
+      idee = Msg.trouverVisible(G(), moi(), ideeId);
+      if (!idee || Msg.sorte(idee) !== "idee") { return messageIntrouvable(); }
+      // Idée qui n'est pas retenue, ou déjà devenue un événement : l'idée elle-même.
+      if (!Msg.peutEnFaireUnEvenement(G(), moi(), idee)) { return ecranMessage(ideeId); }
+      propose = Msg.nomEvenementPropose(idee);
+    }
+    var html = (idee ? retour("#message/" + esc(idee.id), idee.texte) : retour("#evenements", M("ongletEvenements"))) + entete(G().nom, M("creerUnEvenement")) +
+      '<form class="form-evenement"' + (idee ? ' data-idee="' + esc(idee.id) + '"' : "") + " novalidate>" +
+      champ("nom-evenement", M("champNomEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"' + (idee ? ' value="' + esc(propose.nom) + '"' : ""),
+        M("champNomEvenementAide"), "", "", propose && propose.raccourci ? M("msgIdeeNomRaccourci") : "") +
       champ("date-evenement", M("champDateEvenement"), 'min="' + esc(Ev.ecrireDate(L.aujourdhui())) + '"', "", "date") +
       champ("debut-evenement", M("champDebutEvenement"), "", "", "time") +
       champ("fin-evenement", M("champFinEvenement"), "", "", "time") +
@@ -967,7 +985,7 @@
       '<p class="erreur-generale" role="alert"></p>' +
       '<button type="submit" class="bouton bouton--principal">' + esc(M("creerLEvenement")) + "</button>" +
       "</form>";
-    return { titre: M("creerUnEvenement"), onglet: "evenements", html: html, champ: "nom-evenement" };
+    return { titre: M("creerUnEvenement"), onglet: "evenements", html: html, champ: idee ? "date-evenement" : "nom-evenement" };
   }
 
   // Les erreurs du formulaire d'événement (création et modification) ; rend vrai s'il y en a.
@@ -1001,9 +1019,11 @@
     // Le même formulaire sert à modifier l'événement (écran 9) ; celui de la copie n'a qu'une date (écran 11).
     if (form.hasAttribute("data-refaire")) { envoyerCopie(form); return; }
     if (form.hasAttribute("data-evenement")) { envoyerModification(form); return; }
-    var r = Ev.creerEvenement(G(), moi(), saisieEvenement(form));
+    // Demande 009 : né d'une idée retenue, l'événement et l'idée gardent le lien l'un vers l'autre.
+    var ideeId = form.getAttribute("data-idee");
+    var r = ideeId ? Msg.creerEvenementDepuisIdee(G(), moi(), ideeId, saisieEvenement(form)) : Ev.creerEvenement(G(), moi(), saisieEvenement(form));
     if (erreursEvenement(form, r)) { return; }
-    if (!r.ok) { aller("#evenements"); return; }
+    if (!r.ok) { aller(ideeId ? "#message/" + ideeId : "#evenements"); return; }
     sauver();
     montrerMoisDe(r.evenement);
     message = M("evenementCree", { nom: r.evenement.titre });
@@ -1337,7 +1357,49 @@
     var equipe = a.sorte === "equipe" ? Gr.trouverEquipe(G(), a.equipeId) : null;
     var nom = a.sorte === "tous" ? M("msgAToutLeGroupe") : a.sorte === "gestion" ? M("msgAGestion") :
       a.sorte === "equipe" && (equipe || a.nom) ? (equipe ? nomEquipe(equipe) : a.nom) : M("msgAPersonnes");
+    // Demande 009 : une idée est toujours adressée aussi au bureau (ou aux organisateurs) ; le choix fait le dit, sauf s'il les nomme déjà.
+    if (Msg.gestionAjoutee(m)) { nom = M("msgAEtGestion", { destinataires: nom }); }
     return M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", Msg.destinataires(G(), m).length) });
+  }
+
+  // ----- Demande 009 : ce que les trois sortes de messages ont en commun à l'écran -----
+  // Le titre de l'idée, son explication et le texte de l'info sont des textes libres : ils passent partout par esc().
+
+  // Le mot de sorte : « Question », « Idée » ou « Info ». Toujours écrit, jamais une couleur seule.
+  function motSorte(m) { var s = Msg.sorte(m); return M(s === "idee" ? "msgSorteIdee" : s === "info" ? "msgSorteInfo" : "msgSorteQuestion"); }
+
+  // Le début d'un texte sur une seule ligne : 80 caractères au plus, puis « … » (ligne de liste, accueil, titre de l'onglet).
+  function debutTexte(t) {
+    var s = String(t || "").replace(/\s+/g, " ").trim();
+    return s.length > 80 ? s.slice(0, 80) + "…" : s;
+  }
+  // Ce qui nomme le message sur une ligne : la question, le titre de l'idée, le début de l'info.
+  function titreMessage(m) { return Msg.sorte(m) === "info" ? debutTexte(m.texte) : m.texte; }
+
+  // « 12 sur 30 ont vu », « Personne n'a encore vu, sur 30. », « Tout le monde a vu. »
+  function texteCompteurInfo(d) {
+    var total = d.destinataires.length, n = d.vu.length;
+    return !d.pasVu.length ? M("msgInfoToutVu") : !n ? M("msgInfoCompteurZero", { total: total }) : Mn("msgInfoCompteur", n, { total: total });
+  }
+
+  // N1, le bouton de réponse seul : « Bonne idée » ou « Vu ». Il est l'unique bouton principal de son écran.
+  // choisi : vrai ou faux pour « Bonne idée » (le bouton reste, plein et coché) ; null pour « Vu », qui ne se retire pas.
+  // exemple : bouton inerte de la page Charte.
+  function boutonReponse(cle, attribut, id, choisi, exemple) {
+    return '<button type="button" class="bouton bouton--principal reponse-seule' + (choisi ? " bouton--choisi" : "") + '"' +
+      (exemple ? " data-exemple" : " " + attribut + '="' + esc(id) + '"') +
+      (choisi === null ? "" : ' aria-pressed="' + !!choisi + '"') + ">" + esc(M(cle)) + "</button>";
+  }
+
+  // Le haut de l'écran d'un message : le mot de sorte et son état, le titre, « De… » et « À :… ».
+  // etat : la pastille d'état, déjà écrite ; classeTitre : pour l'info, dont le texte est le titre ; sousTitre : l'explication d'une idée.
+  function enteteMessage(m, etat, classeTitre, sousTitre) {
+    var creation = Msg.dateCreation(m);
+    return '<header class="entete entete--message">' +
+      '<p class="surtitre"><span class="sorte-message">' + esc(motSorte(m)) + "</span>" + (etat || "") + "</p>" +
+      '<h1 tabindex="-1"' + (classeTitre ? ' class="' + classeTitre + '"' : "") + ">" + esc(m.texte) + "</h1>" + (sousTitre || "") +
+      '<p class="sous-titre">' + esc(M("msgDeLe", { nom: nomAuteur(m), date: creation ? fmtJourMois.format(creation) : "" })) + "</p>" +
+      '<p class="sous-titre">' + esc(M("msgA", { destinataires: aQui(m) })) + "</p>";
   }
 
   // « 8 Oui sur 10 attendus », ou « 8 Oui » sans nombre attendu.
@@ -1362,13 +1424,29 @@
 
   // ----- Écran 1 : Messages, en trois listes -----
 
-  function carteMessage(m) {
-    var c = Msg.decompte(G(), m), close = Msg.estClose(m), nouveaux = Msg.nouveauxCommentaires(G(), moi(), m);
-    return '<a class="carte' + (close ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" href="#message/' + esc(m.id) + '">' +
-      '<span class="carte-titre">' + esc(m.texte) + "</span>" +
+  // Demande 009 : chaque ligne porte son mot de sorte, en tête. passee : la ligne est dans « Terminés ».
+  function carteMessage(m, passee) {
+    var g = G(), p = moi(), sorte = Msg.sorte(m);
+    var close = Msg.estClose(m), nouveaux = Msg.nouveauxCommentaires(g, p, m);
+    var etiquette = function (cle, ok) { return ' <span class="etiquette' + (ok ? " etiquette--ok" : "") + '">' + esc(M(cle)) + "</span>"; };
+    var infos;
+    if (sorte === "idee") {
+      // « 3 Bonne idée » (rien à zéro), puis « Retenue » ou « Classée ».
+      var n = Msg.decompteIdee(g, m).bonneIdee.length;
+      infos = (n ? esc(M("msgIdeeCompteur", { n: n })) : "") + (m.etat === "retenue" ? etiquette("msgIdeeRetenue", true) : m.etat === "classee" ? etiquette("msgIdeeClassee") : "");
+    } else if (sorte === "info") {
+      // « 12 sur 30 ont vu » pour l'auteur seulement ; dans « Terminés », « Close » ou « Vu ».
+      infos = (Msg.peutLireQuiAVu(g, p, m) ? esc(texteCompteurInfo(Msg.decompteInfo(g, m))) : "") +
+        (close ? etiquette("msgClose") : Msg.aVu(m, p) ? etiquette("msgVu") : "");
+    } else {
+      var c = Msg.decompte(g, m);
+      infos = esc(texteCompteur(c)) + (c.complet ? " " + etiquetteComplet() : "") + (close ? etiquette("msgClose") : "");
+    }
+    return '<a class="carte' + (passee ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" data-sorte="' + esc(sorte) + '" href="#message/' + esc(m.id) + '">' +
+      '<span class="carte-etiquette sorte-message">' + esc(motSorte(m)) + "</span>" +
+      '<span class="carte-titre">' + esc(titreMessage(m)) + "</span>" +
       '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
-      '<span class="carte-infos">' + esc(texteCompteur(c)) + (c.complet ? " " + etiquetteComplet() : "") +
-      (close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "") + "</span>" +
+      (infos ? '<span class="carte-infos">' + infos + "</span>" : "") +
       // Demande 008 : les commentaires des autres publiés depuis ma dernière ouverture du message, en toutes lettres.
       (nouveaux ? '<span class="carte-statut nouveaux-commentaires"><span class="etiquette etiquette--ok">' + esc(Mn("msgComNouveaux", nouveaux)) + "</span></span>" : "") +
       "</a>";
@@ -1379,9 +1457,10 @@
     var html = '<section class="section" id="liste-' + id + '"><h2 class="section-titre"><span>' + esc(titre) +
       '</span><span class="compte">' + liste.length + "</span></h2>";
     if (!liste.length) { return html + '<p class="calme">' + esc(vide) + "</p></section>"; }
-    html += liste.slice(0, 3).map(carteMessage).join("");
+    var carte = function (m) { return carteMessage(m, id === "termines"); };
+    html += liste.slice(0, 3).map(carte).join("");
     if (liste.length > 3) {
-      html += '<div class="suite-liste" hidden>' + liste.slice(3).map(carteMessage).join("") + "</div>" +
+      html += '<div class="suite-liste" hidden>' + liste.slice(3).map(carte).join("") + "</div>" +
         '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("msgVoirAutres", liste.length - 3)) + "</button>";
     }
     return html + "</section>";
@@ -1400,7 +1479,8 @@
     var l = Msg.listes(g, p);
     var lance = Msg.peutLancer(g, p); // un visiteur répond, il ne lance rien : pas de bouton
     var html = entete(g.nom, M("msgTitre")) + bandeauMessage() +
-      (lance ? '<a class="bouton bouton--principal" id="demander" href="#messages/nouveau/question">' + esc(M("msgDemander")) + "</a>" : "");
+      // Demande 009 : le bouton principal ouvre le choix entre les trois sortes de messages.
+      (lance ? '<a class="bouton bouton--principal" id="ecrire" href="#messages/nouveau">' + esc(M("msgEcrire")) + "</a>" : "");
     if (!(l.aRepondre.length + l.enCours.length + l.termines.length)) {
       html += '<div class="section">' + etatVide("panneau", M("msgVide"), esc(M(lance ? "msgVideAide" : "msgVideAideVisiteur"))) + "</div>";
     } else {
@@ -1425,6 +1505,23 @@
 
   function comptePersonnes(n, sansLimite) { return sansLimite ? Mn("nPersonnes", n) : M("msgPersonnesCompte", { n: n }); }
 
+  // Les lignes de « À qui ? » pour cette personne, chacune avec son nombre de personnes : les mêmes pour les trois sortes de messages.
+  function optionsAQui(g, p) {
+    return Msg.destinatairesPossibles(g, p).map(function (l) {
+      var nom = l.sorte === "tous" ? M("msgAToutLeGroupe") : l.sorte === "gestion" ? M("msgAGestion") : l.sorte === "equipe" ? nomEquipe(l.equipe) : M("msgAPersonnes");
+      return { valeur: l.valeur, titre: l.sorte === "personnes" ? nom : M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", l.personnes.length) }) };
+    });
+  }
+  // La liste des personnes à cocher, cachée tant que « Des personnes choisies » n'est pas choisi.
+  function zonePersonnes(g, p, sansLimite) {
+    return '<div id="zone-personnes" hidden><fieldset class="choix choix--liste" id="champ-personnes" aria-describedby="erreur-personnes"' +
+      ' data-limite="' + (sansLimite ? "" : Msg.LIMITES.personnesMembre) + '">' +
+      "<legend>" + esc(M("msgAPersonnes")) + ' <span class="compte" id="compte-personnes">' + esc(comptePersonnes(0, sansLimite)) + "</span></legend>" +
+      '<p class="champ-erreur limite-personnes" id="erreur-personnes" role="status"></p>' +
+      Msg.personnesProposees(g, p).map(function (x) { return optionChoix("personnes", "checkbox", { valeur: x.id, titre: Gr.nomComplet(x) }, false); }).join("") +
+      "</fieldset></div>";
+  }
+
   function ecranNouvelleQuestion(refaireId) {
     var g = G(), p = moi();
     if (!Msg.peutLancer(g, p)) {
@@ -1440,7 +1537,8 @@
       origine = Msg.trouverVisible(g, p, refaireId);
       if (!origine) { return messageIntrouvable(); }
       // Refaire : l'auteur, plus le bureau ou les organisateurs destinataires ; les autres retrouvent le message.
-      if (!Msg.peutGerer(g, p, origine)) { return ecranMessage(refaireId); }
+      // Seule une question se refait (demande 009) : une idée ou une info s'affiche telle quelle.
+      if (Msg.sorte(origine) !== "question" || !Msg.peutGerer(g, p, origine)) { return ecranMessage(refaireId); }
     }
     var sansLimite = Gr.peutGerer(g, p); // dix personnes au plus pour un membre seulement
     var o = origine || {};
@@ -1449,10 +1547,7 @@
     var min = 'min="' + esc(Ev.ecrireDate(aujourdhui)) + '"';
 
     // À qui ? Un seul choix, chacun avec son nombre de personnes. Rien n'est coché d'avance (sauf « Les mêmes personnes »).
-    var options = Msg.destinatairesPossibles(g, p).map(function (l) {
-      var nom = l.sorte === "tous" ? M("msgAToutLeGroupe") : l.sorte === "gestion" ? M("msgAGestion") : l.sorte === "equipe" ? nomEquipe(l.equipe) : M("msgAPersonnes");
-      return { valeur: l.valeur, titre: l.sorte === "personnes" ? nom : M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", l.personnes.length) }) };
-    });
+    var options = optionsAQui(g, p);
     if (origine) {
       options.unshift({ valeur: "memes", titre: M("msgAvecCompte", { nom: M("msgAMemesPersonnes"), compte: Mn("nPersonnes", Msg.destinataires(g, origine).length) }) });
     }
@@ -1487,7 +1582,8 @@
     var evenements = estAsso() ? L.evenementsAVenir(g) : [];
     var evenementChoisi = evenements.some(function (e) { return e.id === o.evenementId; }) ? o.evenementId : "";
     var titre = M(origine ? "msgRefaire" : "msgDemander");
-    var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
+    // Demande 009 : une nouvelle question vient du choix « Écrire un message » ; « Refaire » n'y passe pas.
+    var html = (origine ? retour("#messages", M("msgRetourMessages")) : retour("#messages/nouveau", M("msgChoixTitre"))) + entete(g.nom, titre) +
       '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '"' +
       ' data-choisi-jour="' + esc(jourChoisi) + '" data-choisi-heure="' + esc(heureChoisie) + '" novalidate>' +
       // La question : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
@@ -1499,12 +1595,7 @@
       '<p class="champ-erreur" id="erreur-question"></p></div>' +
       choix("a-qui", M("msgChampAQui"), options, origine ? ["memes"] : [], "radio", "choix--liste") +
       // « Des personnes choisies » déplie la liste des personnes, à cocher, avec son compteur.
-      '<div id="zone-personnes" hidden><fieldset class="choix choix--liste" id="champ-personnes" aria-describedby="erreur-personnes"' +
-      ' data-limite="' + (sansLimite ? "" : Msg.LIMITES.personnesMembre) + '">' +
-      "<legend>" + esc(M("msgAPersonnes")) + ' <span class="compte" id="compte-personnes">' + esc(comptePersonnes(0, sansLimite)) + "</span></legend>" +
-      '<p class="champ-erreur limite-personnes" id="erreur-personnes" role="status"></p>' +
-      Msg.personnesProposees(g, p).map(function (x) { return optionChoix("personnes", "checkbox", { valeur: x.id, titre: Gr.nomComplet(x) }, false); }).join("") +
-      "</fieldset></div>" +
+      zonePersonnes(g, p, sansLimite) +
       // Demande 007d : « Quand ? » est affiché d'emblée, sans repli. La grille des jours, puis la ligne des heures ;
       // « Autre date » et « Autre heure » montrent leur champ, vide, sous la grille et sous la ligne.
       '<fieldset class="choix quand" id="quand"><legend>' + esc(M("msgQuand")) + "</legend>" +
@@ -1655,14 +1746,24 @@
 
   // Le texte d'une notification, ligne par ligne : la première en gras, puis une ligne par phrase.
   // sorte : "question", "relance" ou "commentaire" ; prenom : qui envoie ; commentaire : le texte cité.
+  // Demande 009 : "idee", "info", "idee-retenue" et "idee-classee" s'y ajoutent ; la relance d'une info a sa propre fin.
   function lignesNotification(m, sorte, prenom, commentaire) {
     var g = G();
-    var premiere = M(sorte === "relance" ? "msgNotifRelanceEntete" : sorte === "commentaire" ? "msgNotifComEntete" : "msgNotifEntete", { groupe: g.nom, prenom: prenom });
+    var entetes = {
+      relance: "msgNotifRelanceEntete", commentaire: "msgNotifComEntete", idee: "msgNotifIdeeEntete", info: "msgNotifInfoEntete",
+      "idee-retenue": "msgNotifIdeeRetenueEntete", "idee-classee": "msgNotifIdeeClasseeEntete"
+    };
+    var premiere = M(entetes[sorte] || "msgNotifEntete", { groupe: g.nom, prenom: prenom });
     var lignes = [m.texte];
     if (sorte === "commentaire") {
       lignes.push(M("msgNotifComCitation", { commentaire: commentaire }), M("msgNotifComFin"));
       return { premiere: premiere, lignes: lignes };
     }
+    // L'explication n'apparaît que si elle a été saisie.
+    if (sorte === "idee") { return { premiere: premiere, lignes: lignes.concat(m.explication ? [m.explication] : [], [M("msgNotifIdeeFin")]) }; }
+    if (sorte === "info") { return { premiere: premiere, lignes: lignes.concat([M("msgNotifInfoFin")]) }; }
+    if (sorte === "idee-retenue" || sorte === "idee-classee") { return { premiere: premiere, lignes: lignes.concat([M("msgNotifIdeeDecisionFin")]) }; }
+    if (sorte === "relance" && Msg.sorte(m) === "info") { return { premiere: premiere, lignes: lignes.concat([M("msgNotifInfoRelanceFin")]) }; }
     var quand = quandRendezVous(m), avant = Msg.dateAvantLe(m);
     if (quand) { lignes.push(M("msgRendezVous", { quand: quand })); }
     if (sorte !== "relance" && avant) { lignes.push(M("msgNotifAvantLe", { date: fmtLong.format(avant) })); }
@@ -1674,15 +1775,19 @@
       n.lignes.map(function (l) { return "<br>" + esc(l); }).join("") + "</p>";
   }
 
+  // « Voir la question », « Voir l'idée », « Voir l'info ».
+  function cleVoirMessage(m) { var s = Msg.sorte(m); return s === "idee" ? "msgVoirLIdee" : s === "info" ? "msgVoirLInfo" : "msgVoirLaQuestion"; }
+
   function ecranEnvoi(m, relance) {
-    var g = G(), p = moi();
-    // La relance ne vise que ceux qui n'ont pas encore répondu ; elle porte le prénom de la personne qui relance.
-    var n = relance ? Msg.decompte(g, m).sans.length : Msg.destinataires(g, m).length;
+    var g = G(), p = moi(), sorte = Msg.sorte(m);
+    // La relance ne vise que ceux qui n'ont pas encore répondu (pour une info : ceux qui n'ont pas vu) ; elle porte le prénom
+    // de la personne qui relance.
+    var n = !relance ? Msg.destinataires(g, m).length : sorte === "info" ? Msg.decompteInfo(g, m).pasVu.length : Msg.decompte(g, m).sans.length;
     var titre = M(relance ? "msgRelanceTitre" : "msgEnvoiTitre");
     var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
-      '<p class="astuce" id="envoi-combien">' + esc(Mn(relance ? "msgRelanceTexte" : "msgEnvoiTexte", n)) + "</p>" +
-      blocNotification(lignesNotification(m, relance ? "relance" : "question", relance ? p.prenom : prenomAuteur(m)), "message-qui-partirait") +
-      '<a class="bouton bouton--principal" href="#message/' + esc(m.id) + '">' + esc(M("msgVoirLaQuestion")) + "</a>";
+      '<p class="astuce" id="envoi-combien">' + esc(Mn(!relance ? "msgEnvoiTexte" : sorte === "info" ? "msgInfoRelanceTexte" : "msgRelanceTexte", n)) + "</p>" +
+      blocNotification(lignesNotification(m, relance ? "relance" : sorte, relance ? p.prenom : prenomAuteur(m)), "message-qui-partirait") +
+      '<a class="bouton bouton--principal" href="#message/' + esc(m.id) + '">' + esc(M(cleVoirMessage(m))) + "</a>";
     return { titre: titre, onglet: "messages", html: html };
   }
 
@@ -1707,10 +1812,22 @@
     // Ni auteur ni destinataire : le message n'existe pas pour cette personne, adresse directe comprise.
     var m = Msg.trouverVisible(g, p, id);
     if (!m) { return messageIntrouvable(); }
+    var sorte = Msg.sorte(m);
     if (sous === "envoi") { return ecranEnvoi(m, false); }
-    if (sous === "relance") {
+    // Une idée ne se relance pas : son adresse de relance affiche l'idée.
+    if (sous === "relance" && sorte !== "idee") {
       var rel = Msg.relance(g, p, id);
       if (rel.ok) { return ecranEnvoi(m, true); }
+      // Info que tout le monde a vue, ou close : son auteur le lit, avec le lien vers l'info.
+      if (sorte === "info" && Msg.estAuteur(g, p, m) && (rel.raison === "tout-vu" || rel.raison === "close")) {
+        return {
+          titre: M("msgRelanceTitre"), onglet: "messages",
+          html: retour("#messages", M("msgRetourMessages")) + entete(g.nom, M("msgRelanceTitre")) +
+            '<p class="calme" id="relance-inutile">' +
+            esc(rel.raison === "close" ? M("msgInfoCloseLe", { date: fmtJourMois.format(Msg.dateCloture(m)) }) : M("msgInfoToutVu")) + "</p>" +
+            '<a class="lien-suite" href="#message/' + esc(m.id) + '">' + esc(M("msgVoirLInfo")) + "</a>"
+        };
+      }
       if (rel.raison === "tout-repondu") {
         return {
           titre: M("msgRelanceTitre"), onglet: "messages",
@@ -1720,7 +1837,9 @@
         };
       }
       // Personne qui ne peut pas relancer, ou question close : le message, sans relance.
-    } else if (sous) { return introuvable(); }
+    } else if (sous && sous !== "relance") { return introuvable(); }
+    if (sorte === "idee") { return ecranIdee(m); }
+    if (sorte === "info") { return ecranInfo(m); }
 
     var c = Msg.decompte(g, m);
     var close = Msg.estClose(m), destinataire = Msg.estDestinataire(g, p, m), gerable = Msg.peutGerer(g, p, m), maReponse = Msg.reponse(m, p);
@@ -1730,8 +1849,8 @@
     var ligne = function (texte) { return '<p class="sous-titre">' + texte + "</p>"; };
     var html = retour("#messages", M("msgRetourMessages")) +
       '<header class="entete entete--message">' +
-      // Place gardée au-dessus du titre pour l'étiquette de sorte (demande 009). Question close : l'étiquette « Close ».
-      (close ? '<p class="surtitre"><span class="etiquette">' + esc(M("msgClose")) + "</span></p>" : "") +
+      // Demande 009 : le mot de sorte, au-dessus du titre. Question close : la pastille « Close » à sa suite.
+      '<p class="surtitre"><span class="sorte-message">' + esc(motSorte(m)) + "</span>" + (close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "") + "</p>" +
       '<h1 tabindex="-1">' + esc(m.texte) + "</h1>" +
       ligne(esc(M("msgDeLe", { nom: nomAuteur(m), date: creation ? fmtJourMois.format(creation) : "" }))) +
       ligne(esc(M("msgA", { destinataires: aQui(m) }))) +
@@ -1783,6 +1902,246 @@
     if (Msg.marquerVus(g, p, m)) { sauver(); }
     html += sectionCommentaires(m, close);
     return { titre: m.texte, onglet: "messages", html: html, bande: gerable };
+  }
+
+  // ----- Demande 009, écran 2 : « Écrire un message », le choix entre les trois sortes -----
+
+  // Un visiteur répond, il n'écrit rien : par l'adresse directe des écrans 2, 3 et 4, la même phrase.
+  function refusEcrire(titre) {
+    return {
+      titre: titre, onglet: "messages",
+      html: retour("#messages", M("msgRetourMessages")) + entete(G().nom, titre) +
+        '<p class="calme" id="ecrire-refuse">' + esc(M("msgErreurVisiteurEcrire")) + "</p>" +
+        '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>"
+    };
+  }
+
+  // Trois lignes de même poids, dans cet ordre ; rien n'est choisi d'avance, aucun bouton.
+  function ecranChoixMessage() {
+    var g = G();
+    if (!Msg.peutLancer(g, moi())) { return refusEcrire(M("msgChoixTitre")); }
+    var lignes = [
+      ["question", "msgDemander", "msgChoixQuestionAide"],
+      ["idee", "msgLancerIdee", "msgChoixIdeeAide"],
+      ["info", "msgDonnerInfo", "msgChoixInfoAide"]
+    ];
+    var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, M("msgChoixTitre")) +
+      '<div class="section" id="choix-message">' + lignes.map(function (l) {
+        return '<a class="carte" id="choix-' + l[0] + '" href="#messages/nouveau/' + l[0] + '">' +
+          '<span class="carte-titre">' + esc(M(l[1])) + "</span>" +
+          '<span class="carte-quand">' + esc(M(l[2])) + "</span></a>";
+      }).join("") + "</div>";
+    return { titre: M("msgChoixTitre"), onglet: "messages", html: html };
+  }
+
+  // ----- Demande 009, écrans 3 et 4 : « Nouvelle idée », « Nouvelle info » -----
+
+  // N7 : une zone de saisie sur plusieurs lignes, 300 caractères au plus, avec son compteur dessous.
+  function champLignes(nom, libelle, aide, lignes) {
+    return '<div class="champ"><label for="champ-' + nom + '">' + esc(libelle) + "</label>" +
+      (aide ? '<p class="champ-aide" id="aide-' + nom + '">' + esc(aide) + "</p>" : "") +
+      '<textarea id="champ-' + nom + '" name="' + nom + '" rows="' + lignes + '" maxlength="' + Msg.LIMITES.info + '" autocapitalize="sentences"' +
+      ' aria-describedby="' + (aide ? "aide-" + nom + " " : "") + "compte-" + nom + " erreur-" + nom + '"></textarea>' +
+      '<p class="discret compte-champ" id="compte-' + nom + '">' + esc(M("msgCompteCaracteres300", { n: 0 })) + "</p>" +
+      '<p class="champ-erreur" id="erreur-' + nom + '"></p></div>';
+  }
+
+  // sorte : "idee" ou "info". Même « À qui ? » que la question, rien de coché d'avance. Le bouton est dans la page.
+  function ecranEcrire(sorte) {
+    var g = G(), p = moi(), idee = sorte === "idee";
+    var titre = M(idee ? "msgLancerIdee" : "msgDonnerInfo");
+    if (!Msg.peutLancer(g, p)) { return refusEcrire(titre); }
+    var sansLimite = Gr.peutGerer(g, p); // dix personnes au plus pour un membre seulement
+    var html = retour("#messages/nouveau", M("msgChoixTitre")) + entete(g.nom, titre) +
+      '<form class="form-ecrire" data-sorte="' + sorte + '" novalidate>' +
+      (idee
+        // L'idée : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
+        ? '<div class="champ"><label for="champ-idee">' + esc(M("msgChampIdee")) + "</label>" +
+          '<p class="champ-aide" id="aide-idee">' + esc(M("msgChampIdeeAide")) + "</p>" +
+          '<input id="champ-idee" name="idee" type="text" autocomplete="off" autocapitalize="sentences" maxlength="' + Msg.LIMITES.texte + '"' +
+          ' aria-describedby="aide-idee compte-idee erreur-idee">' +
+          '<p class="discret compte-champ" id="compte-idee">' + esc(M("msgCompteCaracteres", { n: 0 })) + "</p>" +
+          '<p class="champ-erreur" id="erreur-idee"></p></div>' +
+          // L'explication, facultative, repliée.
+          '<details class="repli" id="explication-idee"><summary><span class="repli-titres"><span class="repli-titre">' +
+          esc(M("msgIdeeExplication")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
+          champLignes("explication", M("msgChampExplication"), "", 4) + "</div></details>"
+        // L'info : un texte, sur plusieurs lignes, 300 caractères au plus.
+        : champLignes("info", M("msgChampInfo"), M("msgChampInfoAide"), 6)) +
+      choix("a-qui", M("msgChampAQui"), optionsAQui(g, p), [], "radio", "choix--liste") +
+      zonePersonnes(g, p, sansLimite) +
+      // Toujours visible, quel que soit le choix : le bureau (ou les organisateurs) reçoit aussi l'idée.
+      (idee ? '<p class="astuce" id="idee-aussi-gestion">' + esc(M("msgIdeeAussiGestion")) + "</p>" : "") +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M(idee ? "msgEnvoyerIdee" : "msgEnvoyerInfo")) + "</button>" +
+      "</form>";
+    return { titre: titre, onglet: "messages", html: html, champ: idee ? "idee" : "info" };
+  }
+
+  // Le compteur sous un champ (« 27 sur 80 », « 64 sur 300 ») ; à la limite, la phrase qui le dit. Un texte posé d'un coup est coupé.
+  function compterChamp(c) {
+    var court = c.name === "idee";
+    var max = court ? Msg.LIMITES.texte : Msg.LIMITES.info;
+    var phrase = M(court ? "msgErreurIdeeLongue" : "msgErreur300");
+    if (c.value.length > max) { c.value = c.value.slice(0, max); }
+    var n = c.value.length;
+    document.getElementById("compte-" + c.name).textContent = M(court ? "msgCompteCaracteres" : "msgCompteCaracteres300", { n: n });
+    var zone = document.getElementById("erreur-" + c.name);
+    if (n >= max) { zone.textContent = phrase; }
+    else if (zone.textContent === phrase) { zone.textContent = ""; }
+  }
+
+  function envoyerEcrit(form) {
+    var g = G(), el = form.elements, idee = form.getAttribute("data-sorte") === "idee";
+    var nom = idee ? "idee" : "info";
+    var saisie = {
+      texte: el[nom].value, explication: idee ? el.explication.value : "", a: valeurRadio(form, "a-qui"),
+      personnes: Array.prototype.map.call(form.querySelectorAll('input[name="personnes"]:checked'), function (x) { return x.value; })
+    };
+    var r = idee ? Msg.lancerIdee(g, moi(), saisie) : Msg.donnerInfo(g, moi(), saisie);
+    // Visiteur, ou personne retirée entre-temps : l'écran se redessine et le dit.
+    if (r.raison === "droits" || r.raison === "introuvable") { rendre({ focus: true }); return; }
+    var e = r.erreurs || {};
+    if (e.explication) { form.querySelector("#explication-idee").open = true; }
+    var erreurs = { explication: e.explication, "a-qui": e.a, personnes: e.personnes };
+    erreurs[nom] = e.texte;
+    var fautes = montrerErreurs(form, [nom, "explication", "a-qui", "personnes"], erreurs, {
+      "idee:vide": M("msgErreurIdeeVide"), "idee:long": M("msgErreurIdeeLongue"),
+      "info:vide": M("msgErreurInfoVide"), "info:long": M("msgErreur300"), explication: M("msgErreur300"),
+      "a-qui": M("msgErreurAQuiEnvoyer"), "personnes:aucune": M("msgErreurPersonneAucune"), "personnes:trop": M("msgErreurDixPersonnes")
+    });
+    if (fautes) {
+      // La phrase de la limite des dix personnes n'est pas une erreur d'envoi : elle reste affichée.
+      if (!e.personnes) { compterPersonnes(form); }
+      amenerErreurALEcran(form);
+      return;
+    }
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    // Rien n'est envoyé : l'écran suivant montre le message qui partirait.
+    aller("#message/" + r.message.id + "/envoi");
+  }
+
+  // ----- Demande 009, écran 6 : le message, une idée -----
+
+  function ecranIdee(m) {
+    var g = G(), p = moi();
+    var c = Msg.decompteIdee(g, m);
+    var destinataire = Msg.estDestinataire(g, p, m), dit = Msg.aDitBonneIdee(m, p), decide = Msg.peutDecider(g, p, m);
+    var evenement = Msg.evenementDeLIdee(g, m);
+    var etat = m.etat === "retenue" ? ' <span class="etiquette etiquette--ok">' + esc(M("msgIdeeRetenue")) + "</span>"
+      : m.etat === "classee" ? ' <span class="etiquette">' + esc(M("msgIdeeClassee")) + "</span>" : "";
+    var html = retour("#messages", M("msgRetourMessages")) +
+      enteteMessage(m, etat, "", m.explication ? '<p class="message-texte" id="idee-explication">' + esc(m.explication) + "</p>" : "") + "</header>" +
+      bandeauMessage() +
+      // Association : l'événement né de l'idée, sous son nom d'aujourd'hui. La phrase entière est le lien.
+      (evenement ? '<p><a class="lien-suite" id="idee-evenement" href="#evenement/' + esc(evenement.id) + '">' + esc(M("msgIdeeDevenueEvenement", { nom: evenement.titre })) + "</a></p>" : "");
+
+    if (m.etat) {
+      // Retenue ou classée : plus de bouton « Bonne idée » ; le compteur, les listes et les commentaires restent lisibles.
+      html += '<p class="astuce" id="idee-decidee">' +
+        esc(M(m.etat === "retenue" ? "msgIdeeRetenueLe" : "msgIdeeClasseeLe", { date: fmtJourMois.format(Msg.dateCloture(m)) })) + "</p>";
+      // Association, bureau, idée retenue qui n'est pas encore devenue un événement : le seul bouton principal de l'écran.
+      if (Msg.peutEnFaireUnEvenement(g, p, m)) {
+        html += '<a class="bouton bouton--principal" id="en-faire-evenement" href="#evenement/nouveau/idee/' + esc(m.id) + '">' + esc(M("msgIdeeEnEvenement")) + "</a>";
+      }
+    } else if (destinataire) {
+      // Un geste pour dire « Bonne idée », un geste pour la retirer ; une seule fois par personne.
+      html += '<section class="ma-reponse" id="ma-reponse">' + boutonReponse("msgBonneIdee", "data-bonne-idee", m.id, dit) +
+        (dit
+          ? '<p class="message-ok" role="status">' + esc(M("msgIdeeVotreReponse")) + "</p>" +
+            '<button type="button" class="lien-bouton" data-retirer-idee="' + esc(m.id) + '">' + esc(M("msgIdeeRetirer")) + "</button>"
+          : "") + "</section>";
+    }
+
+    // Le compteur en toutes lettres, puis les deux listes repliées.
+    html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' +
+      esc(c.bonneIdee.length ? M("msgIdeeCompteur", { n: c.bonneIdee.length }) : M("msgIdeeCompteurZero")) + "</span></h2>" +
+      listeNoms("bonne-idee", M("msgBonneIdee"), c.bonneIdee, M("msgIdeeCompteurZero")) +
+      listeNoms("destinataires", M("msgListeDestinataires"), c.destinataires, "") + "</section>";
+
+    // Le bureau ou les organisateurs : un toucher, sans confirmation, car on peut changer d'avis. Jamais côte à côte.
+    if (decide) {
+      html += '<div class="section" id="gestion-idee">' +
+        (m.etat !== "retenue" ? '<button type="button" class="bouton bouton--secondaire" data-decider="retenue" data-message="' + esc(m.id) + '">' + esc(M("msgIdeeRetenir")) + "</button>" : "") +
+        (m.etat !== "classee" ? '<button type="button" class="bouton bouton--secondaire" data-decider="classee" data-message="' + esc(m.id) + '">' + esc(M("msgIdeeClasser")) + "</button>" : "") +
+        "</div>";
+    }
+    if (Msg.marquerVus(g, p, m)) { sauver(); }
+    html += sectionCommentaires(m, !!m.etat);
+    return { titre: m.texte, onglet: "messages", html: html };
+  }
+
+  // « Bonne idée », ou « Retirer ma réponse » : sans changer d'écran.
+  function direBonneIdee(id, dit) {
+    var r = Msg.direBonneIdee(G(), moi(), id, dit);
+    if (r.ok) { sauver(); }
+    rendre({ garderDefilement: true, garderReplis: true });
+    var suite = document.querySelector("#ma-reponse .reponse-seule");
+    if (suite) { suite.focus({ preventScroll: true }); }
+  }
+
+  // « Retenir l'idée », « Classer l'idée » : un toucher. L'auteur est prévenu (voir Démo › « Voir ce qui serait envoyé »).
+  function deciderIdee(bouton) {
+    var r = Msg.deciderIdee(G(), moi(), bouton.getAttribute("data-message"), bouton.getAttribute("data-decider"));
+    if (r.ok) { sauver(); }
+    rendre({ focus: true });
+  }
+
+  // ----- Demande 009, écran 7 : le message, une info -----
+
+  function ecranInfo(m) {
+    var g = G(), p = moi();
+    var d = Msg.decompteInfo(g, m), close = Msg.estClose(m);
+    var auteur = Msg.estAuteur(g, p, m), destinataire = Msg.estDestinataire(g, p, m), vu = Msg.aVu(m, p);
+    // Le texte de l'info est le titre de la page : elle n'en a pas d'autre.
+    var html = retour("#messages", M("msgRetourMessages")) +
+      enteteMessage(m, close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "", "message-texte message-texte--titre") + "</header>" +
+      bandeauMessage();
+
+    // Seul l'auteur lit les noms (décision du 2026-11-19) : le compteur et les deux listes, tout de suite sous le texte, sans dérouler ni toucher.
+    if (Msg.peutLireQuiAVu(g, p, m)) {
+      var total = d.destinataires.length;
+      html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteurInfo(d)) + "</span></h2>" +
+        (total ? '<div class="barre" aria-hidden="true"><span style="width:' + Math.round(100 * d.vu.length / total) + '%"></span></div>' : "") +
+        listeNoms("vu", M("msgInfoListeVu"), d.vu, M("msgInfoListeVuVide")) +
+        listeNoms("pas-vu", M("msgInfoListePasVu"), d.pasVu, M("msgInfoToutVu")) + "</section>";
+    }
+    if (close) {
+      // Close : plus de bouton « Vu », plus de relance ; le texte et les listes restent lisibles.
+      html += '<p class="astuce" id="info-close">' + esc(M("msgInfoCloseLe", { date: fmtJourMois.format(Msg.dateCloture(m)) })) + "</p>";
+    } else if (destinataire) {
+      // « Vu » est un geste voulu : ouvrir l'info ne suffit pas. Après le toucher, le bouton laisse la place à la phrase.
+      html += '<section class="ma-reponse" id="ma-reponse">' +
+        (vu ? '<p class="message-ok" role="status" tabindex="-1">' + esc(M("msgInfoVotreReponse")) + "</p>" : boutonReponse("msgVu", "data-vu", m.id, null)) +
+        "</section>";
+    }
+    // Les destinataires lisent le compteur seul (critère 5 de la situation) : aucun nom, aucune liste. Seul l'auteur lit les noms.
+    if (!auteur) {
+      html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteurInfo(d)) + "</span></h2></section>";
+    }
+    // L'auteur : « Relancer ceux qui n'ont pas vu » tant qu'il en reste, seul bouton principal ; « Clore l'info », après confirmation.
+    if (auteur && !close) {
+      html += '<div class="section" id="gestion-info">' +
+        (d.pasVu.length ? '<a class="bouton bouton--principal" id="relancer" data-relancer="' + esc(m.id) + '" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgInfoRelancer")) + "</a>" : "") +
+        '<button type="button" class="bouton bouton--secondaire" data-clore="' + esc(m.id) + '">' + esc(M("msgInfoClore")) + "</button></div>";
+    }
+    if (Msg.marquerVus(g, p, m)) { sauver(); }
+    html += sectionCommentaires(m, close);
+    return { titre: debutTexte(m.texte), onglet: "messages", html: html };
+  }
+
+  // « Vu », en un geste : depuis l'écran de l'info comme depuis le bloc « À répondre » de l'accueil. Sans retour.
+  function marquerVu(id) {
+    var accueil = adresseActuelle().split("/")[0] === "accueil";
+    var r = Msg.marquerVu(G(), moi(), id);
+    if (r.ok) {
+      sauver();
+      if (accueil) { reponseAccueil = { id: id, reponse: "vu" }; }
+    }
+    rendre({ garderDefilement: true, garderReplis: true });
+    var suite = document.querySelector(accueil ? "#bloc-repondre .message-ok" : "#ma-reponse .message-ok");
+    if (suite) { suite.focus({ preventScroll: true }); }
   }
 
   // ----- Demande 008 : les commentaires, sous le message -----
@@ -1952,7 +2311,7 @@
     var g = G(), p = moi();
     var m = Msg.trouverVisible(g, p, id);
     if (!m || !Msg.peutGerer(g, p, m) || Msg.estClose(m)) { rendre({ focus: true }); return; }
-    if (!window.confirm(M("msgConfirmerClore"))) { return; }
+    if (!window.confirm(M(Msg.sorte(m) === "info" ? "msgInfoConfirmerClore" : "msgConfirmerClore"))) { return; }
     if (Msg.clore(g, p, id).ok) { sauver(); }
     rendre({ focus: true });
   }
@@ -1979,12 +2338,22 @@
       '<h2 class="carte-etiquette" id="titre-repondre">' + esc(M("msgListeARepondre")) +
       (liste.length ? ' <span class="compte" id="nombre-repondre">' + liste.length + "</span>" : "") + "</h2>";
     var faite = reponseAccueil ? Msg.trouverVisible(g, p, reponseAccueil.id) : null;
-    if (faite) {
+    if (faite && reponseAccueil.reponse === "vu") {
+      // Demande 009 : « Vu » ne se retire pas ; la phrase le dit, et le bloc passe au message suivant.
+      html += '<p class="message-ok" role="status" tabindex="-1">' + esc(M("msgInfoVotreReponse")) + "</p>";
+    } else if (faite) {
       html += '<p class="message-ok" role="status" tabindex="-1">' +
         esc(M("msgReponseEnregistree", { reponse: motReponse(reponseAccueil.reponse), question: faite.texte })) +
         ' <a href="#message/' + esc(faite.id) + '">' + esc(M("msgChangerDAvis")) + "</a></p>";
     }
-    if (m) {
+    if (m && Msg.sorte(m) !== "question") {
+      // Demande 009 : une info montre son texte et le bouton « Vu », seul bouton principal de l'accueil à ce moment-là ;
+      // une idée montre son titre, sans bouton : un toucher ouvre le message.
+      html += '<span class="carte-etiquette sorte-message">' + esc(motSorte(m)) + "</span>" +
+        '<a class="carte-titre" id="question-a-repondre" href="#message/' + esc(m.id) + '">' + esc(titreMessage(m)) + "</a>" +
+        '<span class="carte-quand">' + esc(deQui(m)) + "</span>" +
+        (Msg.sorte(m) === "info" ? boutonReponse("msgVu", "data-vu", m.id, null) : "");
+    } else if (m) {
       html += '<a class="carte-titre" id="question-a-repondre" href="#message/' + esc(m.id) + '">' + esc(m.texte) + "</a>" +
         '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
         paireReponse(m.id, "");
@@ -2375,7 +2744,32 @@
       '<p class="champ-erreur">' + esc(M("msgErreurDixPersonnes")) + "</p></fieldset>" +
       '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("msgReglageToutLeGroupe")) + "</p></div>" +
       '<span class="statut" aria-pressed="true" style="display:inline-flex;align-items:center;justify-content:center">' + esc(M("msgReglageAllume")) + "</span></li></ul>" +
-      exemplesCommentaires();
+      exemplesCommentaires() + exemplesIdeeInfo();
+  }
+
+  // Les composants de la demande 009, tous inertes : le bouton de réponse seul, avant et après (N1) ; une ligne de liste avec
+  // son mot de sorte, « Retenue » et « Classée » ; le texte saisi sur plusieurs lignes et sa variante de titre (N11).
+  function exemplesIdeeInfo() {
+    var C = M("charteIdeeInfo");
+    var ligne = function (titre, cleEtat, ok, passee) {
+      return '<a class="carte' + (passee ? " carte--passee" : "") + '" href="#charte">' +
+        '<span class="carte-etiquette sorte-message">' + esc(M("msgSorteIdee")) + "</span>" +
+        '<span class="carte-titre">' + esc(titre) + "</span>" +
+        '<span class="carte-quand">' + esc(M("msgDe", { prenom: C.de })) + "</span>" +
+        '<span class="carte-infos">' + esc(M("msgIdeeCompteur", { n: C.compte })) +
+        ' <span class="etiquette' + (ok ? " etiquette--ok" : "") + '">' + esc(M(cleEtat)) + "</span></span></a>";
+    };
+    return '<h3 id="charte-idee-info">' + esc(C.titre) + "</h3>" +
+      '<p class="discret">' + esc(C.avant) + "</p>" +
+      '<div id="exemple-reponse-seule">' + boutonReponse("msgBonneIdee", "", "", false, true) + "</div>" +
+      '<p class="discret">' + esc(C.apres) + "</p>" +
+      '<div id="exemple-reponse-seule-choisie">' + boutonReponse("msgBonneIdee", "", "", true, true) +
+      '<p class="message-ok">' + esc(M("msgIdeeVotreReponse")) + "</p></div>" +
+      '<p class="discret">' + esc(C.ligne) + "</p>" +
+      '<div id="exemple-ligne-sorte">' + ligne(C.idee, "msgIdeeRetenue", true, false) + ligne(C.ideeClassee, "msgIdeeClassee", false, true) + "</div>" +
+      '<p class="discret">' + esc(C.texte) + "</p>" +
+      '<div id="exemple-message-texte"><p class="message-texte">' + esc(C.explication) + "</p>" +
+      '<p class="message-texte message-texte--titre">' + esc(C.info) + "</p></div>";
   }
 
   // Les composants de la demande 008, montrés une fois chacun, tous inertes : un commentaire avec son lien de suppression (N8),
@@ -2466,7 +2860,12 @@
     var g = G();
     var m = Msg.trouver(g, e.messageId);
     var personnes = Gr.personnesTriees(g).filter(function (x) { return (e.a || []).indexOf(x.id) >= 0; });
-    var sorte = M(e.sorte === "relance" ? "msgDemoSorteRelance" : e.sorte === "commentaire" ? "msgDemoSorteCommentaire" : "msgDemoSorteQuestion");
+    // Demande 009 : l'envoi d'une idée ou d'une info, une idée retenue ou classée (vers son auteur seul).
+    var sortes = {
+      relance: "msgDemoSorteRelance", commentaire: "msgDemoSorteCommentaire", idee: "msgDemoSorteIdee", info: "msgDemoSorteInfo",
+      "idee-retenue": "msgDemoSorteIdeeRetenue", "idee-classee": "msgDemoSorteIdeeClassee"
+    };
+    var sorte = M(sortes[e.sorte] || "msgDemoSorteQuestion");
     var a = personnes.length === 1
       ? '<p class="envoi-a">' + esc(M("msgA", { destinataires: Gr.nomComplet(personnes[0]) })) + "</p>"
       : '<details class="repli envoi-a"><summary><span class="repli-titres"><span class="repli-titre">' +
@@ -2652,13 +3051,15 @@
   }
 
   // sorte : "text" (par défaut), "date" ou "time" (saisie de date ou d'heure du téléphone).
-  function champ(nom, libelle, attributs, aide, sorte, erreur) {
+  // note : une phrase en .discret sous le champ, qui n'est pas une erreur (demande 009).
+  function champ(nom, libelle, attributs, aide, sorte, erreur, note) {
     var idAide = aide ? "aide-" + nom : "";
     return '<div class="champ">' +
       '<label for="champ-' + nom + '">' + esc(libelle) + "</label>" +
       (aide ? '<p class="champ-aide" id="' + idAide + '">' + esc(aide) + "</p>" : "") +
       '<input id="champ-' + nom + '" name="' + nom + '" type="' + (sorte || "text") + '" ' + attributs +
-      ' aria-describedby="' + (idAide ? idAide + " " : "") + "erreur-" + nom + '">' +
+      ' aria-describedby="' + (idAide ? idAide + " " : "") + (note ? "note-" + nom + " " : "") + "erreur-" + nom + '">' +
+      (note ? '<p class="discret champ-note" id="note-' + nom + '">' + esc(note) + "</p>" : "") +
       '<p class="champ-erreur" id="erreur-' + nom + '">' + esc(erreur || "") + "</p></div>";
   }
 
@@ -2841,12 +3242,17 @@
       // Demande 007c : la liste des créneaux en manque, pour le bureau seul ; pour les autres, la page n'existe pas.
       case "creneaux-manquants": r = gere() && !morceaux[1] ? ecranCreneauxManquants() : introuvable(); break;
       case "messages":
-        r = morceaux[1] === "nouveau" && morceaux[2] === "question" ? ecranNouvelleQuestion(morceaux[3]) : morceaux[1] ? introuvable() : ecranMessages();
+        // Demande 009 : « Écrire un message » (le choix), puis l'un des trois formulaires.
+        if (morceaux[1] === "nouveau") {
+          r = !morceaux[2] ? ecranChoixMessage() : morceaux[2] === "question" ? ecranNouvelleQuestion(morceaux[3]) :
+            (morceaux[2] === "idee" || morceaux[2] === "info") && !morceaux[3] ? ecranEcrire(morceaux[2]) : introuvable();
+        } else { r = morceaux[1] ? introuvable() : ecranMessages(); }
         break;
       case "message": r = ecranMessage(morceaux[1], morceaux[2]); break;
       case "calendrier": r = estAsso() ? ecranEvenements() : ecranCalendrier(); break;
       case "evenements": r = ecranEvenements(); break;
-      case "evenement": r = ecranEvenement(morceaux[1], morceaux[2], morceaux[3]); break;
+      // Une adresse d'événement a quatre morceaux au plus : au-delà (anciens écrans retirés de la demande 009), la page n'existe pas.
+      case "evenement": r = morceaux.length > 4 ? introuvable() : ecranEvenement(morceaux[1], morceaux[2], morceaux[3]); break;
       case "association": case "groupe": r = ecranGroupe(); break;
       case "personnes": r = ecranPersonnes(); break;
       case "personne": r = ecranPersonne(morceaux[1]); break;
@@ -3022,6 +3428,11 @@
     if (!cible) { return; }
     if (cible.hasAttribute("data-reglage")) { changerReglage(); return; }
     if (cible.hasAttribute("data-reponse")) { repondreQuestion(cible); return; }
+    // Demande 009 : « Bonne idée » (le bouton déjà coché ne fait rien : on retire sa réponse par le lien), « Vu », retenir, classer.
+    if (cible.hasAttribute("data-bonne-idee")) { if (cible.getAttribute("aria-pressed") !== "true") { direBonneIdee(cible.getAttribute("data-bonne-idee"), true); } return; }
+    if (cible.hasAttribute("data-retirer-idee")) { direBonneIdee(cible.getAttribute("data-retirer-idee"), false); return; }
+    if (cible.hasAttribute("data-vu")) { marquerVu(cible.getAttribute("data-vu")); return; }
+    if (cible.hasAttribute("data-decider")) { deciderIdee(cible); return; }
     if (cible.hasAttribute("data-clore")) { cloreQuestion(cible.getAttribute("data-clore")); return; }
     if (cible.hasAttribute("data-agenda-question")) { ajouterAgendaQuestion(cible.getAttribute("data-agenda-question")); return; }
     if (cible.hasAttribute("data-voir-suite")) { voirSuite(cible); return; }
@@ -3074,6 +3485,7 @@
     effacerErreur(c);
     // La phrase des 80 caractères n'est pas une erreur d'envoi : elle reste écrite tant que la limite est atteinte.
     if (c.id === "champ-question") { compterCaracteres(c); }
+    if (c.form && c.form.classList.contains("form-ecrire") && (c.name === "idee" || c.name === "explication" || c.name === "info")) { compterChamp(c); }
     if (c.id === "demo-groupe") {
       etat.groupeActif = c.value;
       sauver();
@@ -3096,6 +3508,10 @@
     } else if (c.form && c.form.classList.contains("form-question")) {
       if (c.name === "a-qui" || c.name === "jour" || c.name === "heure") { montrerZonesQuestion(c.form); }
       if (c.name === "personnes") { compterPersonnes(c.form); }
+    } else if (c.form && c.form.classList.contains("form-ecrire")) {
+      // Demande 009 : le même « À qui ? » sur « Nouvelle idée » et « Nouvelle info ».
+      if (c.name === "a-qui") { c.form.querySelector("#zone-personnes").hidden = valeurRadio(c.form, "a-qui") !== "personnes"; }
+      if (c.name === "personnes") { compterPersonnes(c.form); }
     }
   });
 
@@ -3104,6 +3520,7 @@
     effacerErreur(ev.target);
     if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
     if (ev.target.id === "champ-commentaire") { compterCommentaire(ev.target); }
+    if (ev.target.form && ev.target.form.classList.contains("form-ecrire") && ["idee", "explication", "info"].indexOf(ev.target.name) >= 0) { compterChamp(ev.target); }
     if ((ev.target.name === "autre-date" || ev.target.name === "autre-heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
       effacerErreursRendezVous(ev.target.form, ev.target.name);
     }
@@ -3114,7 +3531,7 @@
     var envois = {
       formulaire: envoyerFormulaire, "form-personne": envoyerPersonne, "form-equipe": envoyerEquipe, "form-groupe": envoyerGroupe,
       "form-evenement": envoyerEvenement, "form-action": envoyerAction, "form-creneau": envoyerCreneau,
-      "form-question": envoyerQuestion, "form-commentaire": publierCommentaire
+      "form-question": envoyerQuestion, "form-commentaire": publierCommentaire, "form-ecrire": envoyerEcrit
     };
     Object.keys(envois).forEach(function (classe) {
       if (f.classList.contains(classe)) { ev.preventDefault(); envois[classe](f); }

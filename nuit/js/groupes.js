@@ -293,7 +293,8 @@
       ? estNombre(e.dansJours)
       : estTexte(e.date) && DATE_VALIDE.test(e.date) && !isNaN(new Date(e.date + "T00:00:00").getTime()) && nombreOuRien(e.dansJours);
     // debut, fin : horaires d'un événement créé à la main (demande 006), "HH:MM" ou vide.
-    return estId(e.id) && estTexte(e.titre) && estTexte(e.lieu) && quand && heureOuRien(e.debut) && heureOuRien(e.fin) &&
+    // ideeId : l'idée d'où vient l'événement (demande 009).
+    return estId(e.id) && estTexte(e.titre) && estTexte(e.lieu) && quand && heureOuRien(e.debut) && heureOuRien(e.fin) && idOuRien(e.ideeId) &&
       liste(e.actions, actionValide) && liste(e.creneaux, creneauValide) &&
       (e.bilan === undefined || e.bilan === null || bilanValide(e.bilan));
   }
@@ -301,15 +302,22 @@
   // Une question (demande 007) : ses listes de personnes sont des identifiants, ses dates de vraies dates.
   var SORTES_A = ["tous", "gestion", "equipe", "personnes"];
   function listeIds(v) { return Array.isArray(v) && v.every(estId); }
+  // Demande 009 : trois sortes de messages, jamais une quatrième. Une idée garde son explication, ses « Bonne idée », son état
+  // et le jour où il a été décidé ; une info, les personnes qui ont touché « Vu ».
+  var SORTES_MESSAGE = ["question", "idee", "info"];
+  var ETATS_IDEE = ["retenue", "classee"];
+  function listeIdsOuRien(v) { return v === undefined || v === null || listeIds(v); }
   function messageValide(m) {
-    return estId(m.id) && m.sorte === "question" && estTexte(m.texte) && estId(m.auteurId) && texteOuRien(m.auteur) &&
+    return estId(m.id) && SORTES_MESSAGE.indexOf(m.sorte) >= 0 && estTexte(m.texte) && estId(m.auteurId) && texteOuRien(m.auteur) &&
+      texteOuRien(m.explication) && listeIdsOuRien(m.bonneIdee) && listeIdsOuRien(m.vu) &&
+      (m.etat === undefined || m.etat === null || ETATS_IDEE.indexOf(m.etat) >= 0) && dateOuRien(m.decideLe) && nombreOuRien(m.decideDansJours) &&
       dateOuRien(m.creeLe) && nombreOuRien(m.creeDansJours) && dateOuRien(m.closeLe) && nombreOuRien(m.closeDansJours) &&
       dateOuRien(m.jour) && nombreOuRien(m.jourDansJours) && nombreOuRien(m.jourSemaine) && heureOuRien(m.heure) &&
       dateOuRien(m.avantLe) && nombreOuRien(m.avantLeDansJours) && nombreOuRien(m.avantLeJoursAvant) &&
       (m.attendus === undefined || m.attendus === null || (estNombre(m.attendus) && m.attendus >= 1 && Math.floor(m.attendus) === m.attendus)) &&
       idOuRien(m.evenementId) &&
       !!m.a && typeof m.a === "object" && SORTES_A.indexOf(m.a.sorte) >= 0 && idOuRien(m.a.equipeId) && texteOuRien(m.a.nom) &&
-      listeIds(m.destinataires) && listeIds(m.oui) && listeIds(m.non) &&
+      listeIds(m.destinataires) && (m.sorte === "question" ? listeIds(m.oui) && listeIds(m.non) : listeIdsOuRien(m.oui) && listeIdsOuRien(m.non)) &&
       // Commentaires (demande 008) : un texte, un numéro d'ordre, une date et une heure ; « vus » : un numéro par personne.
       (m.commentaires === undefined || m.commentaires === null || liste(m.commentaires, commentaireValide)) &&
       nombreOuRien(m.dernierCommentaire) && vusValides(m.vus);
@@ -323,7 +331,7 @@
       (typeof v === "object" && !Array.isArray(v) && Object.keys(v).every(function (k) { return estId(k) && estNombre(v[k]); }));
   }
   // Ce qui serait envoyé (demande 008) : des identifiants, une date, une heure, et le texte du commentaire cité.
-  var SORTES_ENVOI = ["question", "relance", "commentaire"];
+  var SORTES_ENVOI = ["question", "relance", "commentaire", "idee", "info", "idee-retenue", "idee-classee"];
   function envoiValide(e) {
     return estId(e.id) && SORTES_ENVOI.indexOf(e.sorte) >= 0 && estId(e.messageId) && dateOuRien(e.le) && nombreOuRien(e.dansJours) &&
       heureOuRien(e.heure) && texteOuRien(e.de) && listeIds(e.a) && idOuRien(e.commentaireId) && texteOuRien(e.commentaire) &&

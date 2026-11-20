@@ -21,6 +21,9 @@
   Demande 008 : les mots des commentaires (msgCom…), de leur notification (msgNotifCom…), de la pastille du menu
   (msgPastille…) et de l'écran Démo « Ce qui serait envoyé » (msgDemo…) sont dans la liste commune ;
   « Prochains rendez-vous » (msgAccueilRendezVous) est dans la liste du groupe simple.
+  Demande 009 : les mots de l'idée et de l'info sont dans la liste commune ; ceux qui nomment le bureau ou les organisateurs
+  (msgIdeeAussiGestion, msgAEtGestion), les exemples (msgChampIdeeAide, msgChampInfoAide) et tout ce qui touche à l'événement
+  né d'une idée (msgIdeeEnEvenement, msgIdeeDevenueEvenement, msgEvenementVientIdee…) sont dans la liste de chaque sorte de groupe.
 */
 var MOTS = {
   commun: {
@@ -191,7 +194,8 @@ var MOTS = {
     // Accueil : le bloc « À répondre »
     msgReponseEnregistree: "Vous avez répondu {reponse} à « {question} ».",
     msgChangerDAvis: "Changer d'avis",
-    msgAccueilAutres: ["et {n} autre question", "et {n} autres questions"],
+    // Demande 009 : le bloc peut montrer une idée ou une info ; le texte change, pas la clé.
+    msgAccueilAutres: ["et {n} autre message", "et {n} autres messages"],
 
     // Calendrier
     msgVoirCalendrier: "Voir le calendrier",
@@ -242,6 +246,93 @@ var MOTS = {
     msgNotifComEntete: "{groupe} · {prenom} a commenté votre message :",
     msgNotifComCitation: "« {commentaire} »",
     msgNotifComFin: "Lisez les commentaires dans MonAsso.",
+
+    // ---------- Demande 009 : lancer une idée, donner une info ----------
+    // Le choix « Écrire un message » : trois entrées, pas une de plus.
+    msgEcrire: "Écrire un message",
+    msgChoixTitre: "Écrire un message",
+    msgLancerIdee: "Lancer une idée",
+    msgDonnerInfo: "Donner une info",
+    msgChoixQuestionAide: "Chacun répond Oui ou Non.",
+    msgChoixIdeeAide: "Chacun peut dire Bonne idée.",
+    msgChoixInfoAide: "Chacun répond Vu.",
+    // Le mot de sorte, écrit sur chaque ligne et au-dessus du titre du message
+    msgSorteQuestion: "Question",
+    msgSorteIdee: "Idée",
+    msgSorteInfo: "Info",
+    // Nouvelle idée
+    msgChampIdee: "Votre idée",
+    msgIdeeExplication: "Ajouter une explication",
+    msgChampExplication: "Explication (facultatif)",
+    msgEnvoyerIdee: "Envoyer l'idée",
+    msgVoirLIdee: "Voir l'idée",
+    msgNotifIdeeEntete: "{groupe} · {prenom} lance une idée :",
+    msgNotifIdeeFin: "Dites « Bonne idée » dans MonAsso.",
+    // L'idée
+    msgBonneIdee: "Bonne idée",
+    msgIdeeVotreReponse: "Vous avez dit Bonne idée.",
+    msgIdeeRetirer: "Retirer ma réponse",
+    msgIdeeCompteur: "{n} Bonne idée",
+    msgIdeeCompteurZero: "Personne n'a encore dit Bonne idée.",
+    msgListeDestinataires: "Destinataires",
+    msgIdeeRetenir: "Retenir l'idée",
+    msgIdeeClasser: "Classer l'idée",
+    msgIdeeRetenue: "Retenue",
+    msgIdeeClassee: "Classée",
+    msgIdeeRetenueLe: "Idée retenue le {date}.",
+    msgIdeeClasseeLe: "Idée classée le {date}. Elle reste lisible dans « Terminés ».",
+    msgNotifIdeeRetenueEntete: "{groupe} · {prenom} a retenu votre idée :",
+    msgNotifIdeeClasseeEntete: "{groupe} · {prenom} a classé votre idée :",
+    msgNotifIdeeDecisionFin: "Retrouvez-la dans « Terminés », dans MonAsso.",
+    msgDemoSorteIdee: "Nouvelle idée",
+    msgDemoSorteInfo: "Nouvelle info",
+    msgDemoSorteIdeeRetenue: "Idée retenue",
+    msgDemoSorteIdeeClassee: "Idée classée",
+    // Nouvelle info
+    msgChampInfo: "Votre info",
+    msgEnvoyerInfo: "Envoyer l'info",
+    msgVoirLInfo: "Voir l'info",
+    msgNotifInfoEntete: "{groupe} · Info de {prenom} :",
+    msgNotifInfoFin: "Touchez « Vu » dans MonAsso.",
+    msgNotifInfoRelanceFin: "Vous n'avez pas encore vu cette info. Touchez « Vu » dans MonAsso.",
+    // L'info
+    msgVu: "Vu",
+    msgInfoVotreReponse: "Vous avez vu cette info.",
+    msgInfoCompteur: ["{n} sur {total} a vu", "{n} sur {total} ont vu"],
+    msgInfoCompteurZero: "Personne n'a encore vu, sur {total}.",
+    msgInfoToutVu: "Tout le monde a vu.",
+    msgInfoListeVu: "Ont vu",
+    msgInfoListePasVu: "N'ont pas encore vu",
+    msgInfoListeVuVide: "Personne n'a encore vu.",
+    msgInfoRelancer: "Relancer ceux qui n'ont pas vu",
+    msgInfoRelanceTexte: [
+      "Ce prototype n'envoie rien. {n} personne n'a pas encore vu cette info et recevrait ce message :",
+      "Ce prototype n'envoie rien. {n} personnes n'ont pas encore vu cette info et recevraient ce message :"
+    ],
+    msgInfoClore: "Clore l'info",
+    msgInfoConfirmerClore: "Clore l'info ? Elle passera dans « Terminés » et ne sera plus relancée.",
+    msgInfoCloseLe: "Info close le {date}.",
+    // Erreurs des écrans « Nouvelle idée » et « Nouvelle info »
+    msgErreurIdeeVide: "Écrivez votre idée.",
+    msgErreurIdeeLongue: "L'idée tient en 80 caractères au plus.",
+    msgErreur300: "300 caractères au plus.",
+    msgErreurInfoVide: "Écrivez votre info.",
+    msgErreurAQuiEnvoyer: "Choisissez à qui l'envoyer.",
+
+    // Page Charte : les exemples de la demande 009 (tous inertes)
+    charteIdeeInfo: {
+      titre: "Idée et info : le bouton de réponse seul, le texte sur plusieurs lignes",
+      avant: "Avant la réponse",
+      apres: "Après « Bonne idée »",
+      ligne: "Une ligne de liste : le mot de sorte, puis l'état",
+      idee: "Un goûter après le match ?",
+      ideeClassee: "Changer de terrain en hiver ?",
+      de: "Lucie",
+      compte: 3,
+      texte: "Un texte saisi sur plusieurs lignes",
+      explication: "On partage les frais.\nChacun amène un gâteau ou une boisson.",
+      info: "Jeudi, on joue sur le terrain du haut.\nRendez-vous à 19\u00A0h\u00A045 devant le portail."
+    },
 
     // Page Charte : les exemples de la demande 008 (zone de saisie, lien sous un commentaire, pastille du menu, lignes d'un bloc)
     charteCommentaires: {
@@ -412,6 +503,11 @@ var MOTS = {
     },
     msgChampQuestionAide: "Par exemple : Qui pour jouer jeudi 20 h ?",
     msgAGestion: "Les organisateurs",
+    // Demande 009 : une idée est toujours adressée aussi aux organisateurs ; les exemples des champs.
+    msgChampIdeeAide: "Par exemple : Un tournoi en juin ?",
+    msgIdeeAussiGestion: "Les organisateurs la reçoivent aussi : ils peuvent la retenir.",
+    msgAEtGestion: "{destinataires} et les organisateurs",
+    msgChampInfoAide: "Par exemple : Jeudi, on joue sur le terrain du haut.",
     // Demande 007b : la phrase d'aide du réglage suit l'état du bouton.
     msgReglageAideEteint: "Seuls les organisateurs écrivent à tout le groupe.",
     msgReglageAideAllume: "Les organisateurs et les membres écrivent à tout le groupe.",
@@ -427,9 +523,13 @@ var MOTS = {
       ["Pourquoi je ne peux pas modifier la liste ?",
         "Seuls les organisateurs ajoutent, modifient ou retirent des personnes. Il en reste toujours au moins un."],
       ["Comment demander qui est partant ?",
-        "Ouvrez « Messages » et touchez « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."],
+        "Ouvrez « Messages », touchez « Écrire un message », puis « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."],
       ["Comment ajouter une précision à ma réponse ?",
-        "Ouvrez le message et écrivez sous « Commentaires », tout en bas. 300 caractères au plus."]
+        "Ouvrez le message et écrivez sous « Commentaires », tout en bas. 300 caractères au plus."],
+      ["Comment lancer une idée ?",
+        "Ouvrez « Messages », touchez « Écrire un message », puis « Lancer une idée ». Écrivez-la en une ligne, choisissez à qui, envoyez. Chacun peut dire Bonne idée."],
+      ["Comment savoir qui a vu mon info ?",
+        "Ouvrez votre info dans « Messages » : le nombre de personnes qui l'ont vue est écrit sous le texte. Touchez « N'ont pas encore vu » pour lire les noms."]
     ],
     aideAutreTexte: "Demandez à un organisateur du groupe.",
     lienInconnuAide: "Un organisateur du groupe peut vous aider.",
@@ -598,6 +698,16 @@ var MOTS = {
     // ---------- Demande 007 : les mots des messages propres à une association ----------
     msgChampQuestionAide: "Par exemple : Qui peut tenir la buvette samedi ?",
     msgAGestion: "Le bureau",
+    // Demande 009 : une idée est toujours adressée aussi au bureau ; les exemples des champs ; l'événement né d'une idée.
+    msgChampIdeeAide: "Par exemple : Une tombola à la kermesse ?",
+    msgIdeeAussiGestion: "Le bureau la reçoit aussi : il peut la retenir.",
+    msgAEtGestion: "{destinataires} et le bureau",
+    msgChampInfoAide: "Par exemple : La réunion de jeudi est décalée à mardi, 20\u00A0h\u00A030.",
+    msgIdeeEnEvenement: "En faire un événement",
+    msgIdeeNomRaccourci: "Le titre de l'idée a été raccourci à 60 lettres. Vérifiez le nom.",
+    msgIdeeDevenueEvenement: "Devenue l'événement « {nom} »",
+    msgEvenementVientIdee: "Vient de l'idée « {titre} »",
+    msgErreurVisiteurEcrire: "Vous pouvez répondre aux messages, pas en écrire.",
     msgChampEvenement: "Événement concerné",
     msgAucunEvenement: "Aucun",
     msgPourEvenement: "Pour : {titre}",
@@ -630,9 +740,13 @@ var MOTS = {
       ["Comment ajouter une personne ou une équipe ?",
         "Ouvrez « Association », puis « Personnes » ou « Équipes ». Seul le bureau peut modifier ces listes ; l'équipe « Le bureau » se forme d'office."],
       ["Comment demander qui est partant ?",
-        "Ouvrez « Messages » et touchez « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."],
+        "Ouvrez « Messages », touchez « Écrire un message », puis « Demander qui est partant ». Écrivez la question, choisissez à qui, envoyez. Chacun répond Oui ou Non."],
       ["Comment ajouter une précision à ma réponse ?",
-        "Ouvrez le message et écrivez sous « Commentaires », tout en bas. 300 caractères au plus."]
+        "Ouvrez le message et écrivez sous « Commentaires », tout en bas. 300 caractères au plus."],
+      ["Comment lancer une idée ?",
+        "Ouvrez « Messages », touchez « Écrire un message », puis « Lancer une idée ». Écrivez-la en une ligne, choisissez à qui, envoyez. Chacun peut dire Bonne idée."],
+      ["Comment savoir qui a vu mon info ?",
+        "Ouvrez votre info dans « Messages » : le nombre de personnes qui l'ont vue est écrit sous le texte. Touchez « N'ont pas encore vu » pour lire les noms."]
     ],
     aideAutreTexte: "Demandez à un membre du bureau. Dans la vraie application, un bouton permettra d'écrire à l'équipe MonAsso.",
     lienInconnuAide: "Le bureau de l'association peut vous aider.",

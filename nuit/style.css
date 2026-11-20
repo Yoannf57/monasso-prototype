@@ -698,6 +698,33 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 .lien-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 800; }
 .lien-details .lien-adresse { margin-top: 8px; }
 
+/* ---------- Idée et info (demande 009) ---------- */
+
+/* N11 · Texte saisi sur plusieurs lignes (explication d'une idée) : la couleur, la taille et la graisse du texte courant,
+   les retours à la ligne gardés. Variante de titre, pour l'info qui n'a pas d'autre titre : la taille de .carte-titre,
+   la même dans la liste et sur l'écran, pour que « Vu » reste visible sans défiler. */
+.message-texte { margin-top: 10px; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
+.message-texte--titre { margin-top: 0; font-size: 1.25rem; line-height: 1.3; font-weight: 800; letter-spacing: 0; }
+.message-texte + .message-texte { margin-top: 10px; }
+/* Le texte de l'info et l'explication gardent leurs retours à la ligne dans « ce qui serait envoyé ». */
+.confirmation-quoi { white-space: pre-line; overflow-wrap: anywhere; }
+/* La pastille d'état suit le mot de sorte, au-dessus du titre du message. */
+.surtitre .etiquette { margin-left: 6px; vertical-align: 1px; }
+/* N1 · Le bouton de réponse seul (« Bonne idée », « Vu ») : pleine largeur, la phrase et le lien dessous. */
+.reponse-seule + .message-ok { margin: 12px 0 0; }
+.ma-reponse > .message-ok:first-child { margin: 0; }
+.ma-reponse .lien-bouton { margin-top: 4px; }
+.bloc-reponse .reponse-seule { margin-top: 0; }
+/* Compteur sous un champ de « Nouvelle idée » et de « Nouvelle info » ; la phrase qui dit que le bureau reçoit aussi l'idée. */
+.compte-champ { margin-top: 4px; }
+.form-ecrire { margin-top: 4px; }
+.form-ecrire .repli { margin-bottom: 16px; }
+.form-ecrire .astuce { margin-top: 4px; }
+.champ-note { margin-top: 4px; }
+/* Les lignes « Devenue l'événement… » et « Vient de l'idée… » : la phrase entière est le lien, elle peut tenir sur plusieurs lignes. */
+#idee-evenement, #vient-idee { overflow-wrap: anywhere; }
+#exemple-reponse-seule, #exemple-reponse-seule-choisie, #exemple-ligne-sorte, #exemple-message-texte { margin-bottom: 14px; }
+
 /* ---------- Ordinateur ---------- */
 
 @media (min-width: 640px) {
