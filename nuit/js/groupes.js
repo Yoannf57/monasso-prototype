@@ -320,7 +320,13 @@
       listeIds(m.destinataires) && (m.sorte === "question" ? listeIds(m.oui) && listeIds(m.non) : listeIdsOuRien(m.oui) && listeIdsOuRien(m.non)) &&
       // Commentaires (demande 008) : un texte, un numéro d'ordre, une date et une heure ; « vus » : un numéro par personne.
       (m.commentaires === undefined || m.commentaires === null || liste(m.commentaires, commentaireValide)) &&
-      nombreOuRien(m.dernierCommentaire) && vusValides(m.vus);
+      nombreOuRien(m.dernierCommentaire) && vusValides(m.vus) &&
+      // Réponses par lien (demande 010) : les réponses (un jeton, un prénom, une lettre, Oui ou Non, et la personne du groupe
+      // si la réponse lui est rattachée), les jetons des réponses retirées.
+      (m.parLien === undefined || m.parLien === null || liste(m.parLien, reponseLienValide)) && listeIdsOuRien(m.retires);
+  }
+  function reponseLienValide(r) {
+    return estId(r.jeton) && estTexte(r.prenom) && estTexte(r.initiale) && (r.reponse === "oui" || r.reponse === "non") && idOuRien(r.personneId);
   }
   function commentaireValide(c) {
     return estId(c.id) && estNombre(c.n) && estId(c.auteurId) && texteOuRien(c.auteur) && estTexte(c.texte) &&
@@ -356,6 +362,9 @@
       (g.envois === undefined || g.envois === null || liste(g.envois, envoiValide)) &&
       // jetonsSupprimes : jetons des inscrits d'un événement supprimé (demande 006b), des identifiants et rien d'autre.
       (g.jetonsSupprimes === undefined || g.jetonsSupprimes === null || listeIds(g.jetonsSupprimes)) &&
+      // liens : pour chaque question partagée par lien, son code secret (demande 010), des identifiants et rien d'autre.
+      (g.liens === undefined || g.liens === null || (typeof g.liens === "object" && !Array.isArray(g.liens) &&
+        Object.keys(g.liens).every(function (k) { return estId(k) && estId(g.liens[k]); }))) &&
       gestionnaires(g).length >= 1;
   }
 

@@ -18,6 +18,9 @@
   var Ev = window.Evenements;
   var Msg = window.Messages;
   var CLE = "monasso-prototype-groupes"; // les essais des versions précédentes restent à part
+  // Demande 010 : ce que le téléphone de l'invité garde, à part de l'état de l'application : pour chaque lien de question ouvert,
+  // les jetons des réponses envoyées depuis ce téléphone. Ni prénom, ni initiale, ni réponse.
+  var CLE_INVITE = "monasso-prototype-invite";
   var FOND = "#FFF7EC"; // même valeur que --fond dans style.css
   var etat = charger();
   var creneauOuvert = null;   // créneau dont le formulaire est déplié (espace parent)
@@ -29,6 +32,10 @@
   var reglageEnregistre = false; // « Réglage enregistré. », montré une fois sur la page du groupe
   var commentaireFait = null; // dernier geste sur un commentaire, dit une fois sous le champ : { id, quoi }
   var anciensDeplies = null;  // message dont les commentaires plus anciens sont dépliés
+  var qrLienVisible = false;  // QR code du lien d'une question, déplié (demande 010)
+  var retraitFait = null;     // dernier retrait d'une réponse par lien, dit une fois au-dessus des listes : { id, texte }
+  var autrePersonne = null;   // code du lien pour lequel on répond « pour une autre personne », sans la mémoire du téléphone
+  var vientDeRepondre = null; // jeton de la réponse qui vient d'être envoyée par lien : son écran dit « C'est noté »
 
   // ---------- Mémoire du navigateur ----------
 
@@ -59,6 +66,9 @@
 
   function reinitialiser() {
     try { window.localStorage.removeItem(CLE); } catch (err) { /* rien */ }
+    // Demande 010 : les réponses par lien repartent avec les données d'origine ; la mémoire du téléphone est effacée aussi.
+    try { window.localStorage.removeItem(CLE_INVITE); } catch (err) { /* rien */ }
+    qrLienVisible = false; retraitFait = null; autrePersonne = null; vientDeRepondre = null;
     etat = etatInitial();
     creneauOuvert = null;
     annulationFaite = null;
@@ -112,8 +122,9 @@
   function nomEquipe(e) { return e.bureau ? M("equipeBureau") : e.nom; }
 
   // La couleur principale du groupe remplace celle de la charte.
-  function appliquerCouleur() {
-    var p = L.paletteAssociation(G().couleur, FOND);
+  // groupe : celui de la question, sur une page ouverte par lien (demande 010) ; sinon le groupe ouvert.
+  function appliquerCouleur(groupe) {
+    var p = L.paletteAssociation((groupe || G()).couleur, FOND);
     var s = document.documentElement.style;
     s.setProperty("--principale", p.principale);
     s.setProperty("--principale-fond", p.principaleFond);
@@ -1404,7 +1415,11 @@
 
   // « 8 Oui sur 10 attendus », ou « 8 Oui » sans nombre attendu.
   function texteCompteur(c) {
-    return c.attendus ? Mn("msgCompteurAttendus", c.attendus, { oui: c.oui.length }) : M("msgCompteur", { oui: c.oui.length });
+    return c.attendus ? Mn("msgCompteurAttendus", c.attendus, { oui: c.nbOui }) : M("msgCompteur", { oui: c.nbOui });
+  }
+  // La barre n'est qu'un complément du compteur écrit ; elle n'existe que si un nombre de Oui est attendu.
+  function barreCompteur(c) {
+    return c.attendus ? '<div class="barre" aria-hidden="true"><span style="width:' + Math.min(100, Math.round(100 * c.nbOui / c.attendus)) + '%"></span></div>' : "";
   }
 
   function etiquetteComplet() { return '<span class="etiquette etiquette--ok">' + esc(M("msgComplet")) + "</span>"; }
@@ -1412,11 +1427,12 @@
   // La paire « Oui » / « Non » : seule exception à « un seul bouton principal par écran ».
   // Avant la réponse, deux boutons pleins de même taille ; après, le bouton choisi reste plein, avec une coche,
   // et l'autre passe en contour. exemple : boutons inertes de la page Charte.
-  function paireReponse(id, choisie, exemple) {
+  // attributs (demande 010) : sur la page du lien personnel, ce que porte chaque bouton à la place de l'identifiant du message.
+  function paireReponse(id, choisie, exemple, attributs) {
     function bouton(valeur) {
       var choisi = choisie === valeur;
       return '<button type="button" class="bouton ' + (!choisie || choisi ? "bouton--principal" : "bouton--secondaire") + (choisi ? " bouton--choisi" : "") + '"' +
-        (exemple ? " data-exemple" : ' data-reponse="' + valeur + '" data-message="' + esc(id) + '"') +
+        (exemple ? " data-exemple" : attributs ? attributs(valeur) : ' data-reponse="' + valeur + '" data-message="' + esc(id) + '"') +
         ' aria-pressed="' + choisi + '">' + esc(motReponse(valeur)) + "</button>";
     }
     return '<div class="boutons-ligne paire-reponse">' + bouton("oui") + bouton("non") + "</div>";
@@ -1793,17 +1809,34 @@
 
   // ----- Écran 4 : le message -----
 
-  function listeNoms(id, titre, personnes, vide) {
+  // lien (demande 010, listes « Oui » et « Non » d'une question) : { m, gerable, libres }. libres : les réponses par lien qui ne sont
+  // rattachées à personne ; elles suivent les personnes du groupe. Ceux qui gèrent la question lisent « Karim M. · par lien » et
+  // peuvent retirer la réponse ; les autres destinataires lisent leur nombre seul, en dernière ligne.
+  // Une réponse rattachée est à la place de la personne, avec son nom du groupe : elle est lue de tous ceux qui voient le message.
+  function listeNoms(id, titre, personnes, vide, lien) {
     var p = moi();
+    var libres = lien ? lien.libres : [];
+    var mention = function () { return '<span class="personne-vous">' + esc(M("msgLienParLien").split("{nom}")[1]) + "</span>"; };
+    var retirer = function (r) {
+      return lien.gerable ? '<button type="button" class="lien-bouton lien-bouton--alerte" data-retirer-lien="' + esc(r.jeton) + '" data-question="' + esc(lien.m.id) + '">' +
+        esc(M("msgLienRetirer")) + "</button>" : "";
+    };
+    var lignes = personnes.map(function (x) {
+      var r = lien ? Msg.reponseLienDe(lien.m, x.id) : null;
+      return '<li><span class="personne-nom">' + esc(Gr.nomComplet(x)) +
+        (x.id === p.id ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : "") + (r ? mention() : "") + "</span>" + (r ? retirer(r) : "") + "</li>";
+    });
+    if (libres.length && lien.gerable) {
+      lignes = lignes.concat(libres.map(function (r) {
+        return '<li><span class="personne-nom">' + esc(Msg.nomPublicLien(r)) + mention() + "</span>" + retirer(r) + "</li>";
+      }));
+    } else if (libres.length) {
+      lignes.push('<li><span class="personne-detail" data-nombre-par-lien>' + esc(Mn("msgLienNombreParLien", libres.length)) + "</span></li>");
+    }
     return '<details class="repli" id="liste-' + id + '"><summary><span class="repli-titres"><span class="repli-titre">' + esc(titre) +
-      '</span></span><span class="compte">' + personnes.length + "</span></summary>" +
+      '</span></span><span class="compte">' + (personnes.length + libres.length) + "</span></summary>" +
       '<div class="repli-corps">' +
-      (personnes.length
-        ? '<ul class="noms">' + personnes.map(function (x) {
-          return '<li><span class="personne-nom">' + esc(Gr.nomComplet(x)) +
-            (x.id === p.id ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : "") + "</span></li>";
-        }).join("") + "</ul>"
-        : '<p class="calme">' + esc(vide) + "</p>") +
+      (lignes.length ? '<ul class="noms">' + lignes.join("") + "</ul>" : '<p class="calme">' + esc(vide) + "</p>") +
       "</div></details>";
   }
 
@@ -1872,9 +1905,10 @@
     // Le compteur en toutes lettres, « Complet » (un mot et une forme) ; la barre n'est qu'un complément.
     html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteur(c)) + "</span>" +
       (c.complet ? etiquetteComplet() : "") + "</h2>" +
-      (c.attendus ? '<div class="barre" aria-hidden="true"><span style="width:' + Math.min(100, Math.round(100 * c.oui.length / c.attendus)) + '%"></span></div>' : "") +
-      listeNoms("oui", M("msgOui"), c.oui, M("msgListeOuiVide")) +
-      listeNoms("non", M("msgNon"), c.non, M("msgListeNonVide")) +
+      barreCompteur(c) + phraseRetrait(m) +
+      // Demande 010 : les réponses par lien s'ajoutent aux listes « Oui » et « Non » ; celui qui gère une question ouverte peut en retirer une.
+      listeNoms("oui", M("msgOui"), c.oui, M("msgListeOuiVide"), { m: m, gerable: gerable && !close, libres: c.lienOui }) +
+      listeNoms("non", M("msgNon"), c.non, M("msgListeNonVide"), { m: m, gerable: gerable && !close, libres: c.lienNon }) +
       listeNoms("sans", M("msgListePasRepondu"), c.sans, M("msgListePasReponduVide")) + "</section>";
 
     // Un seul bouton principal, selon le cas : la paire « Oui » / « Non » si je peux répondre ; sinon « Relancer »
@@ -1896,8 +1930,9 @@
     if (gerable) {
       html += bandeAction('<a class="' + classe("refaire") + '" id="refaire" href="#messages/nouveau/question/' + esc(m.id) + '">' + esc(M("msgRefaire")) + "</a>");
     }
-    // Place gardée pour le partage par lien (demande 010), avec les boutons de l'auteur. Les commentaires (demande 008)
-    // sont le dernier élément de la page.
+    // Demande 010 : « Faire répondre par lien », sous les boutons de gestion, pour ceux qui gèrent une question ouverte.
+    // Les commentaires (demande 008) sont le dernier élément de la page.
+    if (Msg.peutPartager(g, p, m)) { html += sectionPartageLien(m); }
     // Ouvrir le message, c'est avoir lu ses commentaires : la mention « N nouveaux commentaires » disparaît de la liste.
     if (Msg.marquerVus(g, p, m)) { sauver(); }
     html += sectionCommentaires(m, close);
@@ -2677,7 +2712,7 @@
       etatVide("calme", "État vide", "Une petite illustration et une phrase qui dit quoi faire.") +
       exemplesFormulaire() +
       exemplesMessages() +
-      "</section>";
+      "</section>" + exemplesLien();
     return { titre: "Charte graphique", onglet: "groupe", html: html };
   }
 
@@ -3204,6 +3239,384 @@
     };
   }
 
+  // ---------- Demande 010 : répondre par lien, sans compte ----------
+  // Trois pages ouvertes par lien, sans menu, sans « Aide », sans lien vers l'application : la réponse (#reponse/CODE),
+  // le prénom (#reponse/CODE/oui ou /non), ma réponse (#ma-reponse/JETON, le lien personnel).
+  // L'invité n'y lit aucun nom (décision du 2026-11-19) : le nom du groupe, la question, le compteur et sa propre réponse.
+  // Tous leurs mots sont dans la liste commune de mots.js. Le prénom, la lettre, la question et le nom du groupe passent par esc().
+
+  function contientJeton(liste, jeton) { return liste.indexOf(jeton) >= 0; }
+
+  // La mémoire du téléphone de l'invité : pour chaque code de lien, les jetons des réponses envoyées d'ici.
+  function memoireInvite() {
+    try {
+      var o = JSON.parse(window.localStorage.getItem(CLE_INVITE));
+      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    } catch (err) { return {}; }
+  }
+  function jetonsGardes(code) {
+    var o = memoireInvite();
+    var l = Object.prototype.hasOwnProperty.call(o, code) ? o[code] : null;
+    return Array.isArray(l) ? l.filter(function (x) { return typeof x === "string"; }) : [];
+  }
+  function garderJeton(code, jeton) {
+    var o = memoireInvite();
+    o[code] = jetonsGardes(code).filter(function (x) { return x !== jeton; }).concat([jeton]);
+    try { window.localStorage.setItem(CLE_INVITE, JSON.stringify(o)); } catch (err) { /* la réponse est notée quand même */ }
+  }
+  // Ce que ce téléphone sait d'une question : le jeton d'une réponse retirée (elle ne revient pas d'ici), sinon la dernière
+  // réponse envoyée d'ici qui compte encore.
+  function souvenirInvite(code, m) {
+    var gardes = jetonsGardes(code);
+    var retire = gardes.filter(function (j) { return Msg.estRetiree(m, j); })[0] || "";
+    var mienne = gardes.filter(function (j) { return Msg.reponsesLien(m).some(function (r) { return r.jeton === j; }); }).pop() || "";
+    return { retire: retire, mienne: mienne };
+  }
+
+  // Le lien marche quel que soit le groupe ouvert dans la démo : on cherche dans tous les groupes.
+  function questionPartout(code) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var m = Msg.trouverParCode(etat.groupes[i], code);
+      if (m) { return { groupe: etat.groupes[i], message: m, code: code }; }
+    }
+    return null;
+  }
+  function reponseLienPartout(jeton) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var t = Msg.trouverReponseLien(etat.groupes[i], jeton);
+      if (t) { t.groupe = etat.groupes[i]; return t; }
+    }
+    return null;
+  }
+  function retraitPartout(jeton) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var m = Msg.trouverRetrait(etat.groupes[i], jeton);
+      if (m) { return { groupe: etat.groupes[i], message: m }; }
+    }
+    return null;
+  }
+
+  function lienPublic(code) { return location.href.split("#")[0] + "#reponse/" + code; }
+  function lienMaReponse(jeton) { return location.href.split("#")[0] + "#ma-reponse/" + jeton; }
+
+  // Le code du lien, fabriqué et gardé la première fois qu'on en a besoin.
+  function codeDuLien(groupe, m) {
+    var neuf = !Msg.codeConnu(groupe, m);
+    var code = Msg.codeLien(groupe, m);
+    if (neuf) { sauver(); }
+    return code;
+  }
+
+  // Ce que rend une page ouverte par lien. « Revenir à l'application » (bandeau du testeur) ramène au message si la personne
+  // ouverte dans la démo le voit, sinon à l'accueil.
+  function pageInvite(titre, html, trouve, plus) {
+    var r = { titre: titre, parent: true, html: html };
+    if (trouve) {
+      r.groupe = trouve.groupe;
+      r.retourDemo = trouve.groupe === G() && Msg.estVisible(G(), moi(), trouve.message) ? "#message/" + encodeURIComponent(trouve.message.id) : "#accueil";
+    }
+    Object.keys(plus || {}).forEach(function (k) { r[k] = plus[k]; });
+    return r;
+  }
+
+  // Le haut des écrans 2 et 3 : le nom du groupe, seul, puis la question. Aucun prénom, pas même celui de l'auteur.
+  function afficheInvite(trouve, avecDates) {
+    var m = trouve.message, quand = quandRendezVous(m), avant = Msg.dateAvantLe(m);
+    return '<header class="affiche"><p class="surtitre">' + esc(trouve.groupe.nom) + "</p>" +
+      '<h1 tabindex="-1">' + esc(m.texte) + "</h1>" +
+      (avecDates && quand ? '<p class="affiche-date">' + esc(M("msgRendezVous", { quand: quand })) + "</p>" : "") +
+      (avecDates && avant ? '<p class="affiche-texte">' + esc(M("msgAvantLe", { date: fmtLong.format(avant) })) + "</p>" : "") +
+      "</header>";
+  }
+
+  // Le compteur de la 007, sans aucune liste ni aucun nom. encore : la question est ouverte, on peut encore répondre.
+  function compteurInvite(trouve, encore) {
+    var c = Msg.decompte(trouve.groupe, trouve.message);
+    return '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteur(c)) + "</span>" +
+      (c.complet ? etiquetteComplet() : "") + "</h2>" + barreCompteur(c) +
+      (c.complet && encore ? '<p class="discret" id="complet-aide">' + esc(M("msgLienCompletAide")) + "</p>" : "") + "</section>";
+  }
+
+  function lienQuestionInconnu() {
+    return pageInvite(M("msgLienInconnu"), '<section class="confirmation"><h1 tabindex="-1">' + esc(M("msgLienInconnu")) + "</h1>" +
+      etatVide("chemin", M("msgLienInconnuAide"), "") + "</section>");
+  }
+  function lienReponseInconnue() {
+    return pageInvite(M("msgLienReponseInconnue"), '<section class="confirmation"><h1 tabindex="-1">' + esc(M("msgLienReponseInconnue")) + "</h1>" +
+      etatVide("chemin", M("msgLienInconnuAide"), "") + "</section>");
+  }
+
+  // Écran 2 : la réponse. Écran 3 si l'adresse finit par « oui » ou « non ».
+  // Rend null quand ce téléphone a déjà répondu : l'adresse est remplacée par celle de sa réponse (écran 4).
+  function ecranReponse(code, sous, reste) {
+    var trouve = questionPartout(code);
+    if (!trouve || reste) { return lienQuestionInconnu(); }
+    var m = trouve.message;
+    var souvenir = souvenirInvite(code, m);
+    // Une réponse retirée ne revient pas depuis le même téléphone ; sinon, le téléphone ramène à la réponse déjà envoyée,
+    // sauf pour « Répondre pour une autre personne ».
+    var deja = souvenir.retire || (autrePersonne === code ? "" : souvenir.mienne);
+    if (deja) { location.replace("#ma-reponse/" + deja); return null; }
+    if (Msg.estClose(m)) {
+      return pageInvite(m.texte, afficheInvite(trouve, true) + '<p class="astuce" id="question-close">' + esc(M("msgLienClose")) + "</p>", trouve);
+    }
+    if (sous === "oui" || sous === "non") { return ecranPrenom(trouve, sous); }
+    var lien = function (valeur) {
+      return '<a class="bouton bouton--principal" id="repondre-' + valeur + '" href="#reponse/' + esc(code) + "/" + valeur + '">' + esc(motReponse(valeur)) + "</a>";
+    };
+    var html = afficheInvite(trouve, true) +
+      '<div class="boutons-ligne paire-reponse" id="ma-reponse">' + lien("oui") + lien("non") + "</div>" +
+      '<p class="discret" id="sans-compte">' + esc(M("msgLienSansCompte")) + "</p>" +
+      compteurInvite(trouve, true);
+    return pageInvite(m.texte, html, trouve);
+  }
+
+  // Écran 3 : le prénom et la première lettre du nom. Ni téléphone, ni e-mail, ni mot de passe.
+  function ecranPrenom(trouve, valeur) {
+    var m = trouve.message;
+    var html = afficheInvite(trouve, false) +
+      '<form class="form-invite" data-code="' + esc(trouve.code) + '" data-valeur="' + valeur + '" novalidate>' +
+      '<p class="formulaire-titre" id="vous-repondez">' + esc(M("msgLienVousRepondez", { reponse: motReponse(valeur) })) + "</p>" +
+      '<a class="retour" href="#reponse/' + esc(trouve.code) + '">' + esc(M("msgChangerDAvis")) + "</a>" +
+      champ("prenom", M("msgLienChampPrenom"), 'autocomplete="given-name" autocapitalize="words" maxlength="' + Msg.LIMITES.prenomInvite + '"', "") +
+      champ("initiale", M("msgLienChampInitiale"), 'autocomplete="off" autocapitalize="characters" maxlength="1" class="champ-court"', M("msgLienChampInitialeAide")) +
+      '<p class="discret" id="lien-visible">' + esc(M("msgLienVisible")) + "</p>" +
+      '<p class="erreur-generale" id="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M("msgLienEnvoyer")) + "</button>" +
+      "</form>";
+    return pageInvite(m.texte, html, trouve, { champ: "prenom", curseur: true });
+  }
+
+  function envoyerInvite(form) {
+    var valeur = form.getAttribute("data-valeur");
+    var trouve = questionPartout(form.getAttribute("data-code"));
+    if (!trouve) { rendre({ focus: true }); return; }
+    var code = trouve.code, souvenir = souvenirInvite(code, trouve.message);
+    // Ce téléphone a déjà répondu, ou sa réponse a été retirée : l'écran se redessine et mène à cette réponse.
+    if (souvenir.retire || (souvenir.mienne && autrePersonne !== code)) { rendre({ focus: true }); return; }
+    var r = Msg.repondreParLien(trouve.groupe, code, { reponse: valeur, prenom: form.elements.prenom.value, initiale: form.elements.initiale.value });
+    if (r.ok) {
+      sauver();
+      garderJeton(code, r.jeton);
+      autrePersonne = null;
+      vientDeRepondre = r.jeton;
+      location.hash = "#ma-reponse/" + r.jeton;
+      return;
+    }
+    if (r.raison === "close") { erreurGenerale(form, M("msgLienErreurClose")); return; }
+    if (r.raison !== "saisie") { rendre({ focus: true }); return; }
+    montrerErreurs(form, ["prenom", "initiale"], r.erreurs, {
+      "prenom:vide": M("msgLienErreurPrenom"), "prenom:long": M("msgLienErreurPrenomLong"), initiale: M("msgLienErreurInitiale")
+    });
+  }
+
+  // Écran 4 : ma réponse. C'est le lien personnel : relire, changer d'avis, ajouter à l'agenda, garder son lien.
+  function ecranMaReponse(jeton) {
+    var t = reponseLienPartout(jeton);
+    if (!t) {
+      var retrait = retraitPartout(jeton);
+      if (!retrait) { return lienReponseInconnue(); }
+      // Réponse retirée : l'en-tête, la question et la phrase. Ni « Oui », ni « Non », ni compteur, ni agenda.
+      return pageInvite(retrait.message.texte, '<section class="confirmation"><p class="surtitre">' + esc(retrait.groupe.nom) + "</p>" +
+        '<h1 tabindex="-1">' + esc(retrait.message.texte) + "</h1>" +
+        '<p class="astuce" id="reponse-retiree">' + esc(M("msgLienReponseRetiree")) + "</p></section>", retrait);
+    }
+    var m = t.message, r = t.reponse, code = Msg.codeConnu(t.groupe, m);
+    var close = Msg.estClose(m), quand = quandRendezVous(m), rdv = Msg.dateRendezVous(m);
+    var aVenir = !!rdv && L.joursJusqua(rdv) >= 0;
+    var titre = vientDeRepondre === jeton ? M("msgLienNote", { prenom: r.prenom }) : M("msgLienMaReponse");
+    var auNom = M("msgLienNomPublic").split("{nom}");
+    var vousAvezRepondu = M("msgVotreReponse", { reponse: motReponse(r.reponse) });
+    var html = '<section class="confirmation">' +
+      '<p class="surtitre">' + esc(t.groupe.nom) + "</p>" +
+      '<h1 tabindex="-1">' + esc(titre) + "</h1>" +
+      '<p class="confirmation-quoi"><strong>' + esc(m.texte) + "</strong>" + (quand ? "<br>" + esc(M("msgRendezVous", { quand: quand })) : "") + "</p>";
+    if (close) {
+      html += '<p class="astuce" id="question-close">' + esc(M("msgCloseLe", { date: fmtJourMois.format(Msg.dateCloture(m)) }) + " " + vousAvezRepondu) + "</p>";
+    } else {
+      html += '<div id="ma-reponse">' + paireReponse("", r.reponse, false, function (valeur) {
+        return ' data-lien-reponse="' + valeur + '" data-jeton="' + esc(r.jeton) + '"';
+      }) + '<p class="message-ok" role="status">' + esc(vousAvezRepondu + " " + M("msgChangerAide")) + "</p></div>";
+    }
+    html += '<p id="note-au-nom">' + esc(auNom[0]) + "<strong>" + esc(Msg.nomPublicLien(r)) + "</strong>" + esc(auNom[1] || "") + "</p>";
+    // « Ajouter à mon agenda » : seulement après un Oui, et si la question porte un jour de rendez-vous.
+    if (aVenir && r.reponse === "oui") {
+      html += '<button type="button" class="bouton bouton--secondaire" data-agenda-lien="' + esc(r.jeton) + '">' + esc(M("msgAjouterAgenda")) + "</button>" +
+        '<p class="discret" id="agenda-aide">' + esc(M("msgLienAgendaAide")) + "</p>";
+    } else if (aVenir && !close) {
+      html += '<p class="discret" id="agenda-aide">' + esc(M("msgLienAgendaRetirer")) + "</p>";
+    }
+    if (!close) {
+      html += '<div class="lien-perso" id="garder-lien"><h2>' + esc(M("msgLienGarderTitre")) + "</h2>" +
+        '<p class="discret">' + esc(M("msgLienGarderTexte")) + "</p>" +
+        '<p class="lien-adresse" id="lien-ma-reponse">' + esc(lienMaReponse(r.jeton)) + "</p>" +
+        '<button type="button" class="bouton bouton--secondaire" data-copier-lien="lien-ma-reponse" data-etat="etat-lien-ma-reponse">' + esc(M("msgLienCopierLeMien")) + "</button>" +
+        '<p class="copie-ok" id="etat-lien-ma-reponse" role="status"></p></div>';
+    }
+    html += compteurInvite(t, !close);
+    // « Répondre pour une autre personne » : absent quand la question est close, et quand une réponse de ce téléphone a été retirée.
+    if (!close && code && !souvenirInvite(code, m).retire) {
+      html += '<a class="lien-suite" id="autre-personne" href="#reponse/' + esc(code) + '" data-autre-personne="' + esc(code) + '">' + esc(M("msgLienAutrePersonne")) + "</a>";
+    }
+    html += "</section>";
+    return pageInvite(titre, html, t);
+  }
+
+  // Changer d'avis : la même ligne change de liste. Un toucher sur le bouton déjà choisi ne change rien.
+  function changerReponseInvite(bouton) {
+    var jeton = bouton.getAttribute("data-jeton"), valeur = bouton.getAttribute("data-lien-reponse");
+    var t = reponseLienPartout(jeton);
+    if (t && Msg.changerReponseLien(t.groupe, jeton, valeur).ok) { sauver(); }
+    rendre({ garderDefilement: true });
+    var suite = document.querySelector('#ma-reponse [data-lien-reponse="' + (valeur === "non" ? "non" : "oui") + '"]');
+    if (suite) { suite.focus({ preventScroll: true }); }
+  }
+
+  // L'agenda garde aussi le lien personnel.
+  function ajouterAgendaInvite(jeton) {
+    var t = reponseLienPartout(jeton);
+    if (!t || t.reponse.reponse !== "oui") { return; }
+    var ics = Msg.fichierAgenda(t.groupe, t.message, null, lienMaReponse(jeton));
+    if (!ics) { return; }
+    var url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    telecharger("rendez-vous.ics", url);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  // « Copier le lien », « Copier mon lien » : une seule ligne d'état sous le bouton. L'adresse reste écrite au-dessus, en secours.
+  function copierLien(bouton) {
+    var texte = document.getElementById(bouton.getAttribute("data-copier-lien")).textContent;
+    var zone = document.getElementById(bouton.getAttribute("data-etat"));
+    function dire(reussi) { zone.textContent = M(reussi ? "msgLienCopie" : "msgLienCopieImpossible"); }
+    function repli() {
+      var copie = document.createElement("textarea");
+      copie.value = texte; copie.setAttribute("readonly", "");
+      copie.style.position = "fixed"; copie.style.opacity = "0";
+      document.body.appendChild(copie); copie.select();
+      var reussi = false;
+      try { reussi = document.execCommand("copy"); } catch (err) { reussi = false; }
+      copie.remove();
+      dire(reussi);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(texte).then(function () { dire(true); }, repli);
+    } else { repli(); }
+  }
+
+  // Écran 1 : « Faire répondre par lien », sur le message, pour ceux qui gèrent une question ouverte. Trois boutons à contour.
+  function sectionPartageLien(m) {
+    var bouton = function (attribut, cle, plus) {
+      return '<button type="button" class="bouton bouton--secondaire" ' + attribut + (plus || "") + ">" + esc(M(cle)) + "</button>";
+    };
+    return '<section class="section partage" id="partage-lien" aria-labelledby="titre-partage-lien">' +
+      '<h2 id="titre-partage-lien">' + esc(M("msgLienTitre")) + "</h2>" +
+      '<p class="discret">' + esc(M("msgLienTexte")) + "</p>" +
+      '<p class="lien-adresse" id="lien-question">' + esc(lienPublic(codeDuLien(G(), m))) + "</p>" +
+      bouton('data-copier-lien="lien-question" data-etat="etat-lien-question"', "msgLienCopier") +
+      bouton("data-qr-lien", qrLienVisible ? "msgLienMasquerQr" : "msgLienAfficherQr", ' aria-expanded="' + qrLienVisible + '" aria-controls="qr-lien"') +
+      bouton('data-partager-lien="' + esc(m.id) + '"', "msgLienPartager") +
+      '<p class="copie-ok" id="etat-lien-question" role="status"></p>' +
+      blocQrLien("qr-lien", !qrLienVisible) +
+      "</section>";
+  }
+  // N15 : le QR code de la question, 200 px de large, seul sur sa ligne. Dans le prototype, c'est un dessin.
+  function blocQrLien(id, cache) {
+    return '<div class="qr qr--grand" id="' + id + '"' + (cache ? " hidden" : "") + '><div class="qr-image" aria-hidden="true"></div>' +
+      "<p>" + esc(M("msgLienQrTexte")) + '</p><p class="discret">' + esc(M("msgLienQrPrototype")) + "</p></div>";
+  }
+  function basculerQrLien(bouton) {
+    qrLienVisible = !qrLienVisible;
+    document.getElementById("qr-lien").hidden = !qrLienVisible;
+    bouton.setAttribute("aria-expanded", String(qrLienVisible));
+    bouton.textContent = M(qrLienVisible ? "msgLienMasquerQr" : "msgLienAfficherQr");
+  }
+  // Le texte part de la messagerie de celui qui partage : il garde l'en-tête de la 007, avec le prénom de l'auteur.
+  function textePartage(m) {
+    return [M("msgNotifEntete", { groupe: G().nom, prenom: prenomAuteur(m) }), m.texte, M("msgLienPartageTexte", { lien: lienPublic(codeDuLien(G(), m)) })].join("\n");
+  }
+  // Le partage du téléphone. L'application n'envoie rien : rien n'est noté dans « Ce qui serait envoyé ».
+  function partagerLien(id) {
+    var g = G(), p = moi();
+    var m = Msg.trouverVisible(g, p, id);
+    if (!m || !Msg.peutPartager(g, p, m)) { rendre({ focus: true }); return; }
+    var zone = document.getElementById("etat-lien-question");
+    var impossible = function () { zone.textContent = M("msgLienPartageImpossible"); };
+    if (typeof navigator.share !== "function") { impossible(); return; }
+    zone.textContent = "";
+    try {
+      // La personne qui referme le partage sans rien envoyer n'a pas d'erreur à lire.
+      navigator.share({ text: textePartage(m) }).catch(function (err) { if (!err || err.name !== "AbortError") { impossible(); } });
+    } catch (err) { impossible(); }
+  }
+
+  // Écran 5 : la phrase dite une fois au-dessus des listes, après un retrait.
+  function phraseRetrait(m) {
+    if (!retraitFait || retraitFait.id !== m.id) { return ""; }
+    var texte = retraitFait.texte;
+    retraitFait = null;
+    return '<p class="message-ok" id="retrait-fait" role="status">' + esc(texte) + "</p>";
+  }
+  // « Retirer cette réponse » : un toucher, puis la confirmation. Seules les réponses par lien se retirent.
+  function retirerReponseLien(bouton) {
+    var g = G(), p = moi(), id = bouton.getAttribute("data-question"), jeton = bouton.getAttribute("data-retirer-lien");
+    var garder = { garderDefilement: true, garderReplis: true };
+    var m = Msg.trouverVisible(g, p, id);
+    if (!m || !Msg.peutGerer(g, p, m)) { rendre(garder); return; }
+    var dejaRetiree = function () { retraitFait = { id: m.id, texte: M("msgLienDejaRetiree") }; rendre(garder); };
+    if (Msg.estRetiree(m, jeton)) { dejaRetiree(); return; }
+    var r = Msg.reponsesLien(m).filter(function (x) { return x.jeton === jeton; })[0];
+    if (!r || Msg.estClose(m)) { rendre(garder); return; }
+    if (!window.confirm(M("msgLienConfirmerRetrait", { nom: Msg.nomLien(g, m, r) }))) { return; }
+    var fait = Msg.retirerReponseLien(g, p, id, jeton);
+    if (fait.ok) { sauver(); retraitFait = { id: m.id, texte: M("msgLienRetiree", { nom: fait.nom }) }; }
+    else if (fait.raison === "deja") { dejaRetiree(); return; }
+    rendre(garder);
+  }
+
+  // Écran 6 : Démo › « Voir en invité ». La question affichée si l'on est sur un message ouvert, sinon la question ouverte
+  // la plus récente du groupe.
+  function voirEnInvite() {
+    var g = G(), morceaux = adresseActuelle().split("/").map(decodeURIComponent), m = null;
+    if (morceaux[0] === "message") {
+      var vue = Msg.trouverVisible(g, moi(), morceaux[1]);
+      if (vue && Msg.sorte(vue) === "question" && !Msg.estClose(vue)) { m = vue; }
+    }
+    m = m || Msg.questionOuverteRecente(g);
+    aller(m ? "#reponse/" + codeDuLien(g, m) : "#demo/invite");
+  }
+  // L'adresse #demo/invite : la page publique de la question ouverte la plus récente ; sans question ouverte, la phrase prévue.
+  function ecranDemoInvite() {
+    var m = Msg.questionOuverteRecente(G());
+    if (m) { location.replace("#reponse/" + codeDuLien(G(), m)); return null; }
+    return {
+      titre: D("voirEnInvite"), onglet: null,
+      html: retour("#accueil", M("ongletAccueil")) + entete(D("etiquette"), D("voirEnInvite")) +
+        '<div id="invite-aucune">' + etatVide("chemin", M("msgLienDemoAucune"), esc(M("msgLienDemoAucuneAide"))) + "</div>"
+    };
+  }
+
+  // Page Charte : le partage par lien (R1) avec le QR code de 200 px déplié (N15), puis la page ouverte par lien (R2). Tout est inerte.
+  function exemplesLien() {
+    var C = M("charteLien");
+    var bouton = function (cle) { return '<button type="button" class="bouton bouton--secondaire" data-exemple>' + esc(M(cle)) + "</button>"; };
+    return '<section class="section exemples-lien" id="charte-lien"><h2 class="section-titre">' + esc(C.titre) + "</h2>" +
+      '<p class="discret">' + esc(C.partage) + "</p>" +
+      '<div class="partage" id="exemple-partage-lien"><h2>' + esc(M("msgLienTitre")) + "</h2>" +
+      '<p class="discret">' + esc(M("msgLienTexte")) + "</p>" +
+      '<p class="lien-adresse">' + esc(C.lien) + "</p>" +
+      bouton("msgLienCopier") + bouton("msgLienMasquerQr") + bouton("msgLienPartager") +
+      '<p class="copie-ok">' + esc(M("msgLienCopie")) + "</p>" +
+      blocQrLien("exemple-qr-lien", false) + "</div>" +
+      '<p class="discret">' + esc(C.page) + "</p>" +
+      '<div id="exemple-page-lien"><div class="affiche"><p class="surtitre">' + esc(C.groupe) + "</p>" +
+      '<p class="affiche-titre">' + esc(C.question) + "</p></div>" +
+      champ("exemple-prenom", M("msgLienChampPrenom"), 'autocomplete="off"', "") +
+      '<div class="lien-perso"><h2>' + esc(M("msgLienGarderTitre")) + "</h2>" +
+      '<p class="discret">' + esc(M("msgLienGarderTexte")) + "</p>" +
+      '<p class="lien-adresse">' + esc(C.lienPersonnel) + "</p>" +
+      bouton("msgLienCopierLeMien") + "</div></div></section>";
+  }
+
   function introuvable() {
     return {
       titre: M("pageIntrouvable"), onglet: null,
@@ -3262,8 +3675,14 @@
       case "aide": r = ecranAide(); break;
       case "demo":
         r = morceaux[1] === "groupe" ? ecranCreerGroupe() : morceaux[1] === "enregistrer" ? ecranEnregistrer() :
-          morceaux[1] === "ouvrir" ? ecranOuvrir() : morceaux[1] === "envois" && !morceaux[2] ? ecranEnvois() : introuvable();
+          morceaux[1] === "ouvrir" ? ecranOuvrir() : morceaux[1] === "envois" && !morceaux[2] ? ecranEnvois() :
+          morceaux[1] === "invite" && !morceaux[2] ? ecranDemoInvite() : introuvable();
+        // Démo › « Voir en invité » avec une question ouverte : l'adresse est remplacée par celle de sa page publique.
+        if (!r) { return; }
         break;
+      // Demande 010 : les pages ouvertes par lien. Quand le téléphone a déjà répondu, l'adresse est remplacée par celle de sa réponse.
+      case "reponse": r = ecranReponse(morceaux[1], morceaux[2], morceaux[3]); if (!r) { return; } break;
+      case "ma-reponse": r = morceaux[2] ? lienReponseInconnue() : ecranMaReponse(morceaux[1]); break;
       case "inscription": r = ecranInscription(morceaux[1]); break;
       case "merci": r = ecranMerci(morceaux[1]); break;
       case "annuler": r = ecranAnnuler(morceaux[1]); break;
@@ -3276,6 +3695,9 @@
     document.body.classList.toggle("avec-bande", !!r.bande);
     document.getElementById("onglets").hidden = parent;
     document.getElementById("demo-retour").hidden = !parent;
+    // Demande 010 : depuis une page ouverte par lien, le retour du testeur ramène au message ; la page porte la couleur du groupe de la question.
+    document.getElementById("demo-retour").setAttribute("href", r.retourDemo || "#accueil");
+    appliquerCouleur(parent && r.groupe ? r.groupe : null);
 
     var vue = document.getElementById("vue");
     var defilement = window.scrollY;
@@ -3299,7 +3721,8 @@
       window.scrollTo(0, 0);
       var champ = r.champ && document.getElementById("champ-" + r.champ);
       var h1 = vue.querySelector("h1");
-      if (champ && options && options.focus) { champ.focus({ preventScroll: true }); }
+      // r.curseur (demande 010, écran du prénom) : le curseur est déjà dans le champ, même quand la page est ouverte par son adresse.
+      if (champ && ((options && options.focus) || r.curseur)) { champ.focus({ preventScroll: true }); }
       else if (h1 && options && options.focus) { h1.focus({ preventScroll: true }); }
     }
   }
@@ -3387,6 +3810,8 @@
           esc(Gr.nomComplet(x)) + " — " + esc(minuscule(nomRole(x.role))) + "</option>";
       }).join("") + "</select></label>" +
       '<a class="demo-ligne" href="#demo/groupe">' + esc(D("creerUnGroupe")) + "</a>" +
+      // Demande 010 : la page publique d'une question ouverte, pour les deux sortes de groupe.
+      '<a class="demo-ligne" href="#demo/invite" data-voir-invite>' + esc(D("voirEnInvite")) + "</a>" +
       (vg && vg.creneaux.length ? '<a class="demo-ligne" href="#inscription/vide-grenier">' + esc(D("voirEspaceParent")) + "</a>" : "") +
       '<a class="demo-ligne" href="#demo/envois">' + esc(D("voirEnvois")) + "</a>" +
       '<a class="demo-ligne" href="#demo/enregistrer">' + esc(D("enregistrerMonEssai")) + "</a>" +
@@ -3427,6 +3852,16 @@
     var cible = ev.target.closest("button, a");
     if (!cible) { return; }
     if (cible.hasAttribute("data-reglage")) { changerReglage(); return; }
+    // Demande 010 : la réponse par lien.
+    if (cible.hasAttribute("data-voir-invite")) { ev.preventDefault(); basculerMenu(false); voirEnInvite(); return; }
+    if (cible.hasAttribute("data-lien-reponse")) { changerReponseInvite(cible); return; }
+    if (cible.hasAttribute("data-agenda-lien")) { ajouterAgendaInvite(cible.getAttribute("data-agenda-lien")); return; }
+    if (cible.hasAttribute("data-copier-lien")) { copierLien(cible); return; }
+    if (cible.hasAttribute("data-qr-lien")) { basculerQrLien(cible); return; }
+    if (cible.hasAttribute("data-partager-lien")) { partagerLien(cible.getAttribute("data-partager-lien")); return; }
+    if (cible.hasAttribute("data-retirer-lien")) { retirerReponseLien(cible); return; }
+    // « Répondre pour une autre personne » : le lien ouvre la page de réponse sans tenir compte de la mémoire du téléphone.
+    if (cible.hasAttribute("data-autre-personne")) { autrePersonne = cible.getAttribute("data-autre-personne"); }
     if (cible.hasAttribute("data-reponse")) { repondreQuestion(cible); return; }
     // Demande 009 : « Bonne idée » (le bouton déjà coché ne fait rien : on retire sa réponse par le lien), « Vu », retenir, classer.
     if (cible.hasAttribute("data-bonne-idee")) { if (cible.getAttribute("aria-pressed") !== "true") { direBonneIdee(cible.getAttribute("data-bonne-idee"), true); } return; }
@@ -3531,7 +3966,8 @@
     var envois = {
       formulaire: envoyerFormulaire, "form-personne": envoyerPersonne, "form-equipe": envoyerEquipe, "form-groupe": envoyerGroupe,
       "form-evenement": envoyerEvenement, "form-action": envoyerAction, "form-creneau": envoyerCreneau,
-      "form-question": envoyerQuestion, "form-commentaire": publierCommentaire, "form-ecrire": envoyerEcrit
+      "form-question": envoyerQuestion, "form-commentaire": publierCommentaire, "form-ecrire": envoyerEcrit,
+      "form-invite": envoyerInvite
     };
     Object.keys(envois).forEach(function (classe) {
       if (f.classList.contains(classe)) { ev.preventDefault(); envois[classe](f); }
@@ -3544,6 +3980,11 @@
     reponseAccueil = null;
     commentaireFait = null;
     anciensDeplies = null;
+    qrLienVisible = false;
+    retraitFait = null;
+    // Demande 010 : « pour une autre personne » ne vaut que sur les écrans de réponse de ce lien ; « C'est noté » que sur l'écran de cette réponse.
+    if (autrePersonne && location.hash.indexOf("#reponse/" + autrePersonne) !== 0) { autrePersonne = null; }
+    if (vientDeRepondre && location.hash !== "#ma-reponse/" + vientDeRepondre) { vientDeRepondre = null; }
     rendre({ focus: true });
   });
 

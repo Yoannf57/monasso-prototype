@@ -24,6 +24,9 @@
   Demande 009 : les mots de l'idée et de l'info sont dans la liste commune ; ceux qui nomment le bureau ou les organisateurs
   (msgIdeeAussiGestion, msgAEtGestion), les exemples (msgChampIdeeAide, msgChampInfoAide) et tout ce qui touche à l'événement
   né d'une idée (msgIdeeEnEvenement, msgIdeeDevenueEvenement, msgEvenementVientIdee…) sont dans la liste de chaque sorte de groupe.
+  Demande 010 : les mots de la réponse par lien (msgLien…) sont tous dans la liste commune ; aucun ne nomme le bureau, un événement
+  ni un coup de main. Les tournures de la page des parents y sont reprises mot pour mot, sous des clés neuves : les écrans des
+  coups de main gardent leurs textes.
 */
 var MOTS = {
   commun: {
@@ -380,6 +383,76 @@ var MOTS = {
       bas: "Ouvrir un autre écran"
     },
 
+    // ---------- Demande 010 : répondre par lien, sans compte ----------
+
+    // Sur le message, pour ceux qui gèrent la question
+    msgLienTitre: "Faire répondre par lien",
+    msgLienTexte: "Pour les personnes qui n'ont pas MonAsso : elles répondent Oui ou Non avec ce lien, sans créer de compte.",
+    msgLienCopier: "Copier le lien",
+    msgLienCopie: "Lien copié.",
+    msgLienCopieImpossible: "Copie impossible ici : appuyez longuement sur le lien pour le copier.",
+    msgLienAfficherQr: "Afficher le QR code",
+    msgLienMasquerQr: "Masquer le QR code",
+    msgLienQrTexte: "Faites scanner ce QR code : il ouvre la page de réponse.",
+    msgLienQrPrototype: "Dans ce prototype, le QR code est un dessin : il ne se scanne pas.",
+    msgLienPartager: "Partager le lien",
+    msgLienPartageTexte: "Répondez Oui ou Non ici, sans créer de compte : {lien}",
+    msgLienPartageImpossible: "Partage impossible ici : copiez le lien.",
+
+    // La page ouverte par le lien : la réponse, puis le prénom
+    msgLienSansCompte: "Pas besoin de compte.",
+    msgLienCompletAide: "Le nombre de Oui attendus est atteint. Vous pouvez encore répondre.",
+    msgLienVousRepondez: "Vous répondez {reponse}.",
+    msgLienChampPrenom: "Votre prénom",
+    msgLienChampInitiale: "Première lettre de votre nom",
+    msgLienChampInitialeAide: "Par exemple D pour Dupont.",
+    msgLienVisible: "Votre prénom et cette lettre ne sont montrés qu'aux personnes qui s'occupent de cette question. Aucun téléphone ni e-mail n'est demandé.",
+    msgLienEnvoyer: "Envoyer ma réponse",
+    msgLienErreurPrenom: "Indiquez votre prénom.",
+    msgLienErreurPrenomLong: "Ce prénom est un peu long : 40 lettres au plus.",
+    msgLienErreurInitiale: "Indiquez la première lettre de votre nom.",
+    msgLienErreurClose: "Cette question vient d'être close. Votre réponse n'a pas été enregistrée.",
+    msgLienInconnu: "Ce lien ne mène à aucune question.",
+    msgLienInconnuAide: "Vérifiez le lien, ou redemandez-le à la personne qui vous l'a envoyé.",
+    msgLienClose: "Cette question est close. On ne peut plus répondre.",
+
+    // Ma réponse : le lien personnel
+    msgLienNote: "C'est noté, {prenom}.",
+    msgLienMaReponse: "Votre réponse",
+    msgLienNomPublic: "Votre réponse est notée au nom de « {nom} ».",
+    msgLienAgendaAide: "L'agenda garde aussi votre lien pour changer d'avis.",
+    msgLienAgendaRetirer: "Si vous l'aviez ajouté à votre agenda, pensez à l'en retirer.",
+    msgLienGarderTitre: "Pour changer d'avis plus tard",
+    msgLienGarderTexte: "Rouvrez le lien reçu sur ce téléphone : votre réponse sera là. Ou gardez votre lien personnel.",
+    msgLienCopierLeMien: "Copier mon lien",
+    msgLienAutrePersonne: "Répondre pour une autre personne",
+    msgLienReponseInconnue: "Ce lien ne mène à aucune réponse.",
+    msgLienReponseRetiree: "Votre réponse a été retirée. Elle ne compte plus. Pour en savoir plus, demandez à la personne qui vous a envoyé le lien.",
+
+    // Dans les listes « Oui » et « Non » du message. Entre le nom et le point, l'espace est celle qui ne se coupe pas :
+    // le point n'est jamais seul en début de ligne.
+    msgLienParLien: "{nom}\u00A0· par lien",
+    msgLienNombreParLien: ["{n} réponse par lien", "{n} réponses par lien"],
+    msgLienRetirer: "Retirer cette réponse",
+    msgLienConfirmerRetrait: "Retirer la réponse de {nom} ? Elle ne comptera plus, et ne pourra pas revenir depuis le même téléphone.",
+    msgLienRetiree: "La réponse de {nom} est retirée.",
+    msgLienDejaRetiree: "Cette réponse a déjà été retirée.",
+
+    // Démo › « Voir en invité », sans question ouverte
+    msgLienDemoAucune: "Aucune question ouverte dans ce groupe.",
+    msgLienDemoAucuneAide: "Posez-en une dans « Messages », puis revenez ici.",
+
+    // Page Charte : le partage par lien (R1), le QR code de 200 px (N15), la page ouverte par lien (R2)
+    charteLien: {
+      titre: "Réponse par lien",
+      partage: "Partage par lien. Sur l'écran d'un message, les trois boutons sont à contour : « Copier le lien » n'est plein que si l'écran n'a aucun autre bouton principal.",
+      lien: "https://exemple.fr/#reponse/3f9a…",
+      page: "Page ouverte par lien : ni menu du bas, ni « Aide », ni retour vers l'application.",
+      groupe: "Les amis du jeudi",
+      question: "Qui vient jeudi ?",
+      lienPersonnel: "https://exemple.fr/#ma-reponse/7c2e…"
+    },
+
     // Page du groupe
     apparence: "Apparence",
     apparenceTexte: "Couleurs, tailles de texte et composants de l'application.",
@@ -401,6 +474,8 @@ var MOTS = {
       changerDeGroupe: "Changer de groupe",
       changerDePersonne: "Changer de personne",
       creerUnGroupe: "Créer un groupe",
+      // Demande 010 : la page publique d'une question ouverte
+      voirEnInvite: "Voir en invité",
       voirEspaceParent: "Voir l'espace parent (vide-grenier)",
       // Demande 008 : les notifications simulées, avec leur texte
       voirEnvois: "Voir ce qui serait envoyé",
@@ -529,7 +604,9 @@ var MOTS = {
       ["Comment lancer une idée ?",
         "Ouvrez « Messages », touchez « Écrire un message », puis « Lancer une idée ». Écrivez-la en une ligne, choisissez à qui, envoyez. Chacun peut dire Bonne idée."],
       ["Comment savoir qui a vu mon info ?",
-        "Ouvrez votre info dans « Messages » : le nombre de personnes qui l'ont vue est écrit sous le texte. Touchez « N'ont pas encore vu » pour lire les noms."]
+        "Ouvrez votre info dans « Messages » : le nombre de personnes qui l'ont vue est écrit sous le texte. Touchez « N'ont pas encore vu » pour lire les noms."],
+      ["Comment faire répondre ceux qui n'ont pas MonAsso ?",
+        "Ouvrez la question et touchez « Copier le lien ». Envoyez-le : chacun répond Oui ou Non, sans créer de compte."]
     ],
     aideAutreTexte: "Demandez à un organisateur du groupe.",
     lienInconnuAide: "Un organisateur du groupe peut vous aider.",
@@ -746,7 +823,9 @@ var MOTS = {
       ["Comment lancer une idée ?",
         "Ouvrez « Messages », touchez « Écrire un message », puis « Lancer une idée ». Écrivez-la en une ligne, choisissez à qui, envoyez. Chacun peut dire Bonne idée."],
       ["Comment savoir qui a vu mon info ?",
-        "Ouvrez votre info dans « Messages » : le nombre de personnes qui l'ont vue est écrit sous le texte. Touchez « N'ont pas encore vu » pour lire les noms."]
+        "Ouvrez votre info dans « Messages » : le nombre de personnes qui l'ont vue est écrit sous le texte. Touchez « N'ont pas encore vu » pour lire les noms."],
+      ["Comment faire répondre ceux qui n'ont pas MonAsso ?",
+        "Ouvrez la question et touchez « Copier le lien ». Envoyez-le : chacun répond Oui ou Non, sans créer de compte."]
     ],
     aideAutreTexte: "Demandez à un membre du bureau. Dans la vraie application, un bouton permettra d'écrire à l'équipe MonAsso.",
     lienInconnuAide: "Le bureau de l'association peut vous aider.",

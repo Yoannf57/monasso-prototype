@@ -725,6 +725,38 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 #idee-evenement, #vient-idee { overflow-wrap: anywhere; }
 #exemple-reponse-seule, #exemple-reponse-seule-choisie, #exemple-ligne-sorte, #exemple-message-texte { margin-bottom: 14px; }
 
+/* ---------- Réponse par lien (demande 010) ---------- */
+
+/* N15 · Le QR code de la question : 200 px de large, trait compris, seul sur sa ligne et centré ; les deux phrases dessous,
+   alignées à gauche. Le dessin des coups de main (88 px) est agrandi dans la même proportion. .qr-image ne change pas ailleurs. */
+.qr--grand { display: block; }
+.qr--grand .qr-image {
+  box-sizing: border-box; width: 200px; height: 200px; margin: 0 auto;
+  background:
+    linear-gradient(var(--texte), var(--texte)) 18px 18px / 50px 50px no-repeat,
+    linear-gradient(var(--texte), var(--texte)) 128px 18px / 50px 50px no-repeat,
+    linear-gradient(var(--texte), var(--texte)) 18px 128px / 50px 50px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 14px, rgba(42, 33, 28, 0.25) 14px 21px),
+    #fff;
+}
+.qr--grand p { margin-top: 12px; }
+.qr--grand p + p { margin-top: 6px; }
+/* Dans les listes « Oui » et « Non » : « Retirer cette réponse » sous le nom, aligné à gauche ; un nom très long se coupe. */
+.noms .personne-nom { min-width: 0; overflow-wrap: anywhere; }
+.noms .lien-bouton--alerte { margin-top: 0; padding: 0; text-align: left; }
+#retrait-fait { margin-bottom: 14px; }
+/* Pages ouvertes par lien : la phrase sous la paire, celle entre les champs et le bouton. */
+#sans-compte { margin-top: 10px; }
+.form-invite > .discret { margin-bottom: 16px; }
+.form-invite .retour { margin: -6px 0 10px; }
+.affiche h1, .confirmation h1, .confirmation-quoi { overflow-wrap: anywhere; }
+/* Page Charte : les exemples de la réponse par lien, hors de la section « Composants ». */
+.exemples-lien > * + * { margin-top: 14px; }
+.exemples-lien .partage { margin-bottom: 0; }
+.affiche-titre { margin-top: 2px; font-size: 2rem; line-height: 1.15; font-weight: 850; letter-spacing: -0.01em; }
+#exemple-page-lien > * + * { margin-top: 14px; }
+#exemple-page-lien .affiche { margin-bottom: 0; }
+
 /* ---------- Ordinateur ---------- */
 
 @media (min-width: 640px) {

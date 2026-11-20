@@ -58,6 +58,17 @@
   Envois de plus (groupe.envois) : "idee", "info", "idee-retenue" et "idee-classee" (vers l'auteur de l'idée seul) ;
   la relance d'une info garde la sorte "relance".
 
+  Demande 010 : répondre par lien, sans compte. Le lien ne vaut que pour une question.
+  - le code secret du lien d'une question, différent de son id, est rangé dans le groupe (groupe.liens : pour chaque question, son
+    code) ; il est fabriqué la première fois qu'on en a besoin, et la question elle-même n'en est pas changée ;
+  Dans la question :
+  - parLien : les réponses données par le lien, chacune { jeton (le lien personnel), prenom, initiale (une lettre, jamais le nom
+    entier), reponse ("oui" ou "non"), personneId (seulement si la réponse est rattachée à un destinataire) }. Ni téléphone ni e-mail ;
+  - retires : les jetons des réponses retirées par celui qui gère la question, et rien d'autre (le prénom et l'initiale sont effacés).
+  Rattachement (décision du 2026-11-19), décidé une fois, à l'envoi : si le prénom et l'initiale correspondent à un seul destinataire,
+  et qu'il n'a pas répondu, la réponse lui est rattachée et il quitte « Pas encore répondu » ; sinon elle reste « par lien ».
+  Un Oui par lien compte dans le compteur et peut faire apparaître « Complet ». Seules les réponses par lien se retirent.
+
   Les erreurs de saisie sont rendues sous forme de codes ; leurs textes sont dans mots.js.
 */
 (function (racine) {
@@ -69,7 +80,7 @@
 
   var HEURE = /^([01]\d|2[0-3]):[0-5]\d$/;
   var NOMBRE = /^\d{1,4}$/;
-  var LIMITES = { texte: 80, personnesMembre: 10, commentaire: 300, explication: 300, info: 300 };
+  var LIMITES = { texte: 80, personnesMembre: 10, commentaire: 300, explication: 300, info: 300, prenomInvite: 40 };
   // Les trois sortes de messages. Il n'y en a pas de quatrième.
   var SORTES = ["question", "idee", "info"];
 
@@ -221,20 +232,29 @@
     return m.auteurId === p.id || (Gr.peutGerer(groupe, p) && contient(m.destinataires, p.id));
   }
 
-  // "oui", "non", ou "" si la personne n'a pas répondu.
+  // "oui", "non", ou "" si la personne n'a pas répondu. Une réponse par lien rattachée à la personne (demande 010) compte comme la sienne.
   function reponse(m, personne) {
     if (!personne) { return ""; }
-    return contient(m.oui, personne.id) ? "oui" : contient(m.non, personne.id) ? "non" : "";
+    if (contient(m.oui, personne.id)) { return "oui"; }
+    if (contient(m.non, personne.id)) { return "non"; }
+    var r = reponseLienDe(m, personne.id);
+    return r ? r.reponse : "";
   }
 
   // Les trois listes, en personnes : leur total égale le nombre de destinataires.
+  // Demande 010 : lienOui et lienNon sont les réponses par lien qui ne sont rattachées à personne ; elles s'ajoutent aux listes
+  // (le total des trois listes égale alors le nombre de destinataires plus le nombre de ces réponses). nbOui compte tous les Oui.
   function decompte(groupe, m) {
     var dest = destinataires(groupe, m);
-    var oui = dest.filter(function (p) { return contient(m.oui, p.id); });
-    var non = dest.filter(function (p) { return !contient(m.oui, p.id) && contient(m.non, p.id); });
-    var sans = dest.filter(function (p) { return !contient(m.oui, p.id) && !contient(m.non, p.id); });
+    var oui = dest.filter(function (p) { return reponse(m, p) === "oui"; });
+    var non = dest.filter(function (p) { return reponse(m, p) === "non"; });
+    var sans = dest.filter(function (p) { return !reponse(m, p); });
+    var libres = reponsesLien(m).filter(function (r) { return !personneRattachee(groupe, m, r); });
+    var lienOui = libres.filter(function (r) { return r.reponse === "oui"; });
+    var lienNon = libres.filter(function (r) { return r.reponse === "non"; });
     var attendus = typeof m.attendus === "number" ? m.attendus : 0;
-    return { destinataires: dest, oui: oui, non: non, sans: sans, attendus: attendus, complet: attendus > 0 && oui.length >= attendus };
+    var nbOui = oui.length + lienOui.length;
+    return { destinataires: dest, oui: oui, non: non, sans: sans, lienOui: lienOui, lienNon: lienNon, nbOui: nbOui, attendus: attendus, complet: attendus > 0 && nbOui >= attendus };
   }
 
   function estComplet(groupe, m) { return decompte(groupe, m).complet; }
@@ -359,6 +379,10 @@
     m.oui = (m.oui || []).filter(function (x) { return x !== p.id; });
     m.non = (m.non || []).filter(function (x) { return x !== p.id; });
     m[valeur].push(p.id);
+    // Demande 010 : la réponse donnée dans l'application remplace celle du lien rattachée à cette personne, sans ligne en double.
+    if (reponsesLien(m).some(function (r) { return r.personneId === p.id; })) {
+      m.parLien = m.parLien.filter(function (r) { return r.personneId !== p.id; });
+    }
     return { ok: true, message: m, reponse: valeur };
   }
 
@@ -639,6 +663,154 @@
   // Seul l'auteur d'une info lit qui a vu (décision du 2026-11-19).
   function peutLireQuiAVu(groupe, personne, m) { return sorteDe(m) === "info" && estAuteur(groupe, personne, m); }
 
+  // ---------- Demande 010 : répondre par lien, sans compte ----------
+
+  var HORS_LETTRES = /[^A-Za-zÀ-ÖØ-öø-ÿ]/g;
+
+  // Un code secret, comme le jeton d'une inscription : 24 caractères au hasard, sans nom ni contact.
+  function nouveauCode() {
+    var octets = new Uint8Array(12);
+    racine.crypto.getRandomValues(octets);
+    return Array.prototype.map.call(octets, function (o) { return ("0" + o.toString(16)).slice(-2); }).join("");
+  }
+
+  // Pour comparer deux prénoms ou deux lettres : sans majuscules ni accents.
+  function sansAccent(t) { return nettoyer(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
+  function premiereLettre(t) { return String(t == null ? "" : t).replace(HORS_LETTRES, "").charAt(0).toUpperCase(); }
+
+  function reponsesLien(m) { return (m && m.parLien) || []; }
+
+  // Seule forme sous laquelle l'invité est affiché : prénom et initiale.
+  function nomPublicLien(r) { return r.prenom + " " + r.initiale + "."; }
+
+  // Le code du lien d'une question, s'il a déjà été fabriqué ; sinon "".
+  function codeConnu(groupe, m) {
+    var liens = groupe && groupe.liens;
+    return liens && m && Object.prototype.hasOwnProperty.call(liens, m.id) && typeof liens[m.id] === "string" ? liens[m.id] : "";
+  }
+
+  // Le code du lien d'une question ; il est fabriqué au premier besoin, et rangé dans le groupe. Rien pour une idée ou une info.
+  function codeLien(groupe, m) {
+    if (!groupe || !m || sorteDe(m) !== "question") { return ""; }
+    var code = codeConnu(groupe, m);
+    if (!code) {
+      code = nouveauCode();
+      groupe.liens = groupe.liens || {};
+      groupe.liens[m.id] = code;
+    }
+    return code;
+  }
+
+  function trouverParCode(groupe, code) {
+    if (!code || typeof code !== "string") { return null; }
+    return messages(groupe).filter(function (m) { return sorteDe(m) === "question" && codeConnu(groupe, m) === code; })[0] || null;
+  }
+
+  // Le lien est proposé à ceux qui gèrent la question, tant qu'elle est ouverte.
+  function peutPartager(groupe, personne, m, reference) {
+    return !!m && sorteDe(m) === "question" && peutGerer(groupe, personne, m) && !estClose(m, reference);
+  }
+
+  // Le destinataire auquel la réponse est rattachée, s'il est encore dans le groupe ; sinon null.
+  function personneRattachee(groupe, m, r) {
+    if (!r || !r.personneId || !contient(m.destinataires, r.personneId)) { return null; }
+    return Gr.trouverPersonne(groupe, r.personneId);
+  }
+
+  // La réponse par lien rattachée à cette personne, tant qu'elle n'a pas répondu elle-même dans l'application ; sinon null.
+  function reponseLienDe(m, personneId) {
+    if (!personneId || contient(m.oui, personneId) || contient(m.non, personneId)) { return null; }
+    return reponsesLien(m).filter(function (r) { return r.personneId === personneId; })[0] || null;
+  }
+
+  // Le nom écrit sur la ligne : celui de la personne du groupe si la réponse est rattachée, sinon « Prénom I. ».
+  function nomLien(groupe, m, r) {
+    var p = personneRattachee(groupe, m, r);
+    return p ? Gr.nomComplet(p) : nomPublicLien(r);
+  }
+
+  // saisie : reponse ("oui" ou "non"), prenom (40 lettres au plus), initiale (si un nom entier est tapé, seule la première lettre est gardée).
+  function validerInvite(saisie) {
+    var s = saisie || {};
+    var prenom = nettoyer(s.prenom), initiale = premiereLettre(s.initiale);
+    var erreurs = {};
+    if (!prenom) { erreurs.prenom = "vide"; } else if (prenom.length > LIMITES.prenomInvite) { erreurs.prenom = "long"; }
+    if (!initiale) { erreurs.initiale = "vide"; }
+    if (s.reponse !== "oui" && s.reponse !== "non") { erreurs.reponse = "invalide"; }
+    return { ok: Object.keys(erreurs).length === 0, erreurs: erreurs, valeurs: { prenom: prenom, initiale: initiale, reponse: s.reponse } };
+  }
+
+  // Répondre par le lien : aucun compte, aucun contact. Rend le jeton du lien personnel.
+  function repondreParLien(groupe, code, saisie, reference) {
+    var m = trouverParCode(groupe, code);
+    if (!m) { return { ok: false, raison: "introuvable" }; }
+    if (estClose(m, reference)) { return { ok: false, raison: "close", message: m }; }
+    var v = validerInvite(saisie);
+    if (!v.ok) { return { ok: false, raison: "saisie", erreurs: v.erreurs }; }
+    var r = { jeton: nouveauCode(), prenom: v.valeurs.prenom, initiale: v.valeurs.initiale, reponse: v.valeurs.reponse };
+    // Rattachement : un seul destinataire de ce prénom et de cette initiale, et il n'a pas répondu. Une personne sans nom
+    // enregistré n'est jamais rattachée.
+    var memes = destinataires(groupe, m).filter(function (p) {
+      return !!p.nom && sansAccent(p.prenom) === sansAccent(r.prenom) && sansAccent(premiereLettre(p.nom)) === sansAccent(r.initiale);
+    });
+    if (memes.length === 1 && !reponse(m, memes[0])) { r.personneId = memes[0].id; }
+    m.parLien = reponsesLien(m).concat([r]);
+    return { ok: true, message: m, reponse: r, jeton: r.jeton, rattachee: !!r.personneId };
+  }
+
+  // La réponse d'un lien personnel : { message, reponse }, ou null.
+  function trouverReponseLien(groupe, jeton) {
+    if (!jeton) { return null; }
+    var liste = messages(groupe);
+    for (var i = 0; i < liste.length; i++) {
+      var r = reponsesLien(liste[i]).filter(function (x) { return x.jeton === jeton; })[0];
+      if (r) { return { message: liste[i], reponse: r }; }
+    }
+    return null;
+  }
+
+  function estRetiree(m, jeton) { return !!m && !!jeton && contient(m.retires, jeton); }
+
+  // La question d'une réponse retirée (seul son jeton est gardé), ou null.
+  function trouverRetrait(groupe, jeton) {
+    return messages(groupe).filter(function (m) { return estRetiree(m, jeton); })[0] || null;
+  }
+
+  // Changer d'avis par le lien personnel : la même ligne change de liste, tant que la question est ouverte.
+  function changerReponseLien(groupe, jeton, valeur, reference) {
+    var t = trouverReponseLien(groupe, jeton);
+    if (!t) { return { ok: false, raison: trouverRetrait(groupe, jeton) ? "retiree" : "introuvable" }; }
+    if (estClose(t.message, reference)) { return { ok: false, raison: "close", message: t.message }; }
+    if (valeur !== "oui" && valeur !== "non") { return { ok: false, raison: "saisie" }; }
+    t.reponse.reponse = valeur;
+    return { ok: true, message: t.message, reponse: t.reponse };
+  }
+
+  // Retirer une réponse faite par lien, rattachée ou non : ceux qui gèrent la question, tant qu'elle est ouverte.
+  // Le prénom et l'initiale sont effacés ; seul le jeton est gardé, pour que le lien personnel dise que la réponse a été retirée.
+  function retirerReponseLien(groupe, personne, id, jeton, reference) {
+    var p = membre(groupe, personne);
+    var m = trouverVisible(groupe, p, id);
+    if (!m || sorteDe(m) !== "question") { return { ok: false, raison: "introuvable" }; }
+    if (!peutGerer(groupe, p, m)) { return { ok: false, raison: "droits" }; }
+    if (estRetiree(m, jeton)) { return { ok: false, raison: "deja", message: m }; }
+    var r = reponsesLien(m).filter(function (x) { return x.jeton === jeton; })[0];
+    if (!r) { return { ok: false, raison: "introuvable" }; }
+    if (estClose(m, reference)) { return { ok: false, raison: "close", message: m }; }
+    var nom = nomLien(groupe, m, r);
+    m.parLien = m.parLien.filter(function (x) { return x !== r; });
+    m.retires = (m.retires || []).concat([jeton]);
+    return { ok: true, message: m, nom: nom };
+  }
+
+  // Démo › « Voir en invité » : la question ouverte la plus récente du groupe ; le même jour, la dernière posée.
+  function questionOuverteRecente(groupe, reference) {
+    return messages(groupe).map(function (m, i) { return { m: m, i: i }; })
+      .filter(function (x) { return sorteDe(x.m) === "question" && !estClose(x.m, reference); })
+      .sort(function (x, y) { return ((dateCreation(y.m, reference) || 0) - (dateCreation(x.m, reference) || 0)) || (y.i - x.i); })
+      .map(function (x) { return x.m; })[0] || null;
+  }
+
   // ---------- Commentaires (demande 008) ----------
 
   function deux(n) { return (n < 10 ? "0" : "") + n; }
@@ -769,7 +941,8 @@
   // ---------- Agenda ----------
 
   // Fichier .ics du rendez-vous d'une question : une heure à partir de l'heure dite, ou la journée entière sans heure.
-  function fichierAgenda(groupe, m, maintenant) {
+  // lien (demande 010) : le lien personnel de l'invité, gardé dans l'agenda pour changer d'avis.
+  function fichierAgenda(groupe, m, maintenant, lien) {
     var jour = dateRendezVous(m, maintenant);
     if (!jour) { return ""; }
     var stamp = (maintenant ? new Date(maintenant) : new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
@@ -794,7 +967,7 @@
       "DTSTAMP:" + stamp,
       debut, fin,
       "SUMMARY:" + L.echapperIcs(m.texte),
-      "DESCRIPTION:" + L.echapperIcs(groupe.nom),
+      "DESCRIPTION:" + L.echapperIcs(groupe.nom + (lien ? "\n" + lien : "")),
       "END:VEVENT", "END:VCALENDAR"
     ].map(L.plierLigneIcs).join("\r\n") + "\r\n";
   }
@@ -866,7 +1039,24 @@
     envois: envois,
     nombreARepondre: nombreARepondre,
     prochainsRendezVous: prochainsRendezVous,
-    fichierAgenda: fichierAgenda
+    fichierAgenda: fichierAgenda,
+    reponsesLien: reponsesLien,
+    nomPublicLien: nomPublicLien,
+    nomLien: nomLien,
+    codeLien: codeLien,
+    codeConnu: codeConnu,
+    trouverParCode: trouverParCode,
+    peutPartager: peutPartager,
+    personneRattachee: personneRattachee,
+    reponseLienDe: reponseLienDe,
+    validerInvite: validerInvite,
+    repondreParLien: repondreParLien,
+    trouverReponseLien: trouverReponseLien,
+    estRetiree: estRetiree,
+    trouverRetrait: trouverRetrait,
+    changerReponseLien: changerReponseLien,
+    retirerReponseLien: retirerReponseLien,
+    questionOuverteRecente: questionOuverteRecente
   };
 
   racine.Messages = Messages;
