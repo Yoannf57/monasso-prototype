@@ -36,6 +36,10 @@
   var retraitFait = null;     // dernier retrait d'une réponse par lien, dit une fois au-dessus des listes : { id, texte }
   var autrePersonne = null;   // code du lien pour lequel on répond « pour une autre personne », sans la mémoire du téléphone
   var vientDeRepondre = null; // jeton de la réponse qui vient d'être envoyée par lien : son écran dit « C'est noté »
+  // Demande 016 : l'ordinateur commence à 1024 px (le même seuil que dans style.css).
+  var ORDI = window.matchMedia("screen and (min-width: 1024px)");
+  var colonnes = null;        // écran à deux colonnes : { sorte, ici } pour la liste seule, { sorte, ouvert } à côté d'un détail ; sinon null
+  var aReprendre = null;      // après Échap : l'adresse de l'élément qu'on vient de fermer, pour y reposer la sélection
 
   // ---------- Mémoire du navigateur ----------
 
@@ -352,7 +356,7 @@
         : blocActions;
     }
 
-    return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
+    return { titre: M("ongletAccueil"), onglet: "accueil", html: html, accueil: true };
   }
 
   // Accueil d'un groupe simple (demande 008, décision du 2026-11-19) : deux blocs, « À répondre » et « Prochains rendez-vous ».
@@ -360,7 +364,7 @@
   function ecranAccueilGroupe() {
     var g = G(), p = moi();
     var html = entete(g.nom, M("bonjour", { prenom: p.prenom }), esc(dateLongue(L.aujourdhui()))) + bandeauMessage() + blocARepondre() + blocRendezVous();
-    return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
+    return { titre: M("ongletAccueil"), onglet: "accueil", html: html, accueil: true };
   }
 
   // N10 : une ligne de rendez-vous dans un bloc. La ligne entière ouvre le message.
@@ -479,12 +483,12 @@
     if (gere()) { html += '<a class="bouton bouton--principal" id="creer-evenement" href="#evenement/nouveau">' + esc(M("creerUnEvenement")) + "</a>"; }
     html += calendrier() + sectionRendezVous(false);
     html += avenir.length
-      ? '<section><h2 class="section-titre">À venir</h2>' + avenir.map(carteEvenement).join("") + "</section>"
+      ? '<section id="evenements-a-venir"><h2 class="section-titre">À venir</h2>' + avenir.map(carteEvenement).join("") + "</section>"
       : etatVide("panneau", M("aucunEvenementAVenir"), gere() ? esc(M("aucunEvenementAide")) : "");
     if (passes.length) {
-      html += '<section class="section"><h2 class="section-titre">Passés</h2>' + passes.map(carteEvenement).join("") + "</section>";
+      html += '<section class="section" id="evenements-passes"><h2 class="section-titre">Passés</h2>' + passes.map(carteEvenement).join("") + "</section>";
     }
-    return { titre: "Événements", onglet: "evenements", html: html };
+    return { titre: "Événements", onglet: "evenements", html: html, liste: { sorte: "evenements", ici: true } };
   }
 
   // ---------- Calendrier du mois, avec le code couleur ----------
@@ -648,7 +652,7 @@
     else if (onglet === "bilan") { r = ongletBilan(e); }
     else { r = ongletActions(e); }
     var noms = { actions: "Actions", "coups-de-main": "Coups de main", bilan: "Bilan" };
-    return { titre: noms[onglet] + " — " + e.titre, onglet: "evenements", html: html + r };
+    return { titre: noms[onglet] + " — " + e.titre, onglet: "evenements", html: html + r, liste: { sorte: "evenements", ouvert: "#evenement/" + e.id } };
   }
 
   function sousOnglet(e, cle, libelle, actif) {
@@ -1183,7 +1187,9 @@
         ? '<a class="lien-suite" href="' + hrefEvenement(e, "actions") + '">' + esc(M("revenirALEvenement")) + "</a>"
         : '<button type="button" class="lien-bouton lien-bouton--alerte" data-supprimer-action="' + esc(a.id) + '">' + esc(M("supprimerCetteAction")) + "</button>") +
       "</form>";
-    return { titre: titre, onglet: "evenements", html: html, champ: nouvelle ? "libelle-action" : null };
+    // Demande 016, à l'ordinateur : les actions de l'événement restent à gauche, l'action ouverte est à droite.
+    return { titre: titre, onglet: "evenements", html: html, champ: nouvelle ? "libelle-action" : null,
+      liste: { sorte: "actions", evenement: e.id, ouvert: "#evenement/" + e.id + "/action/" + id } };
   }
 
   // « Plusieurs jours avant » montre le nombre de jours ; « À une date précise » montre la date limite.
@@ -1482,10 +1488,15 @@
     return html + "</section>";
   }
 
-  function voirSuite(bouton) {
+  function deplierSuite(bouton) {
     var suite = bouton.previousElementSibling;
     suite.hidden = false;
     bouton.remove();
+    return suite;
+  }
+
+  function voirSuite(bouton) {
+    var suite = deplierSuite(bouton);
     var premier = suite.querySelector("a");
     if (premier) { premier.focus({ preventScroll: true }); }
   }
@@ -1504,7 +1515,7 @@
         sectionMessages("en-cours", M("msgListeEnCours"), l.enCours, M("msgRienEnCours")) +
         sectionMessages("termines", M("msgListeTermines"), l.termines, M("msgRienTermine"));
     }
-    return { titre: M("msgTitre"), onglet: "messages", html: html };
+    return { titre: M("msgTitre"), onglet: "messages", html: html, liste: { sorte: "messages", ici: true } };
   }
 
   // Message inexistant, ou personne ni auteur ni destinataire : la même phrase, pour ne rien laisser deviner.
@@ -1936,7 +1947,7 @@
     // Ouvrir le message, c'est avoir lu ses commentaires : la mention « N nouveaux commentaires » disparaît de la liste.
     if (Msg.marquerVus(g, p, m)) { sauver(); }
     html += sectionCommentaires(m, close);
-    return { titre: m.texte, onglet: "messages", html: html, bande: gerable };
+    return { titre: m.texte, onglet: "messages", html: html, bande: gerable, liste: { sorte: "messages", ouvert: "#message/" + m.id } };
   }
 
   // ----- Demande 009, écran 2 : « Écrire un message », le choix entre les trois sortes -----
@@ -2104,7 +2115,7 @@
     }
     if (Msg.marquerVus(g, p, m)) { sauver(); }
     html += sectionCommentaires(m, !!m.etat);
-    return { titre: m.texte, onglet: "messages", html: html };
+    return { titre: m.texte, onglet: "messages", html: html, liste: { sorte: "messages", ouvert: "#message/" + m.id } };
   }
 
   // « Bonne idée », ou « Retirer ma réponse » : sans changer d'écran.
@@ -2163,7 +2174,7 @@
     }
     if (Msg.marquerVus(g, p, m)) { sauver(); }
     html += sectionCommentaires(m, close);
-    return { titre: debutTexte(m.texte), onglet: "messages", html: html };
+    return { titre: debutTexte(m.texte), onglet: "messages", html: html, liste: { sorte: "messages", ouvert: "#message/" + m.id } };
   }
 
   // « Vu », en un geste : depuis l'écran de l'info comme depuis le bloc « À répondre » de l'accueil. Sans retour.
@@ -2268,7 +2279,7 @@
     if (!el || !el.getClientRects().length) { return; }
     var bandeau = document.querySelector(".demo-bandeau"), bande = document.getElementById("bande-action"), menu = document.getElementById("onglets");
     var haut = (bandeau ? bandeau.getBoundingClientRect().bottom : 0) + 8;
-    var bas = (bande ? bande.getBoundingClientRect().top : menu && !menu.hidden ? menu.getBoundingClientRect().top : window.innerHeight) - 8;
+    var bas = (bande ? bande.getBoundingClientRect().top : menu && !menu.hidden && !ORDI.matches ? menu.getBoundingClientRect().top : window.innerHeight) - 8;
     var r = el.getBoundingClientRect();
     if (r.bottom > bas) { window.scrollBy(0, r.bottom - bas); }
     else if (r.top < haut) { window.scrollBy(0, r.top - haut); }
@@ -3693,6 +3704,13 @@
     document.body.classList.toggle("espace-bureau", !parent);
     // Demande 007d : un écran qui porte la bande du bouton garde en bas de page une réserve de sa hauteur.
     document.body.classList.toggle("avec-bande", !!r.bande);
+    // Demande 016 : la disposition de l'écran à l'ordinateur (la feuille de style ne s'en sert qu'à partir de 1024 px).
+    colonnes = !parent && r.liste ? r.liste : null;
+    document.body.classList.toggle("deux-colonnes", !!colonnes);
+    document.body.classList.toggle("liste-ici", !!colonnes && !!colonnes.ici);
+    document.body.classList.toggle("ecran-accueil", !parent && !!r.accueil);
+    var nomMenu = document.querySelector("#menu-groupe .menu-nom");
+    if (nomMenu) { nomMenu.textContent = G().nom; }
     document.getElementById("onglets").hidden = parent;
     document.getElementById("demo-retour").hidden = !parent;
     // Demande 010 : depuis une page ouverte par lien, le retour du testeur ramène au message ; la page porte la couleur du groupe de la question.
@@ -3706,7 +3724,14 @@
       ? Array.prototype.map.call(vue.querySelectorAll("details[open][id]"), function (d) { return d.id; }) : [];
     // Lien « Aide » en haut de chaque écran (sauf l'espace parent et la page d'aide elle-même).
     var aide = parent || r.aide ? "" : '<a class="lien-aide" id="lien-aide" href="#aide">' + esc(M("lienAide")) + "</a>";
-    vue.innerHTML = aide + r.html;
+    // À l'ordinateur, la liste seule va dans la colonne de gauche : la colonne de droite attend qu'on choisisse, elle n'ouvre rien d'elle-même.
+    var liste = document.getElementById("liste");
+    var aGauche = ORDI.matches && !!colonnes && !!colonnes.ici;
+    vue.innerHTML = aide + (aGauche ? "" : r.html);
+    if (ORDI.matches && colonnes) {
+      remplirListe(colonnes, aGauche ? r.html : undefined);
+      if (aGauche) { poserRienChoisi(colonnes); }
+    } else { viderListe(); }
     ouverts.forEach(function (id) { var d = document.getElementById(id); if (d && d.tagName === "DETAILS") { d.open = true; } });
     poserBande();
     poserPastille();
@@ -3720,17 +3745,193 @@
     } else {
       window.scrollTo(0, 0);
       var champ = r.champ && document.getElementById("champ-" + r.champ);
-      var h1 = vue.querySelector("h1");
+      var h1 = (aGauche ? liste : vue).querySelector("h1");
+      // Après Échap : la sélection revient sur la ligne de l'élément qu'on vient de fermer.
+      var repris = aReprendre && aGauche ? lienDeLaListe(liste, aReprendre) : null;
       // r.curseur (demande 010, écran du prénom) : le curseur est déjà dans le champ, même quand la page est ouverte par son adresse.
       if (champ && ((options && options.focus) || r.curseur)) { champ.focus({ preventScroll: true }); }
+      else if (repris && options && options.focus) { repris.focus({ preventScroll: true }); }
       else if (h1 && options && options.focus) { h1.focus({ preventScroll: true }); }
     }
+    aReprendre = null;
   }
+
+  // ---------- Demande 016 : l'ordinateur ----------
+  // À partir de 1024 px, Messages et Événements s'affichent en deux colonnes : la liste à gauche (#liste), le détail à droite (#vue).
+  // La feuille de style fait toute la mise en page. Ici, on remplit seulement la colonne de gauche quand la fenêtre est assez large,
+  // et on la vide quand elle ne l'est plus : rien n'est rechargé, l'écran de droite n'est pas redessiné.
+
+  function cleListe(l) { return l.sorte + (l.evenement ? ":" + l.evenement : ""); }
+
+  // La colonne de gauche à côté d'un détail ouvert : le même écran que la liste seule.
+  function htmlListe(l) {
+    var garde = message; // une phrase de confirmation en attente appartient à l'écran de droite, pas à la liste
+    message = null;
+    var html = l.sorte === "messages" ? ecranMessages().html : l.sorte === "actions" ? ecranEvenement(l.evenement, "actions").html : ecranEvenements().html;
+    message = garde;
+    return html;
+  }
+
+  function lienDeLaListe(liste, href) {
+    return Array.prototype.filter.call(liste.querySelectorAll("a.carte[href], a.action-texte--lien[href]"), function (a) { return a.getAttribute("href") === href; })[0] || null;
+  }
+
+  // Essai 2 (remarque de l'ergonomie) : à l'ordinateur, dans la colonne de gauche, « À venir » passe avant le calendrier, pour que
+  // la liste se voie sans défiler ; le calendrier, ses boutons, sa légende et les rendez-vous du mois suivent, puis « Passés ».
+  // Les éléments sont déplacés, pas redessinés : l'ordre de tabulation suit l'ordre affiché. Au téléphone (ordi faux), l'ordre d'avant.
+  function ordonnerEvenements(conteneur, ordi) {
+    var enfants = Array.prototype.slice.call(conteneur.children);
+    var cal = enfants.filter(function (e) { return e.classList.contains("calendrier"); })[0];
+    var avenir = enfants.filter(function (e) { return e.id === "evenements-a-venir" || e.classList.contains("vide"); })[0];
+    var passes = enfants.filter(function (e) { return e.id === "evenements-passes"; })[0] || null;
+    if (!cal || !avenir) { return; }
+    conteneur.insertBefore(avenir, ordi ? cal : passes);
+  }
+
+  // html : l'écran de la liste, déjà calculé ; sans lui, la liste est calculée ici.
+  // La même liste redessinée garde sa place : défilement, replis ouverts ou fermés, suites dépliées.
+  function remplirListe(l, html) {
+    var liste = document.getElementById("liste");
+    var cle = cleListe(l), meme = liste.getAttribute("data-cle") === cle;
+    var haut = meme ? liste.scrollTop : 0;
+    var replis = meme ? Array.prototype.map.call(liste.querySelectorAll("details[id]"), function (d) { return [d.id, d.open]; }) : [];
+    var suites = meme ? Array.prototype.map.call(liste.querySelectorAll("section[id] > .suite-liste:not([hidden])"), function (x) { return x.parentNode.id; }) : [];
+    liste.innerHTML = html === undefined ? htmlListe(l) : html;
+    liste.setAttribute("data-cle", cle);
+    if (l.sorte === "evenements") { ordonnerEvenements(liste, true); }
+    replis.forEach(function (x) { var d = document.getElementById(x[0]); if (d && d.tagName === "DETAILS" && liste.contains(d)) { d.open = x[1]; } });
+    suites.forEach(function (id) {
+      var s = document.getElementById(id), b = s && liste.contains(s) ? s.querySelector("[data-voir-suite]") : null;
+      if (b) { deplierSuite(b); }
+    });
+    if (!l.ici) { habillerListe(liste, l); }
+    liste.scrollTop = haut;
+    var choisi = liste.querySelector('a.carte[aria-current="true"], a.action-texte--lien[aria-current="true"]');
+    if (choisi) {
+      var r = choisi.getBoundingClientRect(), z = liste.getBoundingClientRect();
+      if (r.top < z.top + 8) { liste.scrollTop -= z.top + 8 - r.top; }
+      else if (r.bottom > z.bottom - 8) { liste.scrollTop += r.bottom - (z.bottom - 8); }
+    }
+  }
+
+  // À côté d'un détail ouvert : la ligne de l'élément ouvert est marquée (et visible, même rangée dans une suite ou un repli) ;
+  // le bouton principal de la liste devient secondaire, celui de l'écran de droite reste le seul ; le titre de la liste passe au second rang.
+  function habillerListe(liste, l) {
+    Array.prototype.forEach.call(liste.querySelectorAll(".bouton--principal"), function (b) {
+      b.classList.remove("bouton--principal");
+      b.classList.add("bouton--secondaire");
+    });
+    var h1 = liste.querySelector("h1");
+    if (h1) { h1.setAttribute("aria-level", "2"); }
+    var choisi = lienDeLaListe(liste, l.ouvert);
+    if (!choisi) { return; }
+    choisi.setAttribute("aria-current", "true");
+    var suite = choisi.closest(".suite-liste");
+    if (suite && suite.hidden && suite.nextElementSibling && suite.nextElementSibling.hasAttribute("data-voir-suite")) { deplierSuite(suite.nextElementSibling); }
+    var repli = choisi.closest("details");
+    if (repli) { repli.open = true; }
+  }
+
+  function viderListe() {
+    var liste = document.getElementById("liste");
+    liste.innerHTML = "";
+    liste.removeAttribute("data-cle");
+  }
+
+  // Tant que rien n'est choisi, la colonne de droite dit quoi faire, en une phrase. Liste vide : rien à choisir, pas de phrase.
+  function poserRienChoisi(l) {
+    var rien = document.getElementById("rien-choisi");
+    if (rien) { rien.remove(); }
+    if (!document.querySelector("#liste a.carte")) { return; }
+    document.getElementById("vue").insertAdjacentHTML("beforeend",
+      '<div class="rien-choisi" id="rien-choisi"><p>' + esc(M(l.sorte === "messages" ? "ordiChoisirMessage" : "ordiChoisirEvenement")) + "</p></div>");
+  }
+
+  // La fenêtre passe le seuil de 1024 px, dans un sens ou dans l'autre : la liste change de colonne telle qu'elle est,
+  // l'écran de droite n'est pas touché (un texte en cours de frappe reste), le curseur reste où il était.
+  function disposer() {
+    var vue = document.getElementById("vue"), liste = document.getElementById("liste");
+    if (colonnes) {
+      var actif = document.activeElement;
+      if (ORDI.matches) {
+        if (colonnes.ici) {
+          liste.innerHTML = "";
+          Array.prototype.slice.call(vue.childNodes).forEach(function (n) { if (n.id !== "lien-aide") { liste.appendChild(n); } });
+          liste.setAttribute("data-cle", cleListe(colonnes));
+          if (colonnes.sorte === "evenements") { ordonnerEvenements(liste, true); }
+          poserRienChoisi(colonnes);
+        } else { remplirListe(colonnes); }
+      } else {
+        if (colonnes.ici) {
+          var rien = document.getElementById("rien-choisi");
+          if (rien) { rien.remove(); }
+          while (liste.firstChild) { vue.appendChild(liste.firstChild); }
+          if (colonnes.sorte === "evenements") { ordonnerEvenements(vue, false); }
+        }
+        viderListe();
+      }
+      if (actif && actif !== document.activeElement && document.body.contains(actif) && actif.focus) { actif.focus({ preventScroll: true }); }
+    }
+    poserBande();
+  }
+  if (ORDI.addEventListener) { ORDI.addEventListener("change", disposer); } else if (ORDI.addListener) { ORDI.addListener(disposer); }
+
+  // Clavier. Entrée valide un formulaire depuis un champ d'une ligne (le navigateur le fait seul) ; dans une zone de plusieurs lignes,
+  // Entrée va à la ligne et Ctrl + Entrée (ou Cmd + Entrée) valide. Échap ferme, dans cet ordre : le menu Démo, le repli où se trouve
+  // le curseur, puis, à l'ordinateur, le détail ouvert à droite (on revient à la liste seule).
+  document.addEventListener("keydown", function (ev) {
+    if (ev.defaultPrevented) { return; }
+    var c = ev.target && ev.target.tagName ? ev.target : document.body;
+    if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey) && c.tagName === "TEXTAREA" && c.form) {
+      ev.preventDefault();
+      if (c.form.requestSubmit) { c.form.requestSubmit(); } else { var b = c.form.querySelector('[type="submit"]'); if (b) { b.click(); } }
+      return;
+    }
+    if (ev.key !== "Escape") { return; }
+    // Sur une liste déroulante, Échap referme la liste (le navigateur le fait) : rien d'autre ne se ferme à ce moment-là.
+    if (c.tagName === "SELECT") { return; }
+    if (!document.getElementById("demo-menu").hidden) {
+      basculerMenu(false);
+      document.getElementById("demo-ouvrir").focus();
+      return;
+    }
+    var repli = c.closest("details[open]");
+    if (repli) {
+      repli.open = false;
+      var titre = repli.querySelector("summary");
+      if (titre) { titre.focus(); }
+      return;
+    }
+    // Un champ où l'on a écrit : Échap ne fait rien perdre.
+    if ((c.tagName === "INPUT" || c.tagName === "TEXTAREA") && c.type !== "radio" && c.type !== "checkbox" && c.value) { return; }
+    if (ORDI.matches && colonnes && !colonnes.ici) {
+      ev.preventDefault();
+      aReprendre = colonnes.ouvert;
+      location.hash = colonnes.sorte === "messages" ? "#messages" : colonnes.sorte === "actions" ? "#evenement/" + colonnes.evenement + "/actions" : "#evenements";
+    }
+  });
+
+  // Impression : les replis fermés sont ouverts le temps d'imprimer, puis refermés.
+  window.addEventListener("beforeprint", function () {
+    Array.prototype.forEach.call(document.querySelectorAll("#vue details:not([open]), #liste details:not([open])"), function (d) {
+      d.setAttribute("data-ouvert-pour-imprimer", "");
+      d.open = true;
+    });
+  });
+  window.addEventListener("afterprint", function () {
+    Array.prototype.forEach.call(document.querySelectorAll("details[data-ouvert-pour-imprimer]"), function (d) {
+      d.removeAttribute("data-ouvert-pour-imprimer");
+      d.open = false;
+    });
+  });
 
   // La bande du bouton se pose juste au-dessus du menu, quelle que soit sa hauteur réelle (marge basse du téléphone comprise).
   function poserBande() {
     var bande = document.getElementById("bande-action"), menu = document.getElementById("onglets");
-    if (bande && menu && !menu.hidden && menu.offsetHeight) { bande.style.bottom = menu.offsetHeight + "px"; }
+    if (!bande) { return; }
+    // Demande 016 : à l'ordinateur, le menu est sur le côté ; la bande est en bas de la fenêtre (feuille de style).
+    if (ORDI.matches) { bande.style.bottom = ""; return; }
+    if (menu && !menu.hidden && menu.offsetHeight) { bande.style.bottom = menu.offsetHeight + "px"; }
   }
   window.addEventListener("resize", poserBande);
 
@@ -3765,7 +3966,10 @@
     var entrees = [["accueil", "#accueil", M("ongletAccueil")], ["messages", "#messages", M("ongletMessages")]];
     if (estAsso()) { entrees.push(["evenements", "#evenements", M("ongletEvenements")]); }
     entrees.push(["groupe", hrefGroupe(), M("ongletGroupe")]);
-    document.getElementById("onglets").innerHTML = entrees.map(function (x) { return lienOnglet(x[0], x[1], x[2], 0); }).join("");
+    // Demande 016 : le nom et la couleur du groupe, en tête du menu de gauche (ordinateur seulement ; cachés sous 1024 px).
+    document.getElementById("onglets").innerHTML = '<p class="menu-groupe" id="menu-groupe"><span class="menu-couleur" aria-hidden="true"></span>' +
+      '<span class="menu-nom">' + esc(G().nom) + "</span></p>" +
+      entrees.map(function (x) { return lienOnglet(x[0], x[1], x[2], 0); }).join("");
     poserPastille();
   }
 

@@ -20,10 +20,14 @@
     <div class="demo-menu" id="demo-menu" hidden></div>
   </div>
 
-  <main id="vue" class="vue" tabindex="-1"></main>
-
-  <!-- Menu du bas (rempli par js/app.js selon la sorte de groupe). -->
+  <!-- Menu (rempli par js/app.js selon la sorte de groupe) : barre du bas au téléphone, colonne de gauche à l'ordinateur.
+       Il vient avant le contenu, pour être rejoint en premier au clavier. -->
   <nav class="onglets" id="onglets" aria-label="Menu principal"></nav>
+
+  <!-- À l'ordinateur, la liste (Messages, Événements) quand l'écran est en deux colonnes ; vide au téléphone. -->
+  <div class="liste" id="liste"></div>
+
+  <main id="vue" class="vue" tabindex="-1"></main>
 
   <noscript><p class="vue">Ce prototype a besoin de JavaScript pour fonctionner.</p></noscript>
 

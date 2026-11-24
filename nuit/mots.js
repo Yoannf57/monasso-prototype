@@ -27,6 +27,8 @@
   Demande 010 : les mots de la réponse par lien (msgLien…) sont tous dans la liste commune ; aucun ne nomme le bureau, un événement
   ni un coup de main. Les tournures de la page des parents y sont reprises mot pour mot, sous des clés neuves : les écrans des
   coups de main gardent leurs textes.
+  Demande 016 : deux phrases pour l'ordinateur (ordi…), celle des messages dans la liste commune, celle des événements dans la liste
+  « association ».
 */
 var MOTS = {
   commun: {
@@ -561,7 +563,10 @@ var MOTS = {
 
     // Pages d'erreur
     pageIntrouvable: "Cette page n'existe pas.",
-    pageIntrouvableAide: "Le lien est peut-être incomplet."
+    pageIntrouvableAide: "Le lien est peut-être incomplet.",
+
+    // Demande 016, à l'ordinateur : la colonne de droite tant qu'aucun message n'est choisi dans la liste
+    ordiChoisirMessage: "Choisissez un message dans la liste."
   },
 
   simple: {
@@ -619,6 +624,8 @@ var MOTS = {
   },
 
   association: {
+    // Demande 016, à l'ordinateur : la colonne de droite tant qu'aucun événement n'est choisi dans la liste
+    ordiChoisirEvenement: "Choisissez un événement dans la liste.",
     ongletGroupe: "Association",
     surtitreGroupe: "Association",
     roleGestion: "bureau",

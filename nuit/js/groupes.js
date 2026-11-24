@@ -258,6 +258,10 @@
   // un texte là où on attend un texte, un nombre là où on attend un nombre).
   // Un seul champ qui ne va pas fait refuser tout le fichier.
   function estTexte(v) { return typeof v === "string"; }
+  // L'initiale d'une réponse par lien : une lettre, une seule, comme à la saisie (décision du 2026-11-24).
+  // Un nom entier, un chiffre ou un signe glissé dans un fichier d'essai fait refuser le fichier.
+  var UNE_LETTRE = /^[A-Za-zÀ-ÖØ-öø-ÿ]$/;
+  function estInitiale(v) { return typeof v === "string" && UNE_LETTRE.test(v); }
   function texteOuRien(v) { return v === undefined || v === null || typeof v === "string"; }
   function estNombre(v) { return typeof v === "number" && isFinite(v); }
   function nombreOuRien(v) { return v === undefined || v === null || estNombre(v); }
@@ -326,7 +330,7 @@
       (m.parLien === undefined || m.parLien === null || liste(m.parLien, reponseLienValide)) && listeIdsOuRien(m.retires);
   }
   function reponseLienValide(r) {
-    return estId(r.jeton) && estTexte(r.prenom) && estTexte(r.initiale) && (r.reponse === "oui" || r.reponse === "non") && idOuRien(r.personneId);
+    return estId(r.jeton) && estTexte(r.prenom) && estInitiale(r.initiale) && (r.reponse === "oui" || r.reponse === "non") && idOuRien(r.personneId);
   }
   function commentaireValide(c) {
     return estId(c.id) && estNombre(c.n) && estId(c.auteurId) && texteOuRien(c.auteur) && estTexte(c.texte) &&
