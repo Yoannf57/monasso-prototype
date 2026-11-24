@@ -18,6 +18,9 @@
   var Ev = window.Evenements;
   var Msg = window.Messages;
   var CLE = "monasso-prototype-groupes"; // les essais des versions précédentes restent à part
+  // Demande 010 : ce que le téléphone de l'invité garde, à part de l'état de l'application : pour chaque lien de question ouvert,
+  // les jetons des réponses envoyées depuis ce téléphone. Ni prénom, ni initiale, ni réponse.
+  var CLE_INVITE = "monasso-prototype-invite";
   var FOND = "#FFF7EC"; // même valeur que --fond dans style.css
   var etat = charger();
   var creneauOuvert = null;   // créneau dont le formulaire est déplié (espace parent)
@@ -27,6 +30,12 @@
   var message = null;         // phrase de confirmation montrée une fois sur l'écran suivant
   var reponseAccueil = null;  // dernière réponse donnée depuis l'accueil : { id, reponse }
   var reglageEnregistre = false; // « Réglage enregistré. », montré une fois sur la page du groupe
+  var commentaireFait = null; // dernier geste sur un commentaire, dit une fois sous le champ : { id, quoi }
+  var anciensDeplies = null;  // message dont les commentaires plus anciens sont dépliés
+  var qrLienVisible = false;  // QR code du lien d'une question, déplié (demande 010)
+  var retraitFait = null;     // dernier retrait d'une réponse par lien, dit une fois au-dessus des listes : { id, texte }
+  var autrePersonne = null;   // code du lien pour lequel on répond « pour une autre personne », sans la mémoire du téléphone
+  var vientDeRepondre = null; // jeton de la réponse qui vient d'être envoyée par lien : son écran dit « C'est noté »
 
   // ---------- Mémoire du navigateur ----------
 
@@ -57,6 +66,9 @@
 
   function reinitialiser() {
     try { window.localStorage.removeItem(CLE); } catch (err) { /* rien */ }
+    // Demande 010 : les réponses par lien repartent avec les données d'origine ; la mémoire du téléphone est effacée aussi.
+    try { window.localStorage.removeItem(CLE_INVITE); } catch (err) { /* rien */ }
+    qrLienVisible = false; retraitFait = null; autrePersonne = null; vientDeRepondre = null;
     etat = etatInitial();
     creneauOuvert = null;
     annulationFaite = null;
@@ -65,6 +77,8 @@
     message = null;
     reponseAccueil = null;
     reglageEnregistre = false;
+    commentaireFait = null;
+    anciensDeplies = null;
     appliquerCouleur();
   }
 
@@ -108,8 +122,9 @@
   function nomEquipe(e) { return e.bureau ? M("equipeBureau") : e.nom; }
 
   // La couleur principale du groupe remplace celle de la charte.
-  function appliquerCouleur() {
-    var p = L.paletteAssociation(G().couleur, FOND);
+  // groupe : celui de la question, sur une page ouverte par lien (demande 010) ; sinon le groupe ouvert.
+  function appliquerCouleur(groupe) {
+    var p = L.paletteAssociation((groupe || G()).couleur, FOND);
     var s = document.documentElement.style;
     s.setProperty("--principale", p.principale);
     s.setProperty("--principale-fond", p.principaleFond);
@@ -305,7 +320,8 @@
     if (prochain) {
       var retards = prochain.actions.filter(function (a) { return L.estEnRetard(a, prochain); }).length;
       var infos = [];
-      if (retards) { infos.push('<span class="texte-alerte">' + pluriel(retards, "action en retard", "actions en retard") + "</span>"); }
+      // Demande 008 : la ligne « N actions en retard » de ce bloc n'est montrée qu'au bureau.
+      if (retards && gere()) { infos.push('<span class="texte-alerte">' + pluriel(retards, "action en retard", "actions en retard") + "</span>"); }
       if (prochain.creneaux.length) { infos.push(L.compterInscrits(prochain) + " coups de main sur " + esc(L.compterPlaces(prochain))); }
       html += '<a class="carte" id="bloc-prochain" href="#evenement/' + esc(prochain.id) + '">' +
         '<span class="carte-etiquette">Prochain événement ' + etiquettePreparation(prochain) + "</span>" +
@@ -326,28 +342,47 @@
     // Demande 007c : pour le bureau, la ligne des créneaux est un lien à elle, vers la liste des créneaux en manque ;
     // le reste du bloc ouvre toujours « Mes actions ». Sans la ligne, le bloc reste une carte.
     var nbManque = rappels().length;
-    html += nbManque
-      ? '<div class="bloc-liens">' + blocActions +
-        '<a class="lien-suite" id="ligne-rappels" href="#creneaux-manquants">' + esc(Mn("accueilRappelsCreneaux", nbManque)) + "</a></div>"
-      : blocActions;
+    // Demande 008 (décisions du 2026-11-19) : pas de bloc pour qui n'a aucune action, faite ou à faire, quel que soit son rôle.
+    // Seule exception, pour tenir aussi « la ligne des créneaux reste dans Mes actions à faire » : une personne du bureau sans action
+    // garde le bloc tant qu'il reste des créneaux en manque ; il porte alors cette ligne (nbManque vaut toujours 0 hors du bureau).
+    if (L.aDesActions(G(), p) || nbManque) {
+      html += nbManque
+        ? '<div class="bloc-liens">' + blocActions +
+          '<a class="lien-suite" id="ligne-rappels" href="#creneaux-manquants">' + esc(Mn("accueilRappelsCreneaux", nbManque)) + "</a></div>"
+        : blocActions;
+    }
 
     return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
   }
 
-  // Accueil d'un groupe simple : « À répondre », ses personnes et mes équipes.
+  // Accueil d'un groupe simple (demande 008, décision du 2026-11-19) : deux blocs, « À répondre » et « Prochains rendez-vous ».
+  // « Personnes » et « Mes équipes » sont dans l'onglet « Groupe ».
   function ecranAccueilGroupe() {
     var g = G(), p = moi();
-    var miennes = Gr.equipesDePersonne(g, p.id).map(nomEquipe);
-    var html = entete(g.nom, M("bonjour", { prenom: p.prenom }), esc(dateLongue(L.aujourdhui()))) + bandeauMessage() + blocARepondre() +
-      '<a class="carte" id="bloc-personnes" href="#personnes">' +
-      '<span class="carte-etiquette">' + esc(M("accueilPersonnes")) + "</span>" +
-      '<span class="carte-titre">' + esc(Mn("nPersonnes", g.personnes.length)) + "</span>" +
-      '<span class="carte-quand">' + esc(compteRoles(g)) + "</span></a>" +
-      '<a class="carte" id="bloc-equipes" href="#equipes">' +
-      '<span class="carte-etiquette">' + esc(M("accueilMesEquipes")) + "</span>" +
-      '<span class="carte-titre">' + esc(miennes.length ? miennes.join(", ") : M("accueilAucuneEquipe")) + "</span>" +
-      '<span class="carte-quand">' + esc(Mn("nEquipes", Gr.equipes(g).length)) + "</span></a>";
+    var html = entete(g.nom, M("bonjour", { prenom: p.prenom }), esc(dateLongue(L.aujourdhui()))) + bandeauMessage() + blocARepondre() + blocRendezVous();
     return { titre: M("ongletAccueil"), onglet: "accueil", html: html };
+  }
+
+  // N10 : une ligne de rendez-vous dans un bloc. La ligne entière ouvre le message.
+  function ligneRendezVous(href, quand, question, compteur) {
+    return '<li><a class="personne personne--lien" href="' + href + '">' +
+      '<span class="personne-detail">' + esc(quand) + "</span>" +
+      '<span class="personne-nom">' + esc(question) + "</span>" +
+      '<span class="personne-detail">' + esc(compteur) + "</span></a></li>";
+  }
+
+  // « Prochains rendez-vous » : les trois prochains au plus, le plus proche d'abord ; « Voir le calendrier » en dernière ligne, toujours.
+  function blocRendezVous() {
+    var g = G();
+    var liste = Msg.prochainsRendezVous(g, moi()).slice(0, 3);
+    return '<section class="bloc-reponse" id="bloc-rendez-vous" aria-labelledby="titre-rendez-vous">' +
+      '<h2 class="carte-etiquette" id="titre-rendez-vous">' + esc(M("msgAccueilRendezVous")) + "</h2>" +
+      (liste.length
+        ? '<ul class="lignes-bloc">' + liste.map(function (x) {
+          return ligneRendezVous("#message/" + esc(x.message.id), quandRendezVous(x.message), x.message.texte, texteCompteur(Msg.decompte(g, x.message)));
+        }).join("") + "</ul>"
+        : '<p class="calme">' + esc(M("msgAucunRendezVous")) + '</p><p class="calme">' + esc(M("msgAucunRendezVousAide")) + "</p>") +
+      '<a class="lien-suite" id="voir-calendrier" href="#calendrier">' + esc(M("msgVoirCalendrier")) + "</a></section>";
   }
 
   // ---------- Détail : mes actions (ou toutes) ----------
@@ -571,6 +606,8 @@
   function ecranEvenement(id, onglet, sous) {
     // Créer un événement : le bureau seul ; les autres retrouvent la liste, sans message.
     if (id === "nouveau" && !onglet) { return gere() ? ecranCreerEvenement() : ecranEvenements(); }
+    // Demande 009, écran 9 : le même écran, prérempli avec le titre d'une idée retenue ; même règle pour qui n'est pas du bureau.
+    if (id === "nouveau" && onglet === "idee" && sous) { return gere() ? ecranCreerEvenement(sous) : ecranEvenements(); }
     var e = L.trouverEvenement(G(), id);
     if (!e) { return introuvable(); }
     // Modifier, supprimer et refaire l'événement (demande 006b) : le bureau seul, événement à venir ou passé ;
@@ -593,8 +630,11 @@
       onglet = passe && e.bilan ? "bilan" : "actions";
     }
     var date = L.dateEvenement(e);
+    // Demande 009 : l'idée d'où vient l'événement, pour qui a le droit de la voir ; les autres ne voient rien à cette place.
+    var idee = Msg.ideeDeLEvenement(G(), moi(), e);
     var html = retour("#evenements", "Événements") +
       entete(quandOu(e, dateLongue(date) + (passe ? " " + date.getFullYear() : "")), e.titre, etiquettePreparation(e)) +
+      (idee ? '<p><a class="lien-suite" id="vient-idee" href="#message/' + esc(idee.id) + '">' + esc(M("msgEvenementVientIdee", { titre: idee.texte })) + "</a></p>" : "") +
       bandeauMessage() +
       // Rubrique Actions, bureau seulement : « Modifier l'événement », entre l'en-tête et les rubriques.
       (onglet === "actions" && gere() ? '<p><a class="lien-suite" id="modifier-evenement" href="' + hrefEvenement(e, "modifier") + '">' + esc(M("modifierLEvenement")) + "</a></p>" : "") +
@@ -875,8 +915,10 @@
         if (texte) { zone.setAttribute("data-code", code); } else { zone.removeAttribute("data-code"); }
       }
       var el = form.querySelector("#champ-" + n);
-      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", texte ? "true" : "false"); }
-      if (texte && !premier) { premier = el && el.tagName === "INPUT" ? el : form.querySelector("#champ-" + n + " input"); }
+      // Une zone de saisie sur plusieurs lignes est un champ comme un autre (demande 009).
+      var saisie = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+      if (saisie) { el.setAttribute("aria-invalid", texte ? "true" : "false"); }
+      if (texte && !premier) { premier = saisie ? el : form.querySelector("#champ-" + n + " input"); }
     });
     if (premier) { premier.focus(); }
     return !!premier;
@@ -899,7 +941,7 @@
       zone.textContent = "";
       zone.removeAttribute("data-code");
       var el = form.querySelector("#champ-" + nom);
-      if (el && el.tagName === "INPUT") { el.setAttribute("aria-invalid", "false"); }
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) { el.setAttribute("aria-invalid", "false"); }
     }
     effacer(c.name);
     if (ERREURS_A_DEUX[c.name]) { effacer(ERREURS_A_DEUX[c.name], CODES_A_DEUX); }
@@ -932,10 +974,21 @@
   }
 
   // Écran 2 : créer un événement. Seuls le nom et la date sont obligatoires.
-  function ecranCreerEvenement() {
-    var html = retour("#evenements", M("ongletEvenements")) + entete(G().nom, M("creerUnEvenement")) +
-      '<form class="form-evenement" novalidate>' +
-      champ("nom-evenement", M("champNomEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"', M("champNomEvenementAide")) +
+  // Demande 009, écran 9 (ideeId) : le nom est rempli avec le titre d'une idée retenue, coupé à 60 caractères ; le curseur est
+  // dans la date ; le retour mène à l'idée. Rien d'autre ne change.
+  function ecranCreerEvenement(ideeId) {
+    var idee = null, propose = null;
+    if (ideeId) {
+      idee = Msg.trouverVisible(G(), moi(), ideeId);
+      if (!idee || Msg.sorte(idee) !== "idee") { return messageIntrouvable(); }
+      // Idée qui n'est pas retenue, ou déjà devenue un événement : l'idée elle-même.
+      if (!Msg.peutEnFaireUnEvenement(G(), moi(), idee)) { return ecranMessage(ideeId); }
+      propose = Msg.nomEvenementPropose(idee);
+    }
+    var html = (idee ? retour("#message/" + esc(idee.id), idee.texte) : retour("#evenements", M("ongletEvenements"))) + entete(G().nom, M("creerUnEvenement")) +
+      '<form class="form-evenement"' + (idee ? ' data-idee="' + esc(idee.id) + '"' : "") + " novalidate>" +
+      champ("nom-evenement", M("champNomEvenement"), 'autocomplete="off" autocapitalize="sentences" maxlength="60"' + (idee ? ' value="' + esc(propose.nom) + '"' : ""),
+        M("champNomEvenementAide"), "", "", propose && propose.raccourci ? M("msgIdeeNomRaccourci") : "") +
       champ("date-evenement", M("champDateEvenement"), 'min="' + esc(Ev.ecrireDate(L.aujourdhui())) + '"', "", "date") +
       champ("debut-evenement", M("champDebutEvenement"), "", "", "time") +
       champ("fin-evenement", M("champFinEvenement"), "", "", "time") +
@@ -943,7 +996,7 @@
       '<p class="erreur-generale" role="alert"></p>' +
       '<button type="submit" class="bouton bouton--principal">' + esc(M("creerLEvenement")) + "</button>" +
       "</form>";
-    return { titre: M("creerUnEvenement"), onglet: "evenements", html: html, champ: "nom-evenement" };
+    return { titre: M("creerUnEvenement"), onglet: "evenements", html: html, champ: idee ? "date-evenement" : "nom-evenement" };
   }
 
   // Les erreurs du formulaire d'événement (création et modification) ; rend vrai s'il y en a.
@@ -977,9 +1030,11 @@
     // Le même formulaire sert à modifier l'événement (écran 9) ; celui de la copie n'a qu'une date (écran 11).
     if (form.hasAttribute("data-refaire")) { envoyerCopie(form); return; }
     if (form.hasAttribute("data-evenement")) { envoyerModification(form); return; }
-    var r = Ev.creerEvenement(G(), moi(), saisieEvenement(form));
+    // Demande 009 : né d'une idée retenue, l'événement et l'idée gardent le lien l'un vers l'autre.
+    var ideeId = form.getAttribute("data-idee");
+    var r = ideeId ? Msg.creerEvenementDepuisIdee(G(), moi(), ideeId, saisieEvenement(form)) : Ev.creerEvenement(G(), moi(), saisieEvenement(form));
     if (erreursEvenement(form, r)) { return; }
-    if (!r.ok) { aller("#evenements"); return; }
+    if (!r.ok) { aller(ideeId ? "#message/" + ideeId : "#evenements"); return; }
     sauver();
     montrerMoisDe(r.evenement);
     message = M("evenementCree", { nom: r.evenement.titre });
@@ -1262,12 +1317,36 @@
     fmtJourNomme.formatToParts(d).forEach(function (m) { morceaux[m.type] = m.value; });
     return M("msgJourNomme", { jour: morceaux.weekday, numero: morceaux.day });
   }
-  // Les sept prochains jours, de demain à dans sept jours : le même jour de la semaine suivante en fait toujours partie.
+  // Demande 007d : sept jours en tout, d'aujourd'hui au sixième jour après aujourd'hui. Le même jour de la semaine
+  // suivante n'en fait plus partie : il passe par « Autre date ».
   function joursProposes(aujourdhui) {
     var jours = [];
-    for (var i = 1; i <= 7; i++) { jours.push(L.ajouterJours(aujourdhui, i)); }
+    for (var i = 0; i < 7; i++) { jours.push(L.ajouterJours(aujourdhui, i)); }
     return jours;
   }
+  // « Aujourd'hui », « Demain », puis le jour nommé (« jeudi 19 »).
+  function titreJour(d, rang) { return rang === 0 ? M("msgJourAujourdhui") : rang === 1 ? M("msgJourDemain") : jourNomme(d); }
+
+  // N13 (demande 007d) : des cases à toucher sans rond, un seul choix possible. Le bouton radio reste dans la page pour le
+  // clavier et les lecteurs d'écran, caché ; la case entière est son étiquette. La légende nomme le groupe sans être affichée.
+  // inerte : exemple de la page Charte (rien ne se touche, aucun nom de champ).
+  function choixCases(nom, legende, options, choisi, classe, inerte) {
+    return '<fieldset class="choix ' + classe + '"' + (inerte ? "" : ' id="champ-' + nom + '" aria-describedby="erreur-' + nom + '"') + ">" +
+      '<legend class="visuellement-cache">' + esc(legende) + "</legend>" +
+      options.map(function (o) {
+        return '<label class="choix-option"><input class="visuellement-cache" type="radio" name="' + nom + '" value="' + esc(o.valeur) + '"' +
+          (o.valeur === choisi ? " checked" : "") + (inerte ? " disabled" : "") + '><span class="choix-titre">' + esc(o.titre) + "</span></label>";
+      }).join("") +
+      (inerte ? "" : '<p class="champ-erreur" id="erreur-' + nom + '"></p>') + "</fieldset>";
+  }
+  // Les quatre heures courantes puis « Autre heure ».
+  function heuresProposees() {
+    var heures = M("msgHeuresCourantes").map(function (h) { return { valeur: h, titre: heureLisible(h) }; });
+    heures.push({ valeur: "autre", titre: M("msgHeureAutre") });
+    return heures;
+  }
+  // N14 (demande 007d) : la bande fixe au-dessus du menu, qui ne porte qu'un bouton.
+  function bandeAction(bouton) { return '<div class="bande-action" id="bande-action">' + bouton + "</div>"; }
 
   function motReponse(r) { return M(r === "oui" ? "msgOui" : "msgNon"); }
 
@@ -1289,12 +1368,58 @@
     var equipe = a.sorte === "equipe" ? Gr.trouverEquipe(G(), a.equipeId) : null;
     var nom = a.sorte === "tous" ? M("msgAToutLeGroupe") : a.sorte === "gestion" ? M("msgAGestion") :
       a.sorte === "equipe" && (equipe || a.nom) ? (equipe ? nomEquipe(equipe) : a.nom) : M("msgAPersonnes");
+    // Demande 009 : une idée est toujours adressée aussi au bureau (ou aux organisateurs) ; le choix fait le dit, sauf s'il les nomme déjà.
+    if (Msg.gestionAjoutee(m)) { nom = M("msgAEtGestion", { destinataires: nom }); }
     return M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", Msg.destinataires(G(), m).length) });
+  }
+
+  // ----- Demande 009 : ce que les trois sortes de messages ont en commun à l'écran -----
+  // Le titre de l'idée, son explication et le texte de l'info sont des textes libres : ils passent partout par esc().
+
+  // Le mot de sorte : « Question », « Idée » ou « Info ». Toujours écrit, jamais une couleur seule.
+  function motSorte(m) { var s = Msg.sorte(m); return M(s === "idee" ? "msgSorteIdee" : s === "info" ? "msgSorteInfo" : "msgSorteQuestion"); }
+
+  // Le début d'un texte sur une seule ligne : 80 caractères au plus, puis « … » (ligne de liste, accueil, titre de l'onglet).
+  function debutTexte(t) {
+    var s = String(t || "").replace(/\s+/g, " ").trim();
+    return s.length > 80 ? s.slice(0, 80) + "…" : s;
+  }
+  // Ce qui nomme le message sur une ligne : la question, le titre de l'idée, le début de l'info.
+  function titreMessage(m) { return Msg.sorte(m) === "info" ? debutTexte(m.texte) : m.texte; }
+
+  // « 12 sur 30 ont vu », « Personne n'a encore vu, sur 30. », « Tout le monde a vu. »
+  function texteCompteurInfo(d) {
+    var total = d.destinataires.length, n = d.vu.length;
+    return !d.pasVu.length ? M("msgInfoToutVu") : !n ? M("msgInfoCompteurZero", { total: total }) : Mn("msgInfoCompteur", n, { total: total });
+  }
+
+  // N1, le bouton de réponse seul : « Bonne idée » ou « Vu ». Il est l'unique bouton principal de son écran.
+  // choisi : vrai ou faux pour « Bonne idée » (le bouton reste, plein et coché) ; null pour « Vu », qui ne se retire pas.
+  // exemple : bouton inerte de la page Charte.
+  function boutonReponse(cle, attribut, id, choisi, exemple) {
+    return '<button type="button" class="bouton bouton--principal reponse-seule' + (choisi ? " bouton--choisi" : "") + '"' +
+      (exemple ? " data-exemple" : " " + attribut + '="' + esc(id) + '"') +
+      (choisi === null ? "" : ' aria-pressed="' + !!choisi + '"') + ">" + esc(M(cle)) + "</button>";
+  }
+
+  // Le haut de l'écran d'un message : le mot de sorte et son état, le titre, « De… » et « À :… ».
+  // etat : la pastille d'état, déjà écrite ; classeTitre : pour l'info, dont le texte est le titre ; sousTitre : l'explication d'une idée.
+  function enteteMessage(m, etat, classeTitre, sousTitre) {
+    var creation = Msg.dateCreation(m);
+    return '<header class="entete entete--message">' +
+      '<p class="surtitre"><span class="sorte-message">' + esc(motSorte(m)) + "</span>" + (etat || "") + "</p>" +
+      '<h1 tabindex="-1"' + (classeTitre ? ' class="' + classeTitre + '"' : "") + ">" + esc(m.texte) + "</h1>" + (sousTitre || "") +
+      '<p class="sous-titre">' + esc(M("msgDeLe", { nom: nomAuteur(m), date: creation ? fmtJourMois.format(creation) : "" })) + "</p>" +
+      '<p class="sous-titre">' + esc(M("msgA", { destinataires: aQui(m) })) + "</p>";
   }
 
   // « 8 Oui sur 10 attendus », ou « 8 Oui » sans nombre attendu.
   function texteCompteur(c) {
-    return c.attendus ? Mn("msgCompteurAttendus", c.attendus, { oui: c.oui.length }) : M("msgCompteur", { oui: c.oui.length });
+    return c.attendus ? Mn("msgCompteurAttendus", c.attendus, { oui: c.nbOui }) : M("msgCompteur", { oui: c.nbOui });
+  }
+  // La barre n'est qu'un complément du compteur écrit ; elle n'existe que si un nombre de Oui est attendu.
+  function barreCompteur(c) {
+    return c.attendus ? '<div class="barre" aria-hidden="true"><span style="width:' + Math.min(100, Math.round(100 * c.nbOui / c.attendus)) + '%"></span></div>' : "";
   }
 
   function etiquetteComplet() { return '<span class="etiquette etiquette--ok">' + esc(M("msgComplet")) + "</span>"; }
@@ -1302,11 +1427,12 @@
   // La paire « Oui » / « Non » : seule exception à « un seul bouton principal par écran ».
   // Avant la réponse, deux boutons pleins de même taille ; après, le bouton choisi reste plein, avec une coche,
   // et l'autre passe en contour. exemple : boutons inertes de la page Charte.
-  function paireReponse(id, choisie, exemple) {
+  // attributs (demande 010) : sur la page du lien personnel, ce que porte chaque bouton à la place de l'identifiant du message.
+  function paireReponse(id, choisie, exemple, attributs) {
     function bouton(valeur) {
       var choisi = choisie === valeur;
       return '<button type="button" class="bouton ' + (!choisie || choisi ? "bouton--principal" : "bouton--secondaire") + (choisi ? " bouton--choisi" : "") + '"' +
-        (exemple ? " data-exemple" : ' data-reponse="' + valeur + '" data-message="' + esc(id) + '"') +
+        (exemple ? " data-exemple" : attributs ? attributs(valeur) : ' data-reponse="' + valeur + '" data-message="' + esc(id) + '"') +
         ' aria-pressed="' + choisi + '">' + esc(motReponse(valeur)) + "</button>";
     }
     return '<div class="boutons-ligne paire-reponse">' + bouton("oui") + bouton("non") + "</div>";
@@ -1314,13 +1440,32 @@
 
   // ----- Écran 1 : Messages, en trois listes -----
 
-  function carteMessage(m) {
-    var c = Msg.decompte(G(), m), close = Msg.estClose(m);
-    return '<a class="carte' + (close ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" href="#message/' + esc(m.id) + '">' +
-      '<span class="carte-titre">' + esc(m.texte) + "</span>" +
+  // Demande 009 : chaque ligne porte son mot de sorte, en tête. passee : la ligne est dans « Terminés ».
+  function carteMessage(m, passee) {
+    var g = G(), p = moi(), sorte = Msg.sorte(m);
+    var close = Msg.estClose(m), nouveaux = Msg.nouveauxCommentaires(g, p, m);
+    var etiquette = function (cle, ok) { return ' <span class="etiquette' + (ok ? " etiquette--ok" : "") + '">' + esc(M(cle)) + "</span>"; };
+    var infos;
+    if (sorte === "idee") {
+      // « 3 Bonne idée » (rien à zéro), puis « Retenue » ou « Classée ».
+      var n = Msg.decompteIdee(g, m).bonneIdee.length;
+      infos = (n ? esc(M("msgIdeeCompteur", { n: n })) : "") + (m.etat === "retenue" ? etiquette("msgIdeeRetenue", true) : m.etat === "classee" ? etiquette("msgIdeeClassee") : "");
+    } else if (sorte === "info") {
+      // « 12 sur 30 ont vu » pour l'auteur seulement ; dans « Terminés », « Close » ou « Vu ».
+      infos = (Msg.peutLireQuiAVu(g, p, m) ? esc(texteCompteurInfo(Msg.decompteInfo(g, m))) : "") +
+        (close ? etiquette("msgClose") : Msg.aVu(m, p) ? etiquette("msgVu") : "");
+    } else {
+      var c = Msg.decompte(g, m);
+      infos = esc(texteCompteur(c)) + (c.complet ? " " + etiquetteComplet() : "") + (close ? etiquette("msgClose") : "");
+    }
+    return '<a class="carte' + (passee ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" data-sorte="' + esc(sorte) + '" href="#message/' + esc(m.id) + '">' +
+      '<span class="carte-etiquette sorte-message">' + esc(motSorte(m)) + "</span>" +
+      '<span class="carte-titre">' + esc(titreMessage(m)) + "</span>" +
       '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
-      '<span class="carte-infos">' + esc(texteCompteur(c)) + (c.complet ? " " + etiquetteComplet() : "") +
-      (close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "") + "</span></a>";
+      (infos ? '<span class="carte-infos">' + infos + "</span>" : "") +
+      // Demande 008 : les commentaires des autres publiés depuis ma dernière ouverture du message, en toutes lettres.
+      (nouveaux ? '<span class="carte-statut nouveaux-commentaires"><span class="etiquette etiquette--ok">' + esc(Mn("msgComNouveaux", nouveaux)) + "</span></span>" : "") +
+      "</a>";
   }
 
   // Trois messages au plus, puis « Voir les N autres messages » qui déplie le reste sur place.
@@ -1328,9 +1473,10 @@
     var html = '<section class="section" id="liste-' + id + '"><h2 class="section-titre"><span>' + esc(titre) +
       '</span><span class="compte">' + liste.length + "</span></h2>";
     if (!liste.length) { return html + '<p class="calme">' + esc(vide) + "</p></section>"; }
-    html += liste.slice(0, 3).map(carteMessage).join("");
+    var carte = function (m) { return carteMessage(m, id === "termines"); };
+    html += liste.slice(0, 3).map(carte).join("");
     if (liste.length > 3) {
-      html += '<div class="suite-liste" hidden>' + liste.slice(3).map(carteMessage).join("") + "</div>" +
+      html += '<div class="suite-liste" hidden>' + liste.slice(3).map(carte).join("") + "</div>" +
         '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("msgVoirAutres", liste.length - 3)) + "</button>";
     }
     return html + "</section>";
@@ -1349,7 +1495,8 @@
     var l = Msg.listes(g, p);
     var lance = Msg.peutLancer(g, p); // un visiteur répond, il ne lance rien : pas de bouton
     var html = entete(g.nom, M("msgTitre")) + bandeauMessage() +
-      (lance ? '<a class="bouton bouton--principal" id="demander" href="#messages/nouveau/question">' + esc(M("msgDemander")) + "</a>" : "");
+      // Demande 009 : le bouton principal ouvre le choix entre les trois sortes de messages.
+      (lance ? '<a class="bouton bouton--principal" id="ecrire" href="#messages/nouveau">' + esc(M("msgEcrire")) + "</a>" : "");
     if (!(l.aRepondre.length + l.enCours.length + l.termines.length)) {
       html += '<div class="section">' + etatVide("panneau", M("msgVide"), esc(M(lance ? "msgVideAide" : "msgVideAideVisiteur"))) + "</div>";
     } else {
@@ -1374,6 +1521,23 @@
 
   function comptePersonnes(n, sansLimite) { return sansLimite ? Mn("nPersonnes", n) : M("msgPersonnesCompte", { n: n }); }
 
+  // Les lignes de « À qui ? » pour cette personne, chacune avec son nombre de personnes : les mêmes pour les trois sortes de messages.
+  function optionsAQui(g, p) {
+    return Msg.destinatairesPossibles(g, p).map(function (l) {
+      var nom = l.sorte === "tous" ? M("msgAToutLeGroupe") : l.sorte === "gestion" ? M("msgAGestion") : l.sorte === "equipe" ? nomEquipe(l.equipe) : M("msgAPersonnes");
+      return { valeur: l.valeur, titre: l.sorte === "personnes" ? nom : M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", l.personnes.length) }) };
+    });
+  }
+  // La liste des personnes à cocher, cachée tant que « Des personnes choisies » n'est pas choisi.
+  function zonePersonnes(g, p, sansLimite) {
+    return '<div id="zone-personnes" hidden><fieldset class="choix choix--liste" id="champ-personnes" aria-describedby="erreur-personnes"' +
+      ' data-limite="' + (sansLimite ? "" : Msg.LIMITES.personnesMembre) + '">' +
+      "<legend>" + esc(M("msgAPersonnes")) + ' <span class="compte" id="compte-personnes">' + esc(comptePersonnes(0, sansLimite)) + "</span></legend>" +
+      '<p class="champ-erreur limite-personnes" id="erreur-personnes" role="status"></p>' +
+      Msg.personnesProposees(g, p).map(function (x) { return optionChoix("personnes", "checkbox", { valeur: x.id, titre: Gr.nomComplet(x) }, false); }).join("") +
+      "</fieldset></div>";
+  }
+
   function ecranNouvelleQuestion(refaireId) {
     var g = G(), p = moi();
     if (!Msg.peutLancer(g, p)) {
@@ -1389,7 +1553,8 @@
       origine = Msg.trouverVisible(g, p, refaireId);
       if (!origine) { return messageIntrouvable(); }
       // Refaire : l'auteur, plus le bureau ou les organisateurs destinataires ; les autres retrouvent le message.
-      if (!Msg.peutGerer(g, p, origine)) { return ecranMessage(refaireId); }
+      // Seule une question se refait (demande 009) : une idée ou une info s'affiche telle quelle.
+      if (Msg.sorte(origine) !== "question" || !Msg.peutGerer(g, p, origine)) { return ecranMessage(refaireId); }
     }
     var sansLimite = Gr.peutGerer(g, p); // dix personnes au plus pour un membre seulement
     var o = origine || {};
@@ -1398,31 +1563,30 @@
     var min = 'min="' + esc(Ev.ecrireDate(aujourdhui)) + '"';
 
     // À qui ? Un seul choix, chacun avec son nombre de personnes. Rien n'est coché d'avance (sauf « Les mêmes personnes »).
-    var options = Msg.destinatairesPossibles(g, p).map(function (l) {
-      var nom = l.sorte === "tous" ? M("msgAToutLeGroupe") : l.sorte === "gestion" ? M("msgAGestion") : l.sorte === "equipe" ? nomEquipe(l.equipe) : M("msgAPersonnes");
-      return { valeur: l.valeur, titre: l.sorte === "personnes" ? nom : M("msgAvecCompte", { nom: nom, compte: Mn("nPersonnes", l.personnes.length) }) };
-    });
+    var options = optionsAQui(g, p);
     if (origine) {
       options.unshift({ valeur: "memes", titre: M("msgAvecCompte", { nom: M("msgAMemesPersonnes"), compte: Mn("nPersonnes", Msg.destinataires(g, origine).length) }) });
     }
 
-    // Les sept prochains jours en un toucher, nommés (« jeudi 26 »), puis « Autre date ».
-    var prochains = joursProposes(aujourdhui);
-    var jours = prochains.map(function (d) { return { valeur: Ev.ecrireDate(d), titre: jourNomme(d) }; });
+    // Demande 007d : « Aujourd'hui », « Demain », cinq jours nommés (« jeudi 19 »), puis « Autre date » ; un toucher chacun.
+    var jours = joursProposes(aujourdhui).map(function (d, i) { return { valeur: Ev.ecrireDate(d), titre: titreJour(d, i) }; });
     jours.push({ valeur: "autre", titre: M("msgJourAutre") });
     // Les heures courantes en un toucher, puis « Autre heure ».
     var courantes = M("msgHeuresCourantes");
-    var heures = courantes.map(function (h) { return { valeur: h, titre: heureLisible(h) }; });
-    heures.push({ valeur: "autre", titre: M("msgHeureAutre") });
+    var heures = heuresProposees();
 
     // Refaire : le même jour la semaine suivante, déjà choisi ; s'il est déjà passé (question ancienne), le prochain même jour
-    // de la semaine. Hors des sept jours : « Autre date », avec la date dans le champ. Question sans date : aucun jour choisi.
+    // de la semaine, à partir de demain. Hors de la grille : « Autre date », avec la date dans le champ. Question sans date :
+    // aucun jour choisi.
     var jourChoisi = "", autreDate = "";
     var rdvOrigine = origine ? Msg.dateRendezVous(origine) : null;
     if (rdvOrigine) {
       var suivant = L.ajouterJours(rdvOrigine, 7);
       if (L.joursJusqua(suivant) < 0) {
-        suivant = prochains.filter(function (d) { return d.getDay() === rdvOrigine.getDay(); })[0];
+        for (var i = 1; i <= 7; i++) {
+          suivant = L.ajouterJours(aujourdhui, i);
+          if (suivant.getDay() === rdvOrigine.getDay()) { break; }
+        }
       }
       var ecrit = Ev.ecrireDate(suivant);
       if (jours.some(function (j) { return j.valeur === ecrit; })) { jourChoisi = ecrit; } else { jourChoisi = "autre"; autreDate = ecrit; }
@@ -1434,8 +1598,9 @@
     var evenements = estAsso() ? L.evenementsAVenir(g) : [];
     var evenementChoisi = evenements.some(function (e) { return e.id === o.evenementId; }) ? o.evenementId : "";
     var titre = M(origine ? "msgRefaire" : "msgDemander");
-    var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
-      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '" data-aujourdhui="' + esc(Ev.ecrireDate(aujourdhui)) + '"' +
+    // Demande 009 : une nouvelle question vient du choix « Écrire un message » ; « Refaire » n'y passe pas.
+    var html = (origine ? retour("#messages", M("msgRetourMessages")) : retour("#messages/nouveau", M("msgChoixTitre"))) + entete(g.nom, titre) +
+      '<form class="form-question" data-refaire="' + (origine ? esc(origine.id) : "") + '"' +
       ' data-choisi-jour="' + esc(jourChoisi) + '" data-choisi-heure="' + esc(heureChoisie) + '" novalidate>' +
       // La question : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
       '<div class="champ"><label for="champ-question">' + esc(M("msgChampQuestion")) + "</label>" +
@@ -1446,24 +1611,20 @@
       '<p class="champ-erreur" id="erreur-question"></p></div>' +
       choix("a-qui", M("msgChampAQui"), options, origine ? ["memes"] : [], "radio", "choix--liste") +
       // « Des personnes choisies » déplie la liste des personnes, à cocher, avec son compteur.
-      '<div id="zone-personnes" hidden><fieldset class="choix choix--liste" id="champ-personnes" aria-describedby="erreur-personnes"' +
-      ' data-limite="' + (sansLimite ? "" : Msg.LIMITES.personnesMembre) + '">' +
-      "<legend>" + esc(M("msgAPersonnes")) + ' <span class="compte" id="compte-personnes">' + esc(comptePersonnes(0, sansLimite)) + "</span></legend>" +
-      '<p class="champ-erreur limite-personnes" id="erreur-personnes" role="status"></p>' +
-      Msg.personnesProposees(g, p).map(function (x) { return optionChoix("personnes", "checkbox", { valeur: x.id, titre: Gr.nomComplet(x) }, false); }).join("") +
-      "</fieldset></div>" +
-      // Les options, repliées (dépliées quand on refait une question).
-      '<details class="repli" id="options-question"' + (origine ? " open" : "") + '><summary><span class="repli-titres"><span class="repli-titre">' +
-      esc(M("msgOptions")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
-      choix("jour", M("msgChampJour"), jours, [jourChoisi], "radio", "choix--liste") +
-      // « Autre date » : le champ arrive rempli avec la date du jour, et la phrase d'aide le dit (voir choisirJourOuHeure).
-      // Refaire avec une date hors des sept jours : le champ porte cette date, sans la phrase.
+      zonePersonnes(g, p, sansLimite) +
+      // Demande 007d : « Quand ? » est affiché d'emblée, sans repli. La grille des jours, puis la ligne des heures ;
+      // « Autre date » et « Autre heure » montrent leur champ, vide, sous la grille et sous la ligne.
+      '<fieldset class="choix quand" id="quand"><legend>' + esc(M("msgQuand")) + "</legend>" +
+      choixCases("jour", M("msgChampJour"), jours, jourChoisi, "choix--cases") +
       '<div id="zone-autre-date"' + (jourChoisi === "autre" ? "" : " hidden") + ">" +
-      champ("autre-date", M("msgJourAutre"), min + valeur(autreDate), M("msgJourAutreAide"), "date")
-        .replace('id="aide-autre-date"', 'id="aide-autre-date"' + (autreDate ? " hidden" : "")) + "</div>" +
-      choix("heure", M("msgChampHeure"), heures, [heureChoisie], "radio", "choix--liste") +
+      champ("autre-date", M("msgJourAutre"), min + valeur(autreDate), "", "date") + "</div>" +
+      choixCases("heure", M("msgChampHeure"), heures, heureChoisie, "choix--ligne") +
       '<div id="zone-autre-heure"' + (heureChoisie === "autre" ? "" : " hidden") + ">" +
       champ("autre-heure", M("msgHeureAutre"), valeur(autreHeure), "", "time") + "</div>" +
+      "</fieldset>" +
+      // Les autres options, repliées (dépliées quand on refait une question, pour que le nombre de Oui repris se voie).
+      '<details class="repli" id="options-question"' + (origine ? " open" : "") + '><summary><span class="repli-titres"><span class="repli-titre">' +
+      esc(M("msgOptions")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
       champ("attendus", M("msgChampAttendus"), 'inputmode="numeric" autocomplete="off" maxlength="4" class="champ-court"' + valeur(o.attendus), "") +
       champ("avant-le", M("msgChampAvantLe"), min, "", "date") +
       (estAsso()
@@ -1472,9 +1633,10 @@
         : "") +
       "</div></details>" +
       '<p class="erreur-generale" role="alert"></p>' +
-      '<button type="submit" class="bouton bouton--principal">' + esc(M("msgEnvoyer")) + "</button>" +
+      // « Envoyer la question » reste en bas de l'écran, seul dans la bande fixe au-dessus du menu.
+      bandeAction('<button type="submit" class="bouton bouton--principal">' + esc(M("msgEnvoyer")) + "</button>") +
       "</form>";
-    return { titre: titre, onglet: "messages", html: html, champ: origine ? null : "question" };
+    return { titre: titre, onglet: "messages", html: html, champ: origine ? null : "question", bande: true };
   }
 
   // Le compteur « 24 sur 80 » ; à 80, la phrase qui dit que la question ne peut pas être plus longue.
@@ -1491,24 +1653,17 @@
     form.querySelector("#zone-personnes").hidden = valeurRadio(form, "a-qui") !== "personnes";
     form.querySelector("#zone-autre-date").hidden = valeurRadio(form, "jour") !== "autre";
     form.querySelector("#zone-autre-heure").hidden = valeurRadio(form, "heure") !== "autre";
-    montrerAideAutreDate(form);
-  }
-
-  // « Aujourd'hui est déjà choisi… » ne s'affiche que tant que le champ porte la date du jour.
-  function montrerAideAutreDate(form) {
-    var aide = form.querySelector("#aide-autre-date");
-    if (aide) { aide.hidden = form.elements["autre-date"].value !== form.getAttribute("data-aujourdhui"); }
   }
 
   // Le jour et l'heure, même règle : toucher un autre choix remplace le premier ; toucher le choix déjà fait l'enlève
-  // (le rendez-vous est une option). « Autre date » arrive rempli avec la date du jour, « Autre heure » arrive vide ;
+  // (le rendez-vous est une option). « Autre date » et « Autre heure » arrivent vides (demande 007d) ;
   // quitter l'un ou l'autre cache le champ, et ce qu'il contenait ne compte plus.
   function choisirJourOuHeure(radio) {
     var form = radio.form, nom = radio.name, cle = "data-choisi-" + nom;
     if (form.getAttribute(cle) === radio.value) { radio.checked = false; }
     var choisi = valeurRadio(form, nom);
     if (choisi !== form.getAttribute(cle)) {
-      form.elements[nom === "jour" ? "autre-date" : "autre-heure"].value = nom === "jour" && choisi === "autre" ? form.getAttribute("data-aujourdhui") : "";
+      form.elements[nom === "jour" ? "autre-date" : "autre-heure"].value = "";
     }
     form.setAttribute(cle, choisi);
     montrerZonesQuestion(form);
@@ -1560,8 +1715,8 @@
     // Visiteur, ou personne retirée entre-temps : l'écran se redessine et le dit.
     if (r.raison === "droits" || r.raison === "introuvable") { rendre({ focus: true }); return; }
     var e = r.erreurs || {};
-    // Une erreur dans les options ouvre les options ; une erreur sur les personnes montre la liste.
-    if (e.jour || e.heure || e.attendus || e.avantLe) { form.querySelector("#options-question").open = true; }
+    // Une erreur dans le repli ouvre le repli (le jour et l'heure n'y sont plus, demande 007d) ; une erreur sur les personnes montre la liste.
+    if (e.attendus || e.avantLe) { form.querySelector("#options-question").open = true; }
     var erreurs = { question: e.texte, "a-qui": e.a, personnes: e.personnes, heure: e.heure, attendus: e.attendus, "avant-le": e.avantLe };
     erreurs[autre ? "autre-date" : "jour"] = e.jour;
     var fautes = montrerErreurs(form, ["question", "a-qui", "personnes", "jour", "autre-date", "heure", "attendus", "avant-le"], erreurs, {
@@ -1575,6 +1730,8 @@
       // Les phrases qui ne sont pas des erreurs d'envoi (limite atteinte, 80 caractères) restent affichées.
       if (!e.personnes) { compterPersonnes(form); }
       if (!e.texte) { compterCaracteres(el.question); }
+      // Demande 007d : le bouton ne bouge plus ; le premier choix ou champ en erreur est amené à l'écran, avec sa phrase.
+      amenerErreurALEcran(form);
       return;
     }
     if (!r.ok) { rendre({ focus: true }); return; }
@@ -1586,40 +1743,100 @@
     aller("#message/" + r.message.id + "/envoi");
   }
 
+  // Envoi refusé (demande 007d) : le premier choix ou champ en erreur se place entre le bandeau du testeur et la bande
+  // du bouton, avec sa phrase. Plus haut que la place libre (longue liste) : son début, ou sa phrase si elle est plus bas.
+  function amenerErreurALEcran(form) {
+    var phrase = Array.prototype.filter.call(form.querySelectorAll(".champ-erreur"), function (z) { return z.textContent && z.getClientRects().length; })[0];
+    if (!phrase) { return; }
+    var bandeau = document.querySelector(".demo-bandeau"), bande = document.getElementById("bande-action");
+    var haut = (bandeau ? bandeau.getBoundingClientRect().bottom : 0) + 8;
+    var bas = (bande ? bande.getBoundingClientRect().top : window.innerHeight) - 8;
+    var bloc = (phrase.closest(".champ, .choix") || phrase).getBoundingClientRect(), p = phrase.getBoundingClientRect();
+    var de = bloc.top, a = bloc.bottom;
+    if (a - de > bas - haut) { if (p.bottom - de <= bas - haut) { a = de + (bas - haut); } else { de = p.top; a = p.bottom; } }
+    if (de < haut) { window.scrollBy(0, de - haut); }
+    else if (a > bas) { window.scrollBy(0, a - bas); }
+  }
+
   // ----- Écrans 3 et 5 : ce qui serait envoyé, ce qui serait relancé -----
 
-  function ecranEnvoi(m, relance) {
-    var g = G(), p = moi();
-    // La relance ne vise que ceux qui n'ont pas encore répondu ; elle porte le prénom de la personne qui relance.
-    var n = relance ? Msg.decompte(g, m).sans.length : Msg.destinataires(g, m).length;
-    var premiere = relance ? M("msgNotifRelanceEntete", { groupe: g.nom, prenom: p.prenom }) : M("msgNotifEntete", { groupe: g.nom, prenom: prenomAuteur(m) });
+  // Le texte d'une notification, ligne par ligne : la première en gras, puis une ligne par phrase.
+  // sorte : "question", "relance" ou "commentaire" ; prenom : qui envoie ; commentaire : le texte cité.
+  // Demande 009 : "idee", "info", "idee-retenue" et "idee-classee" s'y ajoutent ; la relance d'une info a sa propre fin.
+  function lignesNotification(m, sorte, prenom, commentaire) {
+    var g = G();
+    var entetes = {
+      relance: "msgNotifRelanceEntete", commentaire: "msgNotifComEntete", idee: "msgNotifIdeeEntete", info: "msgNotifInfoEntete",
+      "idee-retenue": "msgNotifIdeeRetenueEntete", "idee-classee": "msgNotifIdeeClasseeEntete"
+    };
+    var premiere = M(entetes[sorte] || "msgNotifEntete", { groupe: g.nom, prenom: prenom });
     var lignes = [m.texte];
+    if (sorte === "commentaire") {
+      lignes.push(M("msgNotifComCitation", { commentaire: commentaire }), M("msgNotifComFin"));
+      return { premiere: premiere, lignes: lignes };
+    }
+    // L'explication n'apparaît que si elle a été saisie.
+    if (sorte === "idee") { return { premiere: premiere, lignes: lignes.concat(m.explication ? [m.explication] : [], [M("msgNotifIdeeFin")]) }; }
+    if (sorte === "info") { return { premiere: premiere, lignes: lignes.concat([M("msgNotifInfoFin")]) }; }
+    if (sorte === "idee-retenue" || sorte === "idee-classee") { return { premiere: premiere, lignes: lignes.concat([M("msgNotifIdeeDecisionFin")]) }; }
+    if (sorte === "relance" && Msg.sorte(m) === "info") { return { premiere: premiere, lignes: lignes.concat([M("msgNotifInfoRelanceFin")]) }; }
     var quand = quandRendezVous(m), avant = Msg.dateAvantLe(m);
     if (quand) { lignes.push(M("msgRendezVous", { quand: quand })); }
-    if (!relance && avant) { lignes.push(M("msgNotifAvantLe", { date: fmtLong.format(avant) })); }
-    lignes.push(M(relance ? "msgNotifRelanceFin" : "msgNotifFin"));
+    if (sorte !== "relance" && avant) { lignes.push(M("msgNotifAvantLe", { date: fmtLong.format(avant) })); }
+    lignes.push(M(sorte === "relance" ? "msgNotifRelanceFin" : "msgNotifFin"));
+    return { premiere: premiere, lignes: lignes };
+  }
+  function blocNotification(n, id) {
+    return '<p class="confirmation-quoi"' + (id ? ' id="' + id + '"' : "") + "><strong>" + esc(n.premiere) + "</strong>" +
+      n.lignes.map(function (l) { return "<br>" + esc(l); }).join("") + "</p>";
+  }
+
+  // « Voir la question », « Voir l'idée », « Voir l'info ».
+  function cleVoirMessage(m) { var s = Msg.sorte(m); return s === "idee" ? "msgVoirLIdee" : s === "info" ? "msgVoirLInfo" : "msgVoirLaQuestion"; }
+
+  function ecranEnvoi(m, relance) {
+    var g = G(), p = moi(), sorte = Msg.sorte(m);
+    // La relance ne vise que ceux qui n'ont pas encore répondu (pour une info : ceux qui n'ont pas vu) ; elle porte le prénom
+    // de la personne qui relance.
+    var n = !relance ? Msg.destinataires(g, m).length : sorte === "info" ? Msg.decompteInfo(g, m).pasVu.length : Msg.decompte(g, m).sans.length;
     var titre = M(relance ? "msgRelanceTitre" : "msgEnvoiTitre");
     var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, titre) +
-      '<p class="astuce" id="envoi-combien">' + esc(Mn(relance ? "msgRelanceTexte" : "msgEnvoiTexte", n)) + "</p>" +
-      '<p class="confirmation-quoi" id="message-qui-partirait"><strong>' + esc(premiere) + "</strong>" +
-      lignes.map(function (l) { return "<br>" + esc(l); }).join("") + "</p>" +
-      '<a class="bouton bouton--principal" href="#message/' + esc(m.id) + '">' + esc(M("msgVoirLaQuestion")) + "</a>";
+      '<p class="astuce" id="envoi-combien">' + esc(Mn(!relance ? "msgEnvoiTexte" : sorte === "info" ? "msgInfoRelanceTexte" : "msgRelanceTexte", n)) + "</p>" +
+      blocNotification(lignesNotification(m, relance ? "relance" : sorte, relance ? p.prenom : prenomAuteur(m)), "message-qui-partirait") +
+      '<a class="bouton bouton--principal" href="#message/' + esc(m.id) + '">' + esc(M(cleVoirMessage(m))) + "</a>";
     return { titre: titre, onglet: "messages", html: html };
   }
 
   // ----- Écran 4 : le message -----
 
-  function listeNoms(id, titre, personnes, vide) {
+  // lien (demande 010, listes « Oui » et « Non » d'une question) : { m, gerable, libres }. libres : les réponses par lien qui ne sont
+  // rattachées à personne ; elles suivent les personnes du groupe. Ceux qui gèrent la question lisent « Karim M. · par lien » et
+  // peuvent retirer la réponse ; les autres destinataires lisent leur nombre seul, en dernière ligne.
+  // Une réponse rattachée est à la place de la personne, avec son nom du groupe : elle est lue de tous ceux qui voient le message.
+  function listeNoms(id, titre, personnes, vide, lien) {
     var p = moi();
+    var libres = lien ? lien.libres : [];
+    var mention = function () { return '<span class="personne-vous">' + esc(M("msgLienParLien").split("{nom}")[1]) + "</span>"; };
+    var retirer = function (r) {
+      return lien.gerable ? '<button type="button" class="lien-bouton lien-bouton--alerte" data-retirer-lien="' + esc(r.jeton) + '" data-question="' + esc(lien.m.id) + '">' +
+        esc(M("msgLienRetirer")) + "</button>" : "";
+    };
+    var lignes = personnes.map(function (x) {
+      var r = lien ? Msg.reponseLienDe(lien.m, x.id) : null;
+      return '<li><span class="personne-nom">' + esc(Gr.nomComplet(x)) +
+        (x.id === p.id ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : "") + (r ? mention() : "") + "</span>" + (r ? retirer(r) : "") + "</li>";
+    });
+    if (libres.length && lien.gerable) {
+      lignes = lignes.concat(libres.map(function (r) {
+        return '<li><span class="personne-nom">' + esc(Msg.nomPublicLien(r)) + mention() + "</span>" + retirer(r) + "</li>";
+      }));
+    } else if (libres.length) {
+      lignes.push('<li><span class="personne-detail" data-nombre-par-lien>' + esc(Mn("msgLienNombreParLien", libres.length)) + "</span></li>");
+    }
     return '<details class="repli" id="liste-' + id + '"><summary><span class="repli-titres"><span class="repli-titre">' + esc(titre) +
-      '</span></span><span class="compte">' + personnes.length + "</span></summary>" +
+      '</span></span><span class="compte">' + (personnes.length + libres.length) + "</span></summary>" +
       '<div class="repli-corps">' +
-      (personnes.length
-        ? '<ul class="noms">' + personnes.map(function (x) {
-          return '<li><span class="personne-nom">' + esc(Gr.nomComplet(x)) +
-            (x.id === p.id ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : "") + "</span></li>";
-        }).join("") + "</ul>"
-        : '<p class="calme">' + esc(vide) + "</p>") +
+      (lignes.length ? '<ul class="noms">' + lignes.join("") + "</ul>" : '<p class="calme">' + esc(vide) + "</p>") +
       "</div></details>";
   }
 
@@ -1628,10 +1845,22 @@
     // Ni auteur ni destinataire : le message n'existe pas pour cette personne, adresse directe comprise.
     var m = Msg.trouverVisible(g, p, id);
     if (!m) { return messageIntrouvable(); }
+    var sorte = Msg.sorte(m);
     if (sous === "envoi") { return ecranEnvoi(m, false); }
-    if (sous === "relance") {
+    // Une idée ne se relance pas : son adresse de relance affiche l'idée.
+    if (sous === "relance" && sorte !== "idee") {
       var rel = Msg.relance(g, p, id);
       if (rel.ok) { return ecranEnvoi(m, true); }
+      // Info que tout le monde a vue, ou close : son auteur le lit, avec le lien vers l'info.
+      if (sorte === "info" && Msg.estAuteur(g, p, m) && (rel.raison === "tout-vu" || rel.raison === "close")) {
+        return {
+          titre: M("msgRelanceTitre"), onglet: "messages",
+          html: retour("#messages", M("msgRetourMessages")) + entete(g.nom, M("msgRelanceTitre")) +
+            '<p class="calme" id="relance-inutile">' +
+            esc(rel.raison === "close" ? M("msgInfoCloseLe", { date: fmtJourMois.format(Msg.dateCloture(m)) }) : M("msgInfoToutVu")) + "</p>" +
+            '<a class="lien-suite" href="#message/' + esc(m.id) + '">' + esc(M("msgVoirLInfo")) + "</a>"
+        };
+      }
       if (rel.raison === "tout-repondu") {
         return {
           titre: M("msgRelanceTitre"), onglet: "messages",
@@ -1641,7 +1870,9 @@
         };
       }
       // Personne qui ne peut pas relancer, ou question close : le message, sans relance.
-    } else if (sous) { return introuvable(); }
+    } else if (sous && sous !== "relance") { return introuvable(); }
+    if (sorte === "idee") { return ecranIdee(m); }
+    if (sorte === "info") { return ecranInfo(m); }
 
     var c = Msg.decompte(g, m);
     var close = Msg.estClose(m), destinataire = Msg.estDestinataire(g, p, m), gerable = Msg.peutGerer(g, p, m), maReponse = Msg.reponse(m, p);
@@ -1651,8 +1882,8 @@
     var ligne = function (texte) { return '<p class="sous-titre">' + texte + "</p>"; };
     var html = retour("#messages", M("msgRetourMessages")) +
       '<header class="entete entete--message">' +
-      // Place gardée au-dessus du titre pour l'étiquette de sorte (demande 009). Question close : l'étiquette « Close ».
-      (close ? '<p class="surtitre"><span class="etiquette">' + esc(M("msgClose")) + "</span></p>" : "") +
+      // Demande 009 : le mot de sorte, au-dessus du titre. Question close : la pastille « Close » à sa suite.
+      '<p class="surtitre"><span class="sorte-message">' + esc(motSorte(m)) + "</span>" + (close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "") + "</p>" +
       '<h1 tabindex="-1">' + esc(m.texte) + "</h1>" +
       ligne(esc(M("msgDeLe", { nom: nomAuteur(m), date: creation ? fmtJourMois.format(creation) : "" }))) +
       ligne(esc(M("msgA", { destinataires: aQui(m) }))) +
@@ -1674,9 +1905,10 @@
     // Le compteur en toutes lettres, « Complet » (un mot et une forme) ; la barre n'est qu'un complément.
     html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteur(c)) + "</span>" +
       (c.complet ? etiquetteComplet() : "") + "</h2>" +
-      (c.attendus ? '<div class="barre" aria-hidden="true"><span style="width:' + Math.min(100, Math.round(100 * c.oui.length / c.attendus)) + '%"></span></div>' : "") +
-      listeNoms("oui", M("msgOui"), c.oui, M("msgListeOuiVide")) +
-      listeNoms("non", M("msgNon"), c.non, M("msgListeNonVide")) +
+      barreCompteur(c) + phraseRetrait(m) +
+      // Demande 010 : les réponses par lien s'ajoutent aux listes « Oui » et « Non » ; celui qui gère une question ouverte peut en retirer une.
+      listeNoms("oui", M("msgOui"), c.oui, M("msgListeOuiVide"), { m: m, gerable: gerable && !close, libres: c.lienOui }) +
+      listeNoms("non", M("msgNon"), c.non, M("msgListeNonVide"), { m: m, gerable: gerable && !close, libres: c.lienNon }) +
       listeNoms("sans", M("msgListePasRepondu"), c.sans, M("msgListePasReponduVide")) + "</section>";
 
     // Un seul bouton principal, selon le cas : la paire « Oui » / « Non » si je peux répondre ; sinon « Relancer »
@@ -1689,14 +1921,412 @@
     }
     // Relancer, clore, refaire : l'auteur, plus le bureau ou les organisateurs destinataires.
     if (gerable) {
-      if (!close && c.sans.length) { boutons += '<a class="' + classe("relancer") + '" id="relancer" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgRelancer")) + "</a>"; }
+      if (!close && c.sans.length) { boutons += '<a class="' + classe("relancer") + '" id="relancer" data-relancer="' + esc(m.id) + '" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgRelancer")) + "</a>"; }
       if (!close) { boutons += '<button type="button" class="bouton bouton--secondaire" data-clore="' + esc(m.id) + '">' + esc(M("msgClore")) + "</button>"; }
-      boutons += '<a class="' + classe("refaire") + '" id="refaire" href="#messages/nouveau/question/' + esc(m.id) + '">' + esc(M("msgRefaire")) + "</a>";
     }
     if (boutons) { html += '<div class="section" id="gestion-question">' + boutons + "</div>"; }
-    // Places gardées en bas pour les commentaires (demande 008) et le partage par lien (demande 010) : rien pour l'instant.
+    // Demande 007d : « Refaire cette question » quitte le bas de la page pour la bande fixe au-dessus du menu, visible sans
+    // défiler. Même poids qu'avant : secondaire tant que la question est ouverte, principal une fois close.
+    if (gerable) {
+      html += bandeAction('<a class="' + classe("refaire") + '" id="refaire" href="#messages/nouveau/question/' + esc(m.id) + '">' + esc(M("msgRefaire")) + "</a>");
+    }
+    // Demande 010 : « Faire répondre par lien », sous les boutons de gestion, pour ceux qui gèrent une question ouverte.
+    // Les commentaires (demande 008) sont le dernier élément de la page.
+    if (Msg.peutPartager(g, p, m)) { html += sectionPartageLien(m); }
+    // Ouvrir le message, c'est avoir lu ses commentaires : la mention « N nouveaux commentaires » disparaît de la liste.
+    if (Msg.marquerVus(g, p, m)) { sauver(); }
+    html += sectionCommentaires(m, close);
+    return { titre: m.texte, onglet: "messages", html: html, bande: gerable };
+  }
+
+  // ----- Demande 009, écran 2 : « Écrire un message », le choix entre les trois sortes -----
+
+  // Un visiteur répond, il n'écrit rien : par l'adresse directe des écrans 2, 3 et 4, la même phrase.
+  function refusEcrire(titre) {
+    return {
+      titre: titre, onglet: "messages",
+      html: retour("#messages", M("msgRetourMessages")) + entete(G().nom, titre) +
+        '<p class="calme" id="ecrire-refuse">' + esc(M("msgErreurVisiteurEcrire")) + "</p>" +
+        '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>"
+    };
+  }
+
+  // Trois lignes de même poids, dans cet ordre ; rien n'est choisi d'avance, aucun bouton.
+  function ecranChoixMessage() {
+    var g = G();
+    if (!Msg.peutLancer(g, moi())) { return refusEcrire(M("msgChoixTitre")); }
+    var lignes = [
+      ["question", "msgDemander", "msgChoixQuestionAide"],
+      ["idee", "msgLancerIdee", "msgChoixIdeeAide"],
+      ["info", "msgDonnerInfo", "msgChoixInfoAide"]
+    ];
+    var html = retour("#messages", M("msgRetourMessages")) + entete(g.nom, M("msgChoixTitre")) +
+      '<div class="section" id="choix-message">' + lignes.map(function (l) {
+        return '<a class="carte" id="choix-' + l[0] + '" href="#messages/nouveau/' + l[0] + '">' +
+          '<span class="carte-titre">' + esc(M(l[1])) + "</span>" +
+          '<span class="carte-quand">' + esc(M(l[2])) + "</span></a>";
+      }).join("") + "</div>";
+    return { titre: M("msgChoixTitre"), onglet: "messages", html: html };
+  }
+
+  // ----- Demande 009, écrans 3 et 4 : « Nouvelle idée », « Nouvelle info » -----
+
+  // N7 : une zone de saisie sur plusieurs lignes, 300 caractères au plus, avec son compteur dessous.
+  function champLignes(nom, libelle, aide, lignes) {
+    return '<div class="champ"><label for="champ-' + nom + '">' + esc(libelle) + "</label>" +
+      (aide ? '<p class="champ-aide" id="aide-' + nom + '">' + esc(aide) + "</p>" : "") +
+      '<textarea id="champ-' + nom + '" name="' + nom + '" rows="' + lignes + '" maxlength="' + Msg.LIMITES.info + '" autocapitalize="sentences"' +
+      ' aria-describedby="' + (aide ? "aide-" + nom + " " : "") + "compte-" + nom + " erreur-" + nom + '"></textarea>' +
+      '<p class="discret compte-champ" id="compte-' + nom + '">' + esc(M("msgCompteCaracteres300", { n: 0 })) + "</p>" +
+      '<p class="champ-erreur" id="erreur-' + nom + '"></p></div>';
+  }
+
+  // sorte : "idee" ou "info". Même « À qui ? » que la question, rien de coché d'avance. Le bouton est dans la page.
+  function ecranEcrire(sorte) {
+    var g = G(), p = moi(), idee = sorte === "idee";
+    var titre = M(idee ? "msgLancerIdee" : "msgDonnerInfo");
+    if (!Msg.peutLancer(g, p)) { return refusEcrire(titre); }
+    var sansLimite = Gr.peutGerer(g, p); // dix personnes au plus pour un membre seulement
+    var html = retour("#messages/nouveau", M("msgChoixTitre")) + entete(g.nom, titre) +
+      '<form class="form-ecrire" data-sorte="' + sorte + '" novalidate>' +
+      (idee
+        // L'idée : une ligne, 80 caractères au plus ; le champ n'accepte pas le 81e, un compteur le dit.
+        ? '<div class="champ"><label for="champ-idee">' + esc(M("msgChampIdee")) + "</label>" +
+          '<p class="champ-aide" id="aide-idee">' + esc(M("msgChampIdeeAide")) + "</p>" +
+          '<input id="champ-idee" name="idee" type="text" autocomplete="off" autocapitalize="sentences" maxlength="' + Msg.LIMITES.texte + '"' +
+          ' aria-describedby="aide-idee compte-idee erreur-idee">' +
+          '<p class="discret compte-champ" id="compte-idee">' + esc(M("msgCompteCaracteres", { n: 0 })) + "</p>" +
+          '<p class="champ-erreur" id="erreur-idee"></p></div>' +
+          // L'explication, facultative, repliée.
+          '<details class="repli" id="explication-idee"><summary><span class="repli-titres"><span class="repli-titre">' +
+          esc(M("msgIdeeExplication")) + '</span></span></summary><div class="repli-corps repli-corps--formulaire">' +
+          champLignes("explication", M("msgChampExplication"), "", 4) + "</div></details>"
+        // L'info : un texte, sur plusieurs lignes, 300 caractères au plus.
+        : champLignes("info", M("msgChampInfo"), M("msgChampInfoAide"), 6)) +
+      choix("a-qui", M("msgChampAQui"), optionsAQui(g, p), [], "radio", "choix--liste") +
+      zonePersonnes(g, p, sansLimite) +
+      // Toujours visible, quel que soit le choix : le bureau (ou les organisateurs) reçoit aussi l'idée.
+      (idee ? '<p class="astuce" id="idee-aussi-gestion">' + esc(M("msgIdeeAussiGestion")) + "</p>" : "") +
+      '<p class="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M(idee ? "msgEnvoyerIdee" : "msgEnvoyerInfo")) + "</button>" +
+      "</form>";
+    return { titre: titre, onglet: "messages", html: html, champ: idee ? "idee" : "info" };
+  }
+
+  // Le compteur sous un champ (« 27 sur 80 », « 64 sur 300 ») ; à la limite, la phrase qui le dit. Un texte posé d'un coup est coupé.
+  function compterChamp(c) {
+    var court = c.name === "idee";
+    var max = court ? Msg.LIMITES.texte : Msg.LIMITES.info;
+    var phrase = M(court ? "msgErreurIdeeLongue" : "msgErreur300");
+    if (c.value.length > max) { c.value = c.value.slice(0, max); }
+    var n = c.value.length;
+    document.getElementById("compte-" + c.name).textContent = M(court ? "msgCompteCaracteres" : "msgCompteCaracteres300", { n: n });
+    var zone = document.getElementById("erreur-" + c.name);
+    if (n >= max) { zone.textContent = phrase; }
+    else if (zone.textContent === phrase) { zone.textContent = ""; }
+  }
+
+  function envoyerEcrit(form) {
+    var g = G(), el = form.elements, idee = form.getAttribute("data-sorte") === "idee";
+    var nom = idee ? "idee" : "info";
+    var saisie = {
+      texte: el[nom].value, explication: idee ? el.explication.value : "", a: valeurRadio(form, "a-qui"),
+      personnes: Array.prototype.map.call(form.querySelectorAll('input[name="personnes"]:checked'), function (x) { return x.value; })
+    };
+    var r = idee ? Msg.lancerIdee(g, moi(), saisie) : Msg.donnerInfo(g, moi(), saisie);
+    // Visiteur, ou personne retirée entre-temps : l'écran se redessine et le dit.
+    if (r.raison === "droits" || r.raison === "introuvable") { rendre({ focus: true }); return; }
+    var e = r.erreurs || {};
+    if (e.explication) { form.querySelector("#explication-idee").open = true; }
+    var erreurs = { explication: e.explication, "a-qui": e.a, personnes: e.personnes };
+    erreurs[nom] = e.texte;
+    var fautes = montrerErreurs(form, [nom, "explication", "a-qui", "personnes"], erreurs, {
+      "idee:vide": M("msgErreurIdeeVide"), "idee:long": M("msgErreurIdeeLongue"),
+      "info:vide": M("msgErreurInfoVide"), "info:long": M("msgErreur300"), explication: M("msgErreur300"),
+      "a-qui": M("msgErreurAQuiEnvoyer"), "personnes:aucune": M("msgErreurPersonneAucune"), "personnes:trop": M("msgErreurDixPersonnes")
+    });
+    if (fautes) {
+      // La phrase de la limite des dix personnes n'est pas une erreur d'envoi : elle reste affichée.
+      if (!e.personnes) { compterPersonnes(form); }
+      amenerErreurALEcran(form);
+      return;
+    }
+    if (!r.ok) { rendre({ focus: true }); return; }
+    sauver();
+    // Rien n'est envoyé : l'écran suivant montre le message qui partirait.
+    aller("#message/" + r.message.id + "/envoi");
+  }
+
+  // ----- Demande 009, écran 6 : le message, une idée -----
+
+  function ecranIdee(m) {
+    var g = G(), p = moi();
+    var c = Msg.decompteIdee(g, m);
+    var destinataire = Msg.estDestinataire(g, p, m), dit = Msg.aDitBonneIdee(m, p), decide = Msg.peutDecider(g, p, m);
+    var evenement = Msg.evenementDeLIdee(g, m);
+    var etat = m.etat === "retenue" ? ' <span class="etiquette etiquette--ok">' + esc(M("msgIdeeRetenue")) + "</span>"
+      : m.etat === "classee" ? ' <span class="etiquette">' + esc(M("msgIdeeClassee")) + "</span>" : "";
+    var html = retour("#messages", M("msgRetourMessages")) +
+      enteteMessage(m, etat, "", m.explication ? '<p class="message-texte" id="idee-explication">' + esc(m.explication) + "</p>" : "") + "</header>" +
+      bandeauMessage() +
+      // Association : l'événement né de l'idée, sous son nom d'aujourd'hui. La phrase entière est le lien.
+      (evenement ? '<p><a class="lien-suite" id="idee-evenement" href="#evenement/' + esc(evenement.id) + '">' + esc(M("msgIdeeDevenueEvenement", { nom: evenement.titre })) + "</a></p>" : "");
+
+    if (m.etat) {
+      // Retenue ou classée : plus de bouton « Bonne idée » ; le compteur, les listes et les commentaires restent lisibles.
+      html += '<p class="astuce" id="idee-decidee">' +
+        esc(M(m.etat === "retenue" ? "msgIdeeRetenueLe" : "msgIdeeClasseeLe", { date: fmtJourMois.format(Msg.dateCloture(m)) })) + "</p>";
+      // Association, bureau, idée retenue qui n'est pas encore devenue un événement : le seul bouton principal de l'écran.
+      if (Msg.peutEnFaireUnEvenement(g, p, m)) {
+        html += '<a class="bouton bouton--principal" id="en-faire-evenement" href="#evenement/nouveau/idee/' + esc(m.id) + '">' + esc(M("msgIdeeEnEvenement")) + "</a>";
+      }
+    } else if (destinataire) {
+      // Un geste pour dire « Bonne idée », un geste pour la retirer ; une seule fois par personne.
+      html += '<section class="ma-reponse" id="ma-reponse">' + boutonReponse("msgBonneIdee", "data-bonne-idee", m.id, dit) +
+        (dit
+          ? '<p class="message-ok" role="status">' + esc(M("msgIdeeVotreReponse")) + "</p>" +
+            '<button type="button" class="lien-bouton" data-retirer-idee="' + esc(m.id) + '">' + esc(M("msgIdeeRetirer")) + "</button>"
+          : "") + "</section>";
+    }
+
+    // Le compteur en toutes lettres, puis les deux listes repliées.
+    html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' +
+      esc(c.bonneIdee.length ? M("msgIdeeCompteur", { n: c.bonneIdee.length }) : M("msgIdeeCompteurZero")) + "</span></h2>" +
+      listeNoms("bonne-idee", M("msgBonneIdee"), c.bonneIdee, M("msgIdeeCompteurZero")) +
+      listeNoms("destinataires", M("msgListeDestinataires"), c.destinataires, "") + "</section>";
+
+    // Le bureau ou les organisateurs : un toucher, sans confirmation, car on peut changer d'avis. Jamais côte à côte.
+    if (decide) {
+      html += '<div class="section" id="gestion-idee">' +
+        (m.etat !== "retenue" ? '<button type="button" class="bouton bouton--secondaire" data-decider="retenue" data-message="' + esc(m.id) + '">' + esc(M("msgIdeeRetenir")) + "</button>" : "") +
+        (m.etat !== "classee" ? '<button type="button" class="bouton bouton--secondaire" data-decider="classee" data-message="' + esc(m.id) + '">' + esc(M("msgIdeeClasser")) + "</button>" : "") +
+        "</div>";
+    }
+    if (Msg.marquerVus(g, p, m)) { sauver(); }
+    html += sectionCommentaires(m, !!m.etat);
     return { titre: m.texte, onglet: "messages", html: html };
   }
+
+  // « Bonne idée », ou « Retirer ma réponse » : sans changer d'écran.
+  function direBonneIdee(id, dit) {
+    var r = Msg.direBonneIdee(G(), moi(), id, dit);
+    if (r.ok) { sauver(); }
+    rendre({ garderDefilement: true, garderReplis: true });
+    var suite = document.querySelector("#ma-reponse .reponse-seule");
+    if (suite) { suite.focus({ preventScroll: true }); }
+  }
+
+  // « Retenir l'idée », « Classer l'idée » : un toucher. L'auteur est prévenu (voir Démo › « Voir ce qui serait envoyé »).
+  function deciderIdee(bouton) {
+    var r = Msg.deciderIdee(G(), moi(), bouton.getAttribute("data-message"), bouton.getAttribute("data-decider"));
+    if (r.ok) { sauver(); }
+    rendre({ focus: true });
+  }
+
+  // ----- Demande 009, écran 7 : le message, une info -----
+
+  function ecranInfo(m) {
+    var g = G(), p = moi();
+    var d = Msg.decompteInfo(g, m), close = Msg.estClose(m);
+    var auteur = Msg.estAuteur(g, p, m), destinataire = Msg.estDestinataire(g, p, m), vu = Msg.aVu(m, p);
+    // Le texte de l'info est le titre de la page : elle n'en a pas d'autre.
+    var html = retour("#messages", M("msgRetourMessages")) +
+      enteteMessage(m, close ? ' <span class="etiquette">' + esc(M("msgClose")) + "</span>" : "", "message-texte message-texte--titre") + "</header>" +
+      bandeauMessage();
+
+    // Seul l'auteur lit les noms (décision du 2026-11-19) : le compteur et les deux listes, tout de suite sous le texte, sans dérouler ni toucher.
+    if (Msg.peutLireQuiAVu(g, p, m)) {
+      var total = d.destinataires.length;
+      html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteurInfo(d)) + "</span></h2>" +
+        (total ? '<div class="barre" aria-hidden="true"><span style="width:' + Math.round(100 * d.vu.length / total) + '%"></span></div>' : "") +
+        listeNoms("vu", M("msgInfoListeVu"), d.vu, M("msgInfoListeVuVide")) +
+        listeNoms("pas-vu", M("msgInfoListePasVu"), d.pasVu, M("msgInfoToutVu")) + "</section>";
+    }
+    if (close) {
+      // Close : plus de bouton « Vu », plus de relance ; le texte et les listes restent lisibles.
+      html += '<p class="astuce" id="info-close">' + esc(M("msgInfoCloseLe", { date: fmtJourMois.format(Msg.dateCloture(m)) })) + "</p>";
+    } else if (destinataire) {
+      // « Vu » est un geste voulu : ouvrir l'info ne suffit pas. Après le toucher, le bouton laisse la place à la phrase.
+      html += '<section class="ma-reponse" id="ma-reponse">' +
+        (vu ? '<p class="message-ok" role="status" tabindex="-1">' + esc(M("msgInfoVotreReponse")) + "</p>" : boutonReponse("msgVu", "data-vu", m.id, null)) +
+        "</section>";
+    }
+    // Les destinataires lisent le compteur seul (critère 5 de la situation) : aucun nom, aucune liste. Seul l'auteur lit les noms.
+    if (!auteur) {
+      html += '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteurInfo(d)) + "</span></h2></section>";
+    }
+    // L'auteur : « Relancer ceux qui n'ont pas vu » tant qu'il en reste, seul bouton principal ; « Clore l'info », après confirmation.
+    if (auteur && !close) {
+      html += '<div class="section" id="gestion-info">' +
+        (d.pasVu.length ? '<a class="bouton bouton--principal" id="relancer" data-relancer="' + esc(m.id) + '" href="#message/' + esc(m.id) + '/relance">' + esc(M("msgInfoRelancer")) + "</a>" : "") +
+        '<button type="button" class="bouton bouton--secondaire" data-clore="' + esc(m.id) + '">' + esc(M("msgInfoClore")) + "</button></div>";
+    }
+    if (Msg.marquerVus(g, p, m)) { sauver(); }
+    html += sectionCommentaires(m, close);
+    return { titre: debutTexte(m.texte), onglet: "messages", html: html };
+  }
+
+  // « Vu », en un geste : depuis l'écran de l'info comme depuis le bloc « À répondre » de l'accueil. Sans retour.
+  function marquerVu(id) {
+    var accueil = adresseActuelle().split("/")[0] === "accueil";
+    var r = Msg.marquerVu(G(), moi(), id);
+    if (r.ok) {
+      sauver();
+      if (accueil) { reponseAccueil = { id: id, reponse: "vu" }; }
+    }
+    rendre({ garderDefilement: true, garderReplis: true });
+    var suite = document.querySelector(accueil ? "#bloc-repondre .message-ok" : "#ma-reponse .message-ok");
+    if (suite) { suite.focus({ preventScroll: true }); }
+  }
+
+  // ----- Demande 008 : les commentaires, sous le message -----
+  // Le commentaire est le second texte libre, après la question : il passe partout par esc(), jamais écrit comme du HTML.
+
+  // « 17 novembre à 18 h 40 » : le jour et l'heure d'un commentaire ou d'un envoi.
+  function quandPrecis(date, heure) {
+    if (!date) { return ""; }
+    return heure ? M("msgDateHeure", { date: fmtJourMois.format(date), heure: heureLisible(heure) }) : fmtJourMois.format(date);
+  }
+
+  // Le nom comme dans « Personnes » ; si la personne n'est plus dans le groupe, le nom noté sur le commentaire.
+  function nomCommentaire(c) { var x = Gr.trouverPersonne(G(), c.auteurId); return x ? Gr.nomComplet(x) : (c.auteur || ""); }
+
+  // N8 : un commentaire. Le texte, la signature dessous, puis le lien « Supprimer ce commentaire » pour qui en a le droit.
+  // exemple : ligne inerte de la page Charte.
+  function ligneCommentaire(o) {
+    // « Mehdi Saïdi · le 17 novembre à 18 h 40 » : le point médian tient à la date, qui ne se coupe pas.
+    var morceaux = M("msgComSigne").split(" · ");
+    var nom = function (t) { return esc(remplacer(t, { nom: o.nom, quand: o.quand })) + (o.moi && t.indexOf("{nom}") >= 0 ? ' <span class="personne-vous">' + esc(M("vous")) + "</span>" : ""); };
+    var signature = morceaux.length === 2
+      ? '<span class="suite-part">' + nom(morceaux[0]) + '</span><span class="suite-part insecable"><span class="suite-point"> · </span>' + nom(morceaux[1]) + "</span>"
+      : '<span class="suite-part">' + nom(morceaux.join(" · ")) + "</span>";
+    return '<li class="personne commentaire"' + (o.id ? ' id="commentaire-' + esc(o.id) + '"' : "") + (o.cache ? " hidden" : "") + ">" +
+      '<p class="commentaire-texte">' + esc(o.texte) + "</p>" +
+      '<span class="personne-detail suite">' + signature + "</span>" +
+      (o.supprimable
+        ? '<button type="button" class="lien-bouton lien-bouton--ligne"' +
+          (o.exemple ? " data-exemple" : ' data-supprimer-commentaire="' + esc(o.id) + '" data-message="' + esc(o.messageId) + '"') + ">" +
+          '<span aria-hidden="true">' + esc(M("msgComSupprimer")) + "</span>" +
+          '<span class="visuellement-cache">' + esc(M("msgComSupprimerLecture", { nom: o.nom, quand: o.quand })) + "</span></button>"
+        : "") + "</li>";
+  }
+
+  // N7 : la zone de saisie sur plusieurs lignes, avec son compteur dessous. Le champ n'accepte pas le 301e caractère.
+  function champCommentaire(id, valeur, inerte) {
+    return '<div class="champ"><label for="' + id + '">' + esc(M("msgComChamp")) + "</label>" +
+      '<textarea id="' + id + '"' + (inerte ? " readonly" : ' name="commentaire"') + ' rows="3" maxlength="' + Msg.LIMITES.commentaire + '" autocapitalize="sentences"' +
+      (inerte ? "" : ' aria-describedby="compte-commentaire erreur-commentaire"') + ">" + esc(valeur || "") + "</textarea>" +
+      '<p class="discret compte-commentaire"' + (inerte ? "" : ' id="compte-commentaire"') + ">" + esc(M("msgCompteCaracteres300", { n: (valeur || "").length })) + "</p>" +
+      (inerte ? "" : '<p class="champ-erreur" id="erreur-commentaire"></p>') + "</div>";
+  }
+
+  function sectionCommentaires(m, close) {
+    var g = G(), p = moi();
+    var liste = Msg.commentaires(m);
+    // Les trois plus récents sont affichés ; les plus anciens se déplient sur place, sans changer l'ordre.
+    var caches = anciensDeplies === m.id ? 0 : Math.max(0, liste.length - 3);
+    var fait = commentaireFait && commentaireFait.id === m.id ? commentaireFait.quoi : "";
+    commentaireFait = null;
+    var html = '<section class="section" id="commentaires"><h2 class="section-titre"><span>' + esc(M("msgComTitre")) +
+      '</span><span class="compte" id="compte-commentaires">' + liste.length + "</span></h2>";
+    if (caches) { html += '<button type="button" class="lien-bouton" data-voir-anciens="' + esc(m.id) + '">' + esc(Mn("msgComVoirAnciens", caches)) + "</button>"; }
+    html += liste.length
+      ? '<ul class="personnes" id="liste-commentaires">' + liste.map(function (c, i) {
+        return ligneCommentaire({
+          id: c.id, messageId: m.id, texte: c.texte, nom: nomCommentaire(c), moi: c.auteurId === p.id,
+          quand: quandPrecis(Msg.dateCommentaire(c), c.heure), cache: i < caches, supprimable: Msg.peutSupprimerCommentaire(g, p, m, c)
+        });
+      }).join("") + "</ul>"
+      : '<p class="calme" id="aucun-commentaire">' + esc(M("msgComVide")) + "</p>";
+    var statut = '<p class="message-ok" id="commentaire-statut" role="status" tabindex="-1"' + (fait === "publie" || fait === "supprime" ? "" : " hidden") + ">" +
+      esc(fait === "publie" ? M("msgComPublie") : fait === "supprime" ? M("msgComSupprime") : "") + "</p>" +
+      '<p class="champ-erreur" id="erreur-supprimer-commentaire" role="alert">' + esc(fait === "droits" ? M("msgComErreurSupprimer") : "") + "</p>";
+    if (close) {
+      // Message clos : les commentaires restent lisibles, on ne peut plus en écrire.
+      html += '<p class="calme" id="commentaires-clos">' + esc(M("msgComClos")) + "</p>" + statut;
+    } else {
+      // Le champ est toujours visible ; « Publier le commentaire » n'est jamais le bouton principal de l'écran.
+      html += '<form class="form-commentaire" data-message="' + esc(m.id) + '" novalidate>' + champCommentaire("champ-commentaire", "") +
+        '<button type="submit" class="bouton bouton--secondaire" id="publier-commentaire">' + esc(M("msgComPublier")) + "</button>" + statut + "</form>";
+    }
+    return html + "</section>";
+  }
+
+  // Le compteur « 24 sur 300 » ; à 300, la phrase de la limite. Un texte posé d'un coup est coupé à 300.
+  function compterCommentaire(zone) {
+    var max = Msg.LIMITES.commentaire;
+    if (zone.value.length > max) { zone.value = zone.value.slice(0, max); }
+    var n = zone.value.length;
+    document.getElementById("compte-commentaire").textContent = M("msgCompteCaracteres300", { n: n });
+    var erreur = document.getElementById("erreur-commentaire");
+    if (n >= max) { erreur.textContent = M("msgComErreurLong"); }
+    else if (erreur.textContent === M("msgComErreurLong")) { erreur.textContent = ""; }
+  }
+
+  // Un élément est amené entre le bandeau du testeur et la bande du bouton (ou le menu), s'il n'y est pas déjà.
+  function amenerALEcran(el) {
+    if (!el || !el.getClientRects().length) { return; }
+    var bandeau = document.querySelector(".demo-bandeau"), bande = document.getElementById("bande-action"), menu = document.getElementById("onglets");
+    var haut = (bandeau ? bandeau.getBoundingClientRect().bottom : 0) + 8;
+    var bas = (bande ? bande.getBoundingClientRect().top : menu && !menu.hidden ? menu.getBoundingClientRect().top : window.innerHeight) - 8;
+    var r = el.getBoundingClientRect();
+    if (r.bottom > bas) { window.scrollBy(0, r.bottom - bas); }
+    else if (r.top < haut) { window.scrollBy(0, r.top - haut); }
+  }
+
+  // Publier : aucun changement d'écran. Le commentaire apparaît en dernier, le champ se vide, la phrase le dit.
+  function publierCommentaire(form) {
+    var id = form.getAttribute("data-message"), zone = form.elements.commentaire;
+    var r = Msg.commenter(G(), moi(), id, zone.value);
+    if (r.raison === "saisie") {
+      document.getElementById("erreur-commentaire").textContent = M(r.erreur === "long" ? "msgComErreurLong" : "msgComErreurVide");
+      zone.setAttribute("aria-invalid", "true");
+      zone.focus();
+      amenerALEcran(document.getElementById("erreur-commentaire"));
+      return;
+    }
+    // Message clos entre-temps, ou qui ne m'est plus adressé : l'écran se redessine et le dit ; rien n'est publié.
+    if (!r.ok) { rendre({ garderDefilement: true, garderReplis: true }); return; }
+    sauver();
+    commentaireFait = { id: id, quoi: "publie" };
+    rendre({ garderDefilement: true, garderReplis: true });
+    montrerStatutCommentaire();
+  }
+
+  function montrerStatutCommentaire() {
+    var statut = document.getElementById("commentaire-statut");
+    if (statut && !statut.hidden) { statut.focus({ preventScroll: true }); amenerALEcran(statut); }
+  }
+
+  // Supprimer : toujours une confirmation, qui ne recopie pas le texte. Le droit est contrôlé par les règles, avant la question.
+  function supprimerCommentaire(bouton) {
+    var g = G(), p = moi();
+    var id = bouton.getAttribute("data-message"), cid = bouton.getAttribute("data-supprimer-commentaire");
+    var m = Msg.trouverVisible(g, p, id);
+    var c = m ? Msg.trouverCommentaire(m, cid) : null;
+    if (!c) { rendre({ garderDefilement: true, garderReplis: true }); return; }
+    if (!Msg.peutSupprimerCommentaire(g, p, m, c)) {
+      commentaireFait = { id: id, quoi: "droits" };
+      rendre({ garderDefilement: true, garderReplis: true });
+      amenerALEcran(document.getElementById("erreur-supprimer-commentaire"));
+      return;
+    }
+    if (!window.confirm(M("msgComConfirmerSupprimer"))) { return; }
+    if (Msg.supprimerCommentaire(g, p, id, cid).ok) {
+      sauver();
+      commentaireFait = { id: id, quoi: "supprime" };
+    }
+    rendre({ garderDefilement: true, garderReplis: true });
+    montrerStatutCommentaire();
+  }
+
+  // « Voir les N commentaires plus anciens » : ils se déplient sur place, au-dessus des trois plus récents.
+  function voirAnciens(bouton) {
+    anciensDeplies = bouton.getAttribute("data-voir-anciens");
+    Array.prototype.forEach.call(document.querySelectorAll("#liste-commentaires > li[hidden]"), function (li) { li.hidden = false; });
+    bouton.remove();
+  }
+
 
   // Oui ou Non, en un geste : depuis l'écran du message comme depuis le bloc « À répondre » de l'accueil.
   function repondreQuestion(bouton) {
@@ -1716,7 +2346,7 @@
     var g = G(), p = moi();
     var m = Msg.trouverVisible(g, p, id);
     if (!m || !Msg.peutGerer(g, p, m) || Msg.estClose(m)) { rendre({ focus: true }); return; }
-    if (!window.confirm(M("msgConfirmerClore"))) { return; }
+    if (!window.confirm(M(Msg.sorte(m) === "info" ? "msgInfoConfirmerClore" : "msgConfirmerClore"))) { return; }
     if (Msg.clore(g, p, id).ok) { sauver(); }
     rendre({ focus: true });
   }
@@ -1739,14 +2369,26 @@
     var liste = Msg.listes(g, p).aRepondre;
     var m = liste[0];
     var html = '<section class="bloc-reponse" id="bloc-repondre" aria-labelledby="titre-repondre">' +
-      '<h2 class="carte-etiquette" id="titre-repondre">' + esc(M("msgListeARepondre")) + "</h2>";
+      // Demande 008 : le titre porte le nombre de messages qui attendent, le même que la pastille du menu ; à zéro, pas de nombre.
+      '<h2 class="carte-etiquette" id="titre-repondre">' + esc(M("msgListeARepondre")) +
+      (liste.length ? ' <span class="compte" id="nombre-repondre">' + liste.length + "</span>" : "") + "</h2>";
     var faite = reponseAccueil ? Msg.trouverVisible(g, p, reponseAccueil.id) : null;
-    if (faite) {
+    if (faite && reponseAccueil.reponse === "vu") {
+      // Demande 009 : « Vu » ne se retire pas ; la phrase le dit, et le bloc passe au message suivant.
+      html += '<p class="message-ok" role="status" tabindex="-1">' + esc(M("msgInfoVotreReponse")) + "</p>";
+    } else if (faite) {
       html += '<p class="message-ok" role="status" tabindex="-1">' +
         esc(M("msgReponseEnregistree", { reponse: motReponse(reponseAccueil.reponse), question: faite.texte })) +
         ' <a href="#message/' + esc(faite.id) + '">' + esc(M("msgChangerDAvis")) + "</a></p>";
     }
-    if (m) {
+    if (m && Msg.sorte(m) !== "question") {
+      // Demande 009 : une info montre son texte et le bouton « Vu », seul bouton principal de l'accueil à ce moment-là ;
+      // une idée montre son titre, sans bouton : un toucher ouvre le message.
+      html += '<span class="carte-etiquette sorte-message">' + esc(motSorte(m)) + "</span>" +
+        '<a class="carte-titre" id="question-a-repondre" href="#message/' + esc(m.id) + '">' + esc(titreMessage(m)) + "</a>" +
+        '<span class="carte-quand">' + esc(deQui(m)) + "</span>" +
+        (Msg.sorte(m) === "info" ? boutonReponse("msgVu", "data-vu", m.id, null) : "");
+    } else if (m) {
       html += '<a class="carte-titre" id="question-a-repondre" href="#message/' + esc(m.id) + '">' + esc(m.texte) + "</a>" +
         '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
         paireReponse(m.id, "");
@@ -1754,8 +2396,7 @@
       html += '<p class="calme">' + esc(M("msgRienARepondre")) + "</p>";
     }
     if (liste.length > 1) { html += '<a class="lien-suite" id="autres-questions" href="#messages">' + esc(Mn("msgAccueilAutres", liste.length - 1)) + "</a>"; }
-    // Groupe simple : le calendrier s'ouvre d'ici, toujours, même quand il n'y a rien à répondre.
-    if (!estAsso()) { html += '<a class="lien-suite" id="voir-calendrier" href="#calendrier">' + esc(M("msgVoirCalendrier")) + "</a>"; }
+    // Groupe simple : « Voir le calendrier » est en bas du bloc « Prochains rendez-vous », juste dessous (demande 008).
     return html + "</section>";
   }
 
@@ -2071,7 +2712,7 @@
       etatVide("calme", "État vide", "Une petite illustration et une phrase qui dit quoi faire.") +
       exemplesFormulaire() +
       exemplesMessages() +
-      "</section>";
+      "</section>" + exemplesLien();
     return { titre: "Charte graphique", onglet: "groupe", html: html };
   }
 
@@ -2104,12 +2745,13 @@
   }
 
   // Les composants de la demande 007, montrés une fois chacun : la paire de réponse dans ses trois états (N1),
-  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), le choix du jour (deux jours nommés, demande 007b) et la case
-  // qui ne se coche plus (N5), le réglage allumé (N6).
+  // le bloc « À répondre » (N2), le repère « Rendez-vous » (N3), la case à toucher en grille et en ligne (N13, demande 007d),
+  // la bande du bouton (N14, demande 007d), la case qui ne se coche plus (N5), le réglage allumé (N6).
   function exemplesMessages() {
     var C = M("chartePaire");
     var F = M("charteFormulaire");
-    var exemplesJours = joursProposes(L.aujourdhui()).slice(0, 2);
+    // N13 (demande 007d) : quatre cases de la grille des jours, la première choisie ; la ligne des heures, « 20 h » choisie.
+    var exemplesJours = joursProposes(L.aujourdhui()).slice(0, 4).map(function (d, i) { return { valeur: String(i), titre: titreJour(d, i) }; });
     return '<h3 id="charte-paire">' + esc(C.titre) + "</h3>" +
       '<p class="discret">' + esc(C.avant) + "</p>" + paireReponse("", "", true) +
       '<p class="discret">' + esc(C.apresOui) + "</p>" + paireReponse("", "oui", true) +
@@ -2125,15 +2767,63 @@
       '<div class="bloc-liens" id="charte-bloc-liens"><a class="carte" href="#charte"><span class="carte-titre">' + esc(M("charteBlocLiens").haut) + "</span></a>" +
       '<a class="lien-suite" href="#charte">' + esc(M("charteBlocLiens").bas) + "</a></div>" +
       '<ul class="legende">' + legendeRendezVous() + "</ul>" +
-      '<fieldset class="choix choix--liste" id="exemple-choix-jour"><legend>' + esc(M("msgChampJour")) + "</legend>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[0])) + "</span></span></label>" +
-      '<label class="choix-option"><input type="radio" name="exemple-jour" disabled><span class="choix-texte"><span class="choix-titre">' + esc(jourNomme(exemplesJours[1])) + "</span></span></label></fieldset>" +
+      '<fieldset class="choix quand" id="exemple-choix-jour"><legend>' + esc(M("msgQuand")) + "</legend>" +
+      choixCases("exemple-jour", M("msgChampJour"), exemplesJours, "0", "choix--cases", true) +
+      choixCases("exemple-heure", M("msgChampHeure"), heuresProposees(), "20:00", "choix--ligne", true) + "</fieldset>" +
+      // N14 (demande 007d) : la bande du bouton, posée à plat dans la page (fixe, elle couvrirait la Charte).
+      '<div class="bande-action bande-action--exemple" id="exemple-bande-action"><button type="button" class="bouton bouton--secondaire" data-exemple>' +
+      esc(M("msgEnvoyer")) + "</button></div>" +
       '<fieldset class="choix choix--liste"><legend>' + esc(M("msgAPersonnes")) + ' <span class="compte">' + esc(M("msgPersonnesCompte", { n: 10 })) + "</span></legend>" +
       '<label class="choix-option"><input type="checkbox" checked disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[1]) + "</span></span></label>" +
       '<label class="choix-option choix-option--bloquee"><input type="checkbox" disabled><span class="choix-texte"><span class="choix-titre">' + esc(F.replieOptions[2]) + "</span></span></label>" +
       '<p class="champ-erreur">' + esc(M("msgErreurDixPersonnes")) + "</p></fieldset>" +
       '<ul class="actions"><li class="action"><div class="action-texte"><p class="action-libelle">' + esc(M("msgReglageToutLeGroupe")) + "</p></div>" +
-      '<span class="statut" aria-pressed="true" style="display:inline-flex;align-items:center;justify-content:center">' + esc(M("msgReglageAllume")) + "</span></li></ul>";
+      '<span class="statut" aria-pressed="true" style="display:inline-flex;align-items:center;justify-content:center">' + esc(M("msgReglageAllume")) + "</span></li></ul>" +
+      exemplesCommentaires() + exemplesIdeeInfo();
+  }
+
+  // Les composants de la demande 009, tous inertes : le bouton de réponse seul, avant et après (N1) ; une ligne de liste avec
+  // son mot de sorte, « Retenue » et « Classée » ; le texte saisi sur plusieurs lignes et sa variante de titre (N11).
+  function exemplesIdeeInfo() {
+    var C = M("charteIdeeInfo");
+    var ligne = function (titre, cleEtat, ok, passee) {
+      return '<a class="carte' + (passee ? " carte--passee" : "") + '" href="#charte">' +
+        '<span class="carte-etiquette sorte-message">' + esc(M("msgSorteIdee")) + "</span>" +
+        '<span class="carte-titre">' + esc(titre) + "</span>" +
+        '<span class="carte-quand">' + esc(M("msgDe", { prenom: C.de })) + "</span>" +
+        '<span class="carte-infos">' + esc(M("msgIdeeCompteur", { n: C.compte })) +
+        ' <span class="etiquette' + (ok ? " etiquette--ok" : "") + '">' + esc(M(cleEtat)) + "</span></span></a>";
+    };
+    return '<h3 id="charte-idee-info">' + esc(C.titre) + "</h3>" +
+      '<p class="discret">' + esc(C.avant) + "</p>" +
+      '<div id="exemple-reponse-seule">' + boutonReponse("msgBonneIdee", "", "", false, true) + "</div>" +
+      '<p class="discret">' + esc(C.apres) + "</p>" +
+      '<div id="exemple-reponse-seule-choisie">' + boutonReponse("msgBonneIdee", "", "", true, true) +
+      '<p class="message-ok">' + esc(M("msgIdeeVotreReponse")) + "</p></div>" +
+      '<p class="discret">' + esc(C.ligne) + "</p>" +
+      '<div id="exemple-ligne-sorte">' + ligne(C.idee, "msgIdeeRetenue", true, false) + ligne(C.ideeClassee, "msgIdeeClassee", false, true) + "</div>" +
+      '<p class="discret">' + esc(C.texte) + "</p>" +
+      '<div id="exemple-message-texte"><p class="message-texte">' + esc(C.explication) + "</p>" +
+      '<p class="message-texte message-texte--titre">' + esc(C.info) + "</p></div>";
+  }
+
+  // Les composants de la demande 008, montrés une fois chacun, tous inertes : un commentaire avec son lien de suppression (N8),
+  // la zone de saisie sur plusieurs lignes et son compteur (N7), la pastille du menu, « 2 » et « 9+ » (N9),
+  // les lignes d'un bloc avec son lien de fin (N10).
+  function exemplesCommentaires() {
+    var C = M("charteCommentaires");
+    return '<h3 id="charte-commentaires">' + esc(C.titre) + "</h3>" +
+      '<ul class="personnes" id="exemple-commentaire">' +
+      ligneCommentaire({ texte: C.commentaire, nom: C.nom, quand: C.quand, supprimable: true, exemple: true }) + "</ul>" +
+      '<div id="exemple-champ-commentaire">' + champCommentaire("exemple-commentaire-champ", C.saisie, true) + "</div>" +
+      '<p class="discret">' + esc(C.pastille) + "</p>" +
+      '<div class="onglets onglets--exemple" id="exemple-pastille">' + C.pastilleNombres.map(function (n) {
+        return lienOnglet("messages", "#charte", M("ongletMessages"), n, true);
+      }).join("") + "</div>" +
+      '<p class="discret">' + esc(C.lignes) + "</p>" +
+      '<div class="bloc-reponse" id="exemple-lignes-bloc"><p class="carte-etiquette">' + esc(C.lignesTitre) + "</p>" +
+      '<ul class="lignes-bloc">' + C.rendezVous.map(function (r) { return ligneRendezVous("#charte", r[0], r[1], r[2]); }).join("") + "</ul>" +
+      '<a class="lien-suite" href="#charte">' + esc(M("msgVoirCalendrier")) + "</a></div>";
   }
 
   // Réservé au bureau ou aux organisateurs : le geste est refusé même sans passer par les boutons.
@@ -2197,6 +2887,50 @@
     remplirDemo();
     message = M("groupeCree", { nom: r.groupe.nom });
     aller("#personnes");
+  }
+
+  // Démo › « Voir ce qui serait envoyé » (demande 008) : les notifications simulées du groupe en cours, la plus récente
+  // d'abord, chacune avec ses destinataires et son texte complet. Lecture seule : rien n'est envoyé, rien ne se touche pour répondre.
+  function entreeEnvoi(e) {
+    var g = G();
+    var m = Msg.trouver(g, e.messageId);
+    var personnes = Gr.personnesTriees(g).filter(function (x) { return (e.a || []).indexOf(x.id) >= 0; });
+    // Demande 009 : l'envoi d'une idée ou d'une info, une idée retenue ou classée (vers son auteur seul).
+    var sortes = {
+      relance: "msgDemoSorteRelance", commentaire: "msgDemoSorteCommentaire", idee: "msgDemoSorteIdee", info: "msgDemoSorteInfo",
+      "idee-retenue": "msgDemoSorteIdeeRetenue", "idee-classee": "msgDemoSorteIdeeClassee"
+    };
+    var sorte = M(sortes[e.sorte] || "msgDemoSorteQuestion");
+    var a = personnes.length === 1
+      ? '<p class="envoi-a">' + esc(M("msgA", { destinataires: Gr.nomComplet(personnes[0]) })) + "</p>"
+      : '<details class="repli envoi-a"><summary><span class="repli-titres"><span class="repli-titre">' +
+        esc(M("msgA", { destinataires: Mn("nPersonnes", personnes.length) })) + "</span></span></summary>" +
+        '<div class="repli-corps"><ul class="noms">' + personnes.map(function (x) {
+          return '<li><span class="personne-nom">' + esc(Gr.nomComplet(x)) + "</span></li>";
+        }).join("") + "</ul></div></details>";
+    return '<section class="section confirmation envoi" id="envoi-' + esc(e.id) + '" data-sorte="' + esc(e.sorte) + '">' +
+      "<h2>" + esc(sorte) + "</h2>" +
+      '<p class="discret envoi-quand"><span class="insecable">' + esc(M("msgDemoQuand", { quand: quandPrecis(Msg.dateEnvoi(e), e.heure) })) + "</span></p>" + a +
+      blocNotification(lignesNotification(m, e.sorte, e.de || "", e.commentaire || "")) +
+      (e.sorte === "commentaire" && e.supprime ? '<p class="calme envoi-supprime">' + esc(M("msgDemoComSupprime")) + "</p>" : "") +
+      "</section>";
+  }
+
+  function ecranEnvois() {
+    var liste = Msg.envois(G());
+    var html = retour("#accueil", M("ongletAccueil")) + entete(D("etiquette"), M("msgEnvoiTitre"));
+    if (!liste.length) {
+      html += etatVide("panneau", M("msgDemoVide"), esc(M("msgDemoVideAide")));
+    } else {
+      // Les cinq plus récentes, puis « Voir les N notifications plus anciennes », dépliées sur place.
+      html += '<p class="astuce" id="envois-texte">' + esc(M("msgDemoEnvoisTexte")) + "</p>" +
+        '<div id="envois">' + liste.slice(0, 5).map(entreeEnvoi).join("") +
+        (liste.length > 5
+          ? '<div class="suite-liste" hidden>' + liste.slice(5).map(entreeEnvoi).join("") + "</div>" +
+            '<button type="button" class="lien-bouton" data-voir-suite>' + esc(Mn("msgDemoVoirAnciennes", liste.length - 5)) + "</button>"
+          : "") + "</div>";
+    }
+    return { titre: M("msgEnvoiTitre"), onglet: null, html: html };
   }
 
   function ecranEnregistrer() {
@@ -2352,13 +3086,15 @@
   }
 
   // sorte : "text" (par défaut), "date" ou "time" (saisie de date ou d'heure du téléphone).
-  function champ(nom, libelle, attributs, aide, sorte, erreur) {
+  // note : une phrase en .discret sous le champ, qui n'est pas une erreur (demande 009).
+  function champ(nom, libelle, attributs, aide, sorte, erreur, note) {
     var idAide = aide ? "aide-" + nom : "";
     return '<div class="champ">' +
       '<label for="champ-' + nom + '">' + esc(libelle) + "</label>" +
       (aide ? '<p class="champ-aide" id="' + idAide + '">' + esc(aide) + "</p>" : "") +
       '<input id="champ-' + nom + '" name="' + nom + '" type="' + (sorte || "text") + '" ' + attributs +
-      ' aria-describedby="' + (idAide ? idAide + " " : "") + "erreur-" + nom + '">' +
+      ' aria-describedby="' + (idAide ? idAide + " " : "") + (note ? "note-" + nom + " " : "") + "erreur-" + nom + '">' +
+      (note ? '<p class="discret champ-note" id="note-' + nom + '">' + esc(note) + "</p>" : "") +
       '<p class="champ-erreur" id="erreur-' + nom + '">' + esc(erreur || "") + "</p></div>";
   }
 
@@ -2455,12 +3191,14 @@
     }
     var t = inscriptionPartout(jeton);
     if (!t) { return lienSansInscription(jeton); }
+    var inscritAuNom = MA("lienInscritAuNom").split("{nom}");
     var html = '<section class="confirmation">' +
       '<p class="surtitre">' + esc(t.groupe.nom) + "</p>" +
       '<h1 tabindex="-1">Votre coup de main</h1>' +
       '<p class="confirmation-quoi"><strong>' + esc(t.creneau.titre) + "</strong><br>" +
       esc(dateLongue(L.dateEvenement(t.evenement))) + " · " + esc(t.creneau.horaire) + "<br>" + esc(t.evenement.titre) + "</p>" +
-      "<p>Inscrit au nom de <strong>" + esc(L.nomPublic(t.volontaire)) + "</strong>.</p>" +
+      // Demande 007d : un seul point, celui de l'initiale ; la phrase vient de mots.js.
+      '<p id="inscrit-au-nom">' + esc(inscritAuNom[0]) + "<strong>" + esc(L.nomPublic(t.volontaire)) + "</strong>" + esc(inscritAuNom[1] || "") + "</p>" +
       "<p>Un empêchement ? Annulez ici : la place sera libérée pour un autre parent.</p>" +
       '<button type="button" class="bouton bouton--alerte" data-annuler="' + esc(jeton) + '">Annuler mon inscription</button>' +
       '<a class="lien-suite" href="#inscription/' + esc(t.evenement.id) + '">Garder mon inscription</a>' +
@@ -2501,6 +3239,384 @@
     };
   }
 
+  // ---------- Demande 010 : répondre par lien, sans compte ----------
+  // Trois pages ouvertes par lien, sans menu, sans « Aide », sans lien vers l'application : la réponse (#reponse/CODE),
+  // le prénom (#reponse/CODE/oui ou /non), ma réponse (#ma-reponse/JETON, le lien personnel).
+  // L'invité n'y lit aucun nom (décision du 2026-11-19) : le nom du groupe, la question, le compteur et sa propre réponse.
+  // Tous leurs mots sont dans la liste commune de mots.js. Le prénom, la lettre, la question et le nom du groupe passent par esc().
+
+  function contientJeton(liste, jeton) { return liste.indexOf(jeton) >= 0; }
+
+  // La mémoire du téléphone de l'invité : pour chaque code de lien, les jetons des réponses envoyées d'ici.
+  function memoireInvite() {
+    try {
+      var o = JSON.parse(window.localStorage.getItem(CLE_INVITE));
+      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    } catch (err) { return {}; }
+  }
+  function jetonsGardes(code) {
+    var o = memoireInvite();
+    var l = Object.prototype.hasOwnProperty.call(o, code) ? o[code] : null;
+    return Array.isArray(l) ? l.filter(function (x) { return typeof x === "string"; }) : [];
+  }
+  function garderJeton(code, jeton) {
+    var o = memoireInvite();
+    o[code] = jetonsGardes(code).filter(function (x) { return x !== jeton; }).concat([jeton]);
+    try { window.localStorage.setItem(CLE_INVITE, JSON.stringify(o)); } catch (err) { /* la réponse est notée quand même */ }
+  }
+  // Ce que ce téléphone sait d'une question : le jeton d'une réponse retirée (elle ne revient pas d'ici), sinon la dernière
+  // réponse envoyée d'ici qui compte encore.
+  function souvenirInvite(code, m) {
+    var gardes = jetonsGardes(code);
+    var retire = gardes.filter(function (j) { return Msg.estRetiree(m, j); })[0] || "";
+    var mienne = gardes.filter(function (j) { return Msg.reponsesLien(m).some(function (r) { return r.jeton === j; }); }).pop() || "";
+    return { retire: retire, mienne: mienne };
+  }
+
+  // Le lien marche quel que soit le groupe ouvert dans la démo : on cherche dans tous les groupes.
+  function questionPartout(code) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var m = Msg.trouverParCode(etat.groupes[i], code);
+      if (m) { return { groupe: etat.groupes[i], message: m, code: code }; }
+    }
+    return null;
+  }
+  function reponseLienPartout(jeton) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var t = Msg.trouverReponseLien(etat.groupes[i], jeton);
+      if (t) { t.groupe = etat.groupes[i]; return t; }
+    }
+    return null;
+  }
+  function retraitPartout(jeton) {
+    for (var i = 0; i < etat.groupes.length; i++) {
+      var m = Msg.trouverRetrait(etat.groupes[i], jeton);
+      if (m) { return { groupe: etat.groupes[i], message: m }; }
+    }
+    return null;
+  }
+
+  function lienPublic(code) { return location.href.split("#")[0] + "#reponse/" + code; }
+  function lienMaReponse(jeton) { return location.href.split("#")[0] + "#ma-reponse/" + jeton; }
+
+  // Le code du lien, fabriqué et gardé la première fois qu'on en a besoin.
+  function codeDuLien(groupe, m) {
+    var neuf = !Msg.codeConnu(groupe, m);
+    var code = Msg.codeLien(groupe, m);
+    if (neuf) { sauver(); }
+    return code;
+  }
+
+  // Ce que rend une page ouverte par lien. « Revenir à l'application » (bandeau du testeur) ramène au message si la personne
+  // ouverte dans la démo le voit, sinon à l'accueil.
+  function pageInvite(titre, html, trouve, plus) {
+    var r = { titre: titre, parent: true, html: html };
+    if (trouve) {
+      r.groupe = trouve.groupe;
+      r.retourDemo = trouve.groupe === G() && Msg.estVisible(G(), moi(), trouve.message) ? "#message/" + encodeURIComponent(trouve.message.id) : "#accueil";
+    }
+    Object.keys(plus || {}).forEach(function (k) { r[k] = plus[k]; });
+    return r;
+  }
+
+  // Le haut des écrans 2 et 3 : le nom du groupe, seul, puis la question. Aucun prénom, pas même celui de l'auteur.
+  function afficheInvite(trouve, avecDates) {
+    var m = trouve.message, quand = quandRendezVous(m), avant = Msg.dateAvantLe(m);
+    return '<header class="affiche"><p class="surtitre">' + esc(trouve.groupe.nom) + "</p>" +
+      '<h1 tabindex="-1">' + esc(m.texte) + "</h1>" +
+      (avecDates && quand ? '<p class="affiche-date">' + esc(M("msgRendezVous", { quand: quand })) + "</p>" : "") +
+      (avecDates && avant ? '<p class="affiche-texte">' + esc(M("msgAvantLe", { date: fmtLong.format(avant) })) + "</p>" : "") +
+      "</header>";
+  }
+
+  // Le compteur de la 007, sans aucune liste ni aucun nom. encore : la question est ouverte, on peut encore répondre.
+  function compteurInvite(trouve, encore) {
+    var c = Msg.decompte(trouve.groupe, trouve.message);
+    return '<section class="section" id="compteur"><h2 class="section-titre"><span id="compteur-texte">' + esc(texteCompteur(c)) + "</span>" +
+      (c.complet ? etiquetteComplet() : "") + "</h2>" + barreCompteur(c) +
+      (c.complet && encore ? '<p class="discret" id="complet-aide">' + esc(M("msgLienCompletAide")) + "</p>" : "") + "</section>";
+  }
+
+  function lienQuestionInconnu() {
+    return pageInvite(M("msgLienInconnu"), '<section class="confirmation"><h1 tabindex="-1">' + esc(M("msgLienInconnu")) + "</h1>" +
+      etatVide("chemin", M("msgLienInconnuAide"), "") + "</section>");
+  }
+  function lienReponseInconnue() {
+    return pageInvite(M("msgLienReponseInconnue"), '<section class="confirmation"><h1 tabindex="-1">' + esc(M("msgLienReponseInconnue")) + "</h1>" +
+      etatVide("chemin", M("msgLienInconnuAide"), "") + "</section>");
+  }
+
+  // Écran 2 : la réponse. Écran 3 si l'adresse finit par « oui » ou « non ».
+  // Rend null quand ce téléphone a déjà répondu : l'adresse est remplacée par celle de sa réponse (écran 4).
+  function ecranReponse(code, sous, reste) {
+    var trouve = questionPartout(code);
+    if (!trouve || reste) { return lienQuestionInconnu(); }
+    var m = trouve.message;
+    var souvenir = souvenirInvite(code, m);
+    // Une réponse retirée ne revient pas depuis le même téléphone ; sinon, le téléphone ramène à la réponse déjà envoyée,
+    // sauf pour « Répondre pour une autre personne ».
+    var deja = souvenir.retire || (autrePersonne === code ? "" : souvenir.mienne);
+    if (deja) { location.replace("#ma-reponse/" + deja); return null; }
+    if (Msg.estClose(m)) {
+      return pageInvite(m.texte, afficheInvite(trouve, true) + '<p class="astuce" id="question-close">' + esc(M("msgLienClose")) + "</p>", trouve);
+    }
+    if (sous === "oui" || sous === "non") { return ecranPrenom(trouve, sous); }
+    var lien = function (valeur) {
+      return '<a class="bouton bouton--principal" id="repondre-' + valeur + '" href="#reponse/' + esc(code) + "/" + valeur + '">' + esc(motReponse(valeur)) + "</a>";
+    };
+    var html = afficheInvite(trouve, true) +
+      '<div class="boutons-ligne paire-reponse" id="ma-reponse">' + lien("oui") + lien("non") + "</div>" +
+      '<p class="discret" id="sans-compte">' + esc(M("msgLienSansCompte")) + "</p>" +
+      compteurInvite(trouve, true);
+    return pageInvite(m.texte, html, trouve);
+  }
+
+  // Écran 3 : le prénom et la première lettre du nom. Ni téléphone, ni e-mail, ni mot de passe.
+  function ecranPrenom(trouve, valeur) {
+    var m = trouve.message;
+    var html = afficheInvite(trouve, false) +
+      '<form class="form-invite" data-code="' + esc(trouve.code) + '" data-valeur="' + valeur + '" novalidate>' +
+      '<p class="formulaire-titre" id="vous-repondez">' + esc(M("msgLienVousRepondez", { reponse: motReponse(valeur) })) + "</p>" +
+      '<a class="retour" href="#reponse/' + esc(trouve.code) + '">' + esc(M("msgChangerDAvis")) + "</a>" +
+      champ("prenom", M("msgLienChampPrenom"), 'autocomplete="given-name" autocapitalize="words" maxlength="' + Msg.LIMITES.prenomInvite + '"', "") +
+      champ("initiale", M("msgLienChampInitiale"), 'autocomplete="off" autocapitalize="characters" maxlength="1" class="champ-court"', M("msgLienChampInitialeAide")) +
+      '<p class="discret" id="lien-visible">' + esc(M("msgLienVisible")) + "</p>" +
+      '<p class="erreur-generale" id="erreur-generale" role="alert"></p>' +
+      '<button type="submit" class="bouton bouton--principal">' + esc(M("msgLienEnvoyer")) + "</button>" +
+      "</form>";
+    return pageInvite(m.texte, html, trouve, { champ: "prenom", curseur: true });
+  }
+
+  function envoyerInvite(form) {
+    var valeur = form.getAttribute("data-valeur");
+    var trouve = questionPartout(form.getAttribute("data-code"));
+    if (!trouve) { rendre({ focus: true }); return; }
+    var code = trouve.code, souvenir = souvenirInvite(code, trouve.message);
+    // Ce téléphone a déjà répondu, ou sa réponse a été retirée : l'écran se redessine et mène à cette réponse.
+    if (souvenir.retire || (souvenir.mienne && autrePersonne !== code)) { rendre({ focus: true }); return; }
+    var r = Msg.repondreParLien(trouve.groupe, code, { reponse: valeur, prenom: form.elements.prenom.value, initiale: form.elements.initiale.value });
+    if (r.ok) {
+      sauver();
+      garderJeton(code, r.jeton);
+      autrePersonne = null;
+      vientDeRepondre = r.jeton;
+      location.hash = "#ma-reponse/" + r.jeton;
+      return;
+    }
+    if (r.raison === "close") { erreurGenerale(form, M("msgLienErreurClose")); return; }
+    if (r.raison !== "saisie") { rendre({ focus: true }); return; }
+    montrerErreurs(form, ["prenom", "initiale"], r.erreurs, {
+      "prenom:vide": M("msgLienErreurPrenom"), "prenom:long": M("msgLienErreurPrenomLong"), initiale: M("msgLienErreurInitiale")
+    });
+  }
+
+  // Écran 4 : ma réponse. C'est le lien personnel : relire, changer d'avis, ajouter à l'agenda, garder son lien.
+  function ecranMaReponse(jeton) {
+    var t = reponseLienPartout(jeton);
+    if (!t) {
+      var retrait = retraitPartout(jeton);
+      if (!retrait) { return lienReponseInconnue(); }
+      // Réponse retirée : l'en-tête, la question et la phrase. Ni « Oui », ni « Non », ni compteur, ni agenda.
+      return pageInvite(retrait.message.texte, '<section class="confirmation"><p class="surtitre">' + esc(retrait.groupe.nom) + "</p>" +
+        '<h1 tabindex="-1">' + esc(retrait.message.texte) + "</h1>" +
+        '<p class="astuce" id="reponse-retiree">' + esc(M("msgLienReponseRetiree")) + "</p></section>", retrait);
+    }
+    var m = t.message, r = t.reponse, code = Msg.codeConnu(t.groupe, m);
+    var close = Msg.estClose(m), quand = quandRendezVous(m), rdv = Msg.dateRendezVous(m);
+    var aVenir = !!rdv && L.joursJusqua(rdv) >= 0;
+    var titre = vientDeRepondre === jeton ? M("msgLienNote", { prenom: r.prenom }) : M("msgLienMaReponse");
+    var auNom = M("msgLienNomPublic").split("{nom}");
+    var vousAvezRepondu = M("msgVotreReponse", { reponse: motReponse(r.reponse) });
+    var html = '<section class="confirmation">' +
+      '<p class="surtitre">' + esc(t.groupe.nom) + "</p>" +
+      '<h1 tabindex="-1">' + esc(titre) + "</h1>" +
+      '<p class="confirmation-quoi"><strong>' + esc(m.texte) + "</strong>" + (quand ? "<br>" + esc(M("msgRendezVous", { quand: quand })) : "") + "</p>";
+    if (close) {
+      html += '<p class="astuce" id="question-close">' + esc(M("msgCloseLe", { date: fmtJourMois.format(Msg.dateCloture(m)) }) + " " + vousAvezRepondu) + "</p>";
+    } else {
+      html += '<div id="ma-reponse">' + paireReponse("", r.reponse, false, function (valeur) {
+        return ' data-lien-reponse="' + valeur + '" data-jeton="' + esc(r.jeton) + '"';
+      }) + '<p class="message-ok" role="status">' + esc(vousAvezRepondu + " " + M("msgChangerAide")) + "</p></div>";
+    }
+    html += '<p id="note-au-nom">' + esc(auNom[0]) + "<strong>" + esc(Msg.nomPublicLien(r)) + "</strong>" + esc(auNom[1] || "") + "</p>";
+    // « Ajouter à mon agenda » : seulement après un Oui, et si la question porte un jour de rendez-vous.
+    if (aVenir && r.reponse === "oui") {
+      html += '<button type="button" class="bouton bouton--secondaire" data-agenda-lien="' + esc(r.jeton) + '">' + esc(M("msgAjouterAgenda")) + "</button>" +
+        '<p class="discret" id="agenda-aide">' + esc(M("msgLienAgendaAide")) + "</p>";
+    } else if (aVenir && !close) {
+      html += '<p class="discret" id="agenda-aide">' + esc(M("msgLienAgendaRetirer")) + "</p>";
+    }
+    if (!close) {
+      html += '<div class="lien-perso" id="garder-lien"><h2>' + esc(M("msgLienGarderTitre")) + "</h2>" +
+        '<p class="discret">' + esc(M("msgLienGarderTexte")) + "</p>" +
+        '<p class="lien-adresse" id="lien-ma-reponse">' + esc(lienMaReponse(r.jeton)) + "</p>" +
+        '<button type="button" class="bouton bouton--secondaire" data-copier-lien="lien-ma-reponse" data-etat="etat-lien-ma-reponse">' + esc(M("msgLienCopierLeMien")) + "</button>" +
+        '<p class="copie-ok" id="etat-lien-ma-reponse" role="status"></p></div>';
+    }
+    html += compteurInvite(t, !close);
+    // « Répondre pour une autre personne » : absent quand la question est close, et quand une réponse de ce téléphone a été retirée.
+    if (!close && code && !souvenirInvite(code, m).retire) {
+      html += '<a class="lien-suite" id="autre-personne" href="#reponse/' + esc(code) + '" data-autre-personne="' + esc(code) + '">' + esc(M("msgLienAutrePersonne")) + "</a>";
+    }
+    html += "</section>";
+    return pageInvite(titre, html, t);
+  }
+
+  // Changer d'avis : la même ligne change de liste. Un toucher sur le bouton déjà choisi ne change rien.
+  function changerReponseInvite(bouton) {
+    var jeton = bouton.getAttribute("data-jeton"), valeur = bouton.getAttribute("data-lien-reponse");
+    var t = reponseLienPartout(jeton);
+    if (t && Msg.changerReponseLien(t.groupe, jeton, valeur).ok) { sauver(); }
+    rendre({ garderDefilement: true });
+    var suite = document.querySelector('#ma-reponse [data-lien-reponse="' + (valeur === "non" ? "non" : "oui") + '"]');
+    if (suite) { suite.focus({ preventScroll: true }); }
+  }
+
+  // L'agenda garde aussi le lien personnel.
+  function ajouterAgendaInvite(jeton) {
+    var t = reponseLienPartout(jeton);
+    if (!t || t.reponse.reponse !== "oui") { return; }
+    var ics = Msg.fichierAgenda(t.groupe, t.message, null, lienMaReponse(jeton));
+    if (!ics) { return; }
+    var url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    telecharger("rendez-vous.ics", url);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  // « Copier le lien », « Copier mon lien » : une seule ligne d'état sous le bouton. L'adresse reste écrite au-dessus, en secours.
+  function copierLien(bouton) {
+    var texte = document.getElementById(bouton.getAttribute("data-copier-lien")).textContent;
+    var zone = document.getElementById(bouton.getAttribute("data-etat"));
+    function dire(reussi) { zone.textContent = M(reussi ? "msgLienCopie" : "msgLienCopieImpossible"); }
+    function repli() {
+      var copie = document.createElement("textarea");
+      copie.value = texte; copie.setAttribute("readonly", "");
+      copie.style.position = "fixed"; copie.style.opacity = "0";
+      document.body.appendChild(copie); copie.select();
+      var reussi = false;
+      try { reussi = document.execCommand("copy"); } catch (err) { reussi = false; }
+      copie.remove();
+      dire(reussi);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(texte).then(function () { dire(true); }, repli);
+    } else { repli(); }
+  }
+
+  // Écran 1 : « Faire répondre par lien », sur le message, pour ceux qui gèrent une question ouverte. Trois boutons à contour.
+  function sectionPartageLien(m) {
+    var bouton = function (attribut, cle, plus) {
+      return '<button type="button" class="bouton bouton--secondaire" ' + attribut + (plus || "") + ">" + esc(M(cle)) + "</button>";
+    };
+    return '<section class="section partage" id="partage-lien" aria-labelledby="titre-partage-lien">' +
+      '<h2 id="titre-partage-lien">' + esc(M("msgLienTitre")) + "</h2>" +
+      '<p class="discret">' + esc(M("msgLienTexte")) + "</p>" +
+      '<p class="lien-adresse" id="lien-question">' + esc(lienPublic(codeDuLien(G(), m))) + "</p>" +
+      bouton('data-copier-lien="lien-question" data-etat="etat-lien-question"', "msgLienCopier") +
+      bouton("data-qr-lien", qrLienVisible ? "msgLienMasquerQr" : "msgLienAfficherQr", ' aria-expanded="' + qrLienVisible + '" aria-controls="qr-lien"') +
+      bouton('data-partager-lien="' + esc(m.id) + '"', "msgLienPartager") +
+      '<p class="copie-ok" id="etat-lien-question" role="status"></p>' +
+      blocQrLien("qr-lien", !qrLienVisible) +
+      "</section>";
+  }
+  // N15 : le QR code de la question, 200 px de large, seul sur sa ligne. Dans le prototype, c'est un dessin.
+  function blocQrLien(id, cache) {
+    return '<div class="qr qr--grand" id="' + id + '"' + (cache ? " hidden" : "") + '><div class="qr-image" aria-hidden="true"></div>' +
+      "<p>" + esc(M("msgLienQrTexte")) + '</p><p class="discret">' + esc(M("msgLienQrPrototype")) + "</p></div>";
+  }
+  function basculerQrLien(bouton) {
+    qrLienVisible = !qrLienVisible;
+    document.getElementById("qr-lien").hidden = !qrLienVisible;
+    bouton.setAttribute("aria-expanded", String(qrLienVisible));
+    bouton.textContent = M(qrLienVisible ? "msgLienMasquerQr" : "msgLienAfficherQr");
+  }
+  // Le texte part de la messagerie de celui qui partage : il garde l'en-tête de la 007, avec le prénom de l'auteur.
+  function textePartage(m) {
+    return [M("msgNotifEntete", { groupe: G().nom, prenom: prenomAuteur(m) }), m.texte, M("msgLienPartageTexte", { lien: lienPublic(codeDuLien(G(), m)) })].join("\n");
+  }
+  // Le partage du téléphone. L'application n'envoie rien : rien n'est noté dans « Ce qui serait envoyé ».
+  function partagerLien(id) {
+    var g = G(), p = moi();
+    var m = Msg.trouverVisible(g, p, id);
+    if (!m || !Msg.peutPartager(g, p, m)) { rendre({ focus: true }); return; }
+    var zone = document.getElementById("etat-lien-question");
+    var impossible = function () { zone.textContent = M("msgLienPartageImpossible"); };
+    if (typeof navigator.share !== "function") { impossible(); return; }
+    zone.textContent = "";
+    try {
+      // La personne qui referme le partage sans rien envoyer n'a pas d'erreur à lire.
+      navigator.share({ text: textePartage(m) }).catch(function (err) { if (!err || err.name !== "AbortError") { impossible(); } });
+    } catch (err) { impossible(); }
+  }
+
+  // Écran 5 : la phrase dite une fois au-dessus des listes, après un retrait.
+  function phraseRetrait(m) {
+    if (!retraitFait || retraitFait.id !== m.id) { return ""; }
+    var texte = retraitFait.texte;
+    retraitFait = null;
+    return '<p class="message-ok" id="retrait-fait" role="status">' + esc(texte) + "</p>";
+  }
+  // « Retirer cette réponse » : un toucher, puis la confirmation. Seules les réponses par lien se retirent.
+  function retirerReponseLien(bouton) {
+    var g = G(), p = moi(), id = bouton.getAttribute("data-question"), jeton = bouton.getAttribute("data-retirer-lien");
+    var garder = { garderDefilement: true, garderReplis: true };
+    var m = Msg.trouverVisible(g, p, id);
+    if (!m || !Msg.peutGerer(g, p, m)) { rendre(garder); return; }
+    var dejaRetiree = function () { retraitFait = { id: m.id, texte: M("msgLienDejaRetiree") }; rendre(garder); };
+    if (Msg.estRetiree(m, jeton)) { dejaRetiree(); return; }
+    var r = Msg.reponsesLien(m).filter(function (x) { return x.jeton === jeton; })[0];
+    if (!r || Msg.estClose(m)) { rendre(garder); return; }
+    if (!window.confirm(M("msgLienConfirmerRetrait", { nom: Msg.nomLien(g, m, r) }))) { return; }
+    var fait = Msg.retirerReponseLien(g, p, id, jeton);
+    if (fait.ok) { sauver(); retraitFait = { id: m.id, texte: M("msgLienRetiree", { nom: fait.nom }) }; }
+    else if (fait.raison === "deja") { dejaRetiree(); return; }
+    rendre(garder);
+  }
+
+  // Écran 6 : Démo › « Voir en invité ». La question affichée si l'on est sur un message ouvert, sinon la question ouverte
+  // la plus récente du groupe.
+  function voirEnInvite() {
+    var g = G(), morceaux = adresseActuelle().split("/").map(decodeURIComponent), m = null;
+    if (morceaux[0] === "message") {
+      var vue = Msg.trouverVisible(g, moi(), morceaux[1]);
+      if (vue && Msg.sorte(vue) === "question" && !Msg.estClose(vue)) { m = vue; }
+    }
+    m = m || Msg.questionOuverteRecente(g);
+    aller(m ? "#reponse/" + codeDuLien(g, m) : "#demo/invite");
+  }
+  // L'adresse #demo/invite : la page publique de la question ouverte la plus récente ; sans question ouverte, la phrase prévue.
+  function ecranDemoInvite() {
+    var m = Msg.questionOuverteRecente(G());
+    if (m) { location.replace("#reponse/" + codeDuLien(G(), m)); return null; }
+    return {
+      titre: D("voirEnInvite"), onglet: null,
+      html: retour("#accueil", M("ongletAccueil")) + entete(D("etiquette"), D("voirEnInvite")) +
+        '<div id="invite-aucune">' + etatVide("chemin", M("msgLienDemoAucune"), esc(M("msgLienDemoAucuneAide"))) + "</div>"
+    };
+  }
+
+  // Page Charte : le partage par lien (R1) avec le QR code de 200 px déplié (N15), puis la page ouverte par lien (R2). Tout est inerte.
+  function exemplesLien() {
+    var C = M("charteLien");
+    var bouton = function (cle) { return '<button type="button" class="bouton bouton--secondaire" data-exemple>' + esc(M(cle)) + "</button>"; };
+    return '<section class="section exemples-lien" id="charte-lien"><h2 class="section-titre">' + esc(C.titre) + "</h2>" +
+      '<p class="discret">' + esc(C.partage) + "</p>" +
+      '<div class="partage" id="exemple-partage-lien"><h2>' + esc(M("msgLienTitre")) + "</h2>" +
+      '<p class="discret">' + esc(M("msgLienTexte")) + "</p>" +
+      '<p class="lien-adresse">' + esc(C.lien) + "</p>" +
+      bouton("msgLienCopier") + bouton("msgLienMasquerQr") + bouton("msgLienPartager") +
+      '<p class="copie-ok">' + esc(M("msgLienCopie")) + "</p>" +
+      blocQrLien("exemple-qr-lien", false) + "</div>" +
+      '<p class="discret">' + esc(C.page) + "</p>" +
+      '<div id="exemple-page-lien"><div class="affiche"><p class="surtitre">' + esc(C.groupe) + "</p>" +
+      '<p class="affiche-titre">' + esc(C.question) + "</p></div>" +
+      champ("exemple-prenom", M("msgLienChampPrenom"), 'autocomplete="off"', "") +
+      '<div class="lien-perso"><h2>' + esc(M("msgLienGarderTitre")) + "</h2>" +
+      '<p class="discret">' + esc(M("msgLienGarderTexte")) + "</p>" +
+      '<p class="lien-adresse">' + esc(C.lienPersonnel) + "</p>" +
+      bouton("msgLienCopierLeMien") + "</div></div></section>";
+  }
+
   function introuvable() {
     return {
       titre: M("pageIntrouvable"), onglet: null,
@@ -2539,12 +3655,17 @@
       // Demande 007c : la liste des créneaux en manque, pour le bureau seul ; pour les autres, la page n'existe pas.
       case "creneaux-manquants": r = gere() && !morceaux[1] ? ecranCreneauxManquants() : introuvable(); break;
       case "messages":
-        r = morceaux[1] === "nouveau" && morceaux[2] === "question" ? ecranNouvelleQuestion(morceaux[3]) : morceaux[1] ? introuvable() : ecranMessages();
+        // Demande 009 : « Écrire un message » (le choix), puis l'un des trois formulaires.
+        if (morceaux[1] === "nouveau") {
+          r = !morceaux[2] ? ecranChoixMessage() : morceaux[2] === "question" ? ecranNouvelleQuestion(morceaux[3]) :
+            (morceaux[2] === "idee" || morceaux[2] === "info") && !morceaux[3] ? ecranEcrire(morceaux[2]) : introuvable();
+        } else { r = morceaux[1] ? introuvable() : ecranMessages(); }
         break;
       case "message": r = ecranMessage(morceaux[1], morceaux[2]); break;
       case "calendrier": r = estAsso() ? ecranEvenements() : ecranCalendrier(); break;
       case "evenements": r = ecranEvenements(); break;
-      case "evenement": r = ecranEvenement(morceaux[1], morceaux[2], morceaux[3]); break;
+      // Une adresse d'événement a quatre morceaux au plus : au-delà (anciens écrans retirés de la demande 009), la page n'existe pas.
+      case "evenement": r = morceaux.length > 4 ? introuvable() : ecranEvenement(morceaux[1], morceaux[2], morceaux[3]); break;
       case "association": case "groupe": r = ecranGroupe(); break;
       case "personnes": r = ecranPersonnes(); break;
       case "personne": r = ecranPersonne(morceaux[1]); break;
@@ -2554,8 +3675,14 @@
       case "aide": r = ecranAide(); break;
       case "demo":
         r = morceaux[1] === "groupe" ? ecranCreerGroupe() : morceaux[1] === "enregistrer" ? ecranEnregistrer() :
-          morceaux[1] === "ouvrir" ? ecranOuvrir() : introuvable();
+          morceaux[1] === "ouvrir" ? ecranOuvrir() : morceaux[1] === "envois" && !morceaux[2] ? ecranEnvois() :
+          morceaux[1] === "invite" && !morceaux[2] ? ecranDemoInvite() : introuvable();
+        // Démo › « Voir en invité » avec une question ouverte : l'adresse est remplacée par celle de sa page publique.
+        if (!r) { return; }
         break;
+      // Demande 010 : les pages ouvertes par lien. Quand le téléphone a déjà répondu, l'adresse est remplacée par celle de sa réponse.
+      case "reponse": r = ecranReponse(morceaux[1], morceaux[2], morceaux[3]); if (!r) { return; } break;
+      case "ma-reponse": r = morceaux[2] ? lienReponseInconnue() : ecranMaReponse(morceaux[1]); break;
       case "inscription": r = ecranInscription(morceaux[1]); break;
       case "merci": r = ecranMerci(morceaux[1]); break;
       case "annuler": r = ecranAnnuler(morceaux[1]); break;
@@ -2564,8 +3691,13 @@
     var parent = !!r.parent;
     document.body.classList.toggle("espace-parent", parent);
     document.body.classList.toggle("espace-bureau", !parent);
+    // Demande 007d : un écran qui porte la bande du bouton garde en bas de page une réserve de sa hauteur.
+    document.body.classList.toggle("avec-bande", !!r.bande);
     document.getElementById("onglets").hidden = parent;
     document.getElementById("demo-retour").hidden = !parent;
+    // Demande 010 : depuis une page ouverte par lien, le retour du testeur ramène au message ; la page porte la couleur du groupe de la question.
+    document.getElementById("demo-retour").setAttribute("href", r.retourDemo || "#accueil");
+    appliquerCouleur(parent && r.groupe ? r.groupe : null);
 
     var vue = document.getElementById("vue");
     var defilement = window.scrollY;
@@ -2576,6 +3708,8 @@
     var aide = parent || r.aide ? "" : '<a class="lien-aide" id="lien-aide" href="#aide">' + esc(M("lienAide")) + "</a>";
     vue.innerHTML = aide + r.html;
     ouverts.forEach(function (id) { var d = document.getElementById(id); if (d && d.tagName === "DETAILS") { d.open = true; } });
+    poserBande();
+    poserPastille();
     document.title = r.titre + " — " + (parent ? "" : G().nom + " — ") + "prototype";
     Array.prototype.forEach.call(document.querySelectorAll("[data-onglet]"), function (a) {
       if (a.getAttribute("data-onglet") === r.onglet) { a.setAttribute("aria-current", "page"); }
@@ -2587,10 +3721,18 @@
       window.scrollTo(0, 0);
       var champ = r.champ && document.getElementById("champ-" + r.champ);
       var h1 = vue.querySelector("h1");
-      if (champ && options && options.focus) { champ.focus({ preventScroll: true }); }
+      // r.curseur (demande 010, écran du prénom) : le curseur est déjà dans le champ, même quand la page est ouverte par son adresse.
+      if (champ && ((options && options.focus) || r.curseur)) { champ.focus({ preventScroll: true }); }
       else if (h1 && options && options.focus) { h1.focus({ preventScroll: true }); }
     }
   }
+
+  // La bande du bouton se pose juste au-dessus du menu, quelle que soit sa hauteur réelle (marge basse du téléphone comprise).
+  function poserBande() {
+    var bande = document.getElementById("bande-action"), menu = document.getElementById("onglets");
+    if (bande && menu && !menu.hidden && menu.offsetHeight) { bande.style.bottom = menu.offsetHeight + "px"; }
+  }
+  window.addEventListener("resize", poserBande);
 
   function copier(idSource) {
     var texte = document.getElementById(idSource).textContent;
@@ -2623,10 +3765,30 @@
     var entrees = [["accueil", "#accueil", M("ongletAccueil")], ["messages", "#messages", M("ongletMessages")]];
     if (estAsso()) { entrees.push(["evenements", "#evenements", M("ongletEvenements")]); }
     entrees.push(["groupe", hrefGroupe(), M("ongletGroupe")]);
-    document.getElementById("onglets").innerHTML = entrees.map(function (x) {
-      return '<a href="' + x[1] + '" data-onglet="' + x[0] + '"><span class="icone"><svg viewBox="0 0 24 24" aria-hidden="true">' + ICONES[x[0]] +
-        "</svg></span><span>" + esc(x[2]) + "</span></a>";
-    }).join("");
+    document.getElementById("onglets").innerHTML = entrees.map(function (x) { return lienOnglet(x[0], x[1], x[2], 0); }).join("");
+    poserPastille();
+  }
+
+  // Une entrée du menu. N9 (demande 008) : sur « Messages », le nombre de messages qui attendent ma réponse, posé sur l'icône ;
+  // de 1 à 9, puis « 9+ ». Le nom lu de l'onglet donne le nombre exact. exemple : entrée inerte de la page Charte.
+  // Le nombre est écrit par la feuille de style (attribut data-nombre) : le mot de l'onglet reste son seul texte, son nom lu dit le nombre.
+  function nombreOnglet(n) { return '<span class="onglet-nombre" aria-hidden="true" data-nombre="' + esc(n > 9 ? M("msgPastilleMax") : n) + '"></span>'; }
+  function lienOnglet(nom, href, libelle, n, exemple) {
+    return '<a href="' + href + '"' + (exemple ? "" : ' data-onglet="' + nom + '"') + (n ? ' aria-label="' + esc(Mn("msgPastilleLecture", n)) + '"' : "") + ">" +
+      '<span class="icone">' + (n ? nombreOnglet(n) : "") + '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICONES[nom] + "</svg></span>" +
+      '<span class="onglet-mot">' + esc(libelle) + "</span></a>";
+  }
+
+  // La pastille suit chaque écran dessiné : elle baisse ou disparaît dès la réponse donnée, sans recharger. À zéro, elle est absente.
+  function poserPastille() {
+    var lien = document.querySelector('#onglets [data-onglet="messages"]');
+    if (!lien) { return; }
+    var n = Msg.nombreARepondre(G(), moi());
+    var icone = lien.querySelector(".icone"), pastille = icone.querySelector(".onglet-nombre");
+    if (pastille) { pastille.remove(); }
+    if (!n) { lien.removeAttribute("aria-label"); return; }
+    icone.insertAdjacentHTML("afterbegin", nombreOnglet(n));
+    lien.setAttribute("aria-label", Mn("msgPastilleLecture", n));
   }
 
   // ---------- Menu de démo (outil du testeur, ouvert à tous les rôles) ----------
@@ -2648,7 +3810,10 @@
           esc(Gr.nomComplet(x)) + " — " + esc(minuscule(nomRole(x.role))) + "</option>";
       }).join("") + "</select></label>" +
       '<a class="demo-ligne" href="#demo/groupe">' + esc(D("creerUnGroupe")) + "</a>" +
+      // Demande 010 : la page publique d'une question ouverte, pour les deux sortes de groupe.
+      '<a class="demo-ligne" href="#demo/invite" data-voir-invite>' + esc(D("voirEnInvite")) + "</a>" +
       (vg && vg.creneaux.length ? '<a class="demo-ligne" href="#inscription/vide-grenier">' + esc(D("voirEspaceParent")) + "</a>" : "") +
+      '<a class="demo-ligne" href="#demo/envois">' + esc(D("voirEnvois")) + "</a>" +
       '<a class="demo-ligne" href="#demo/enregistrer">' + esc(D("enregistrerMonEssai")) + "</a>" +
       '<a class="demo-ligne" href="#demo/ouvrir">' + esc(D("ouvrirUnEssai")) + "</a>" +
       '<button type="button" class="demo-ligne demo-reinit" data-reinitialiser>' + esc(M("reinitialiser")) + "</button>";
@@ -2687,10 +3852,31 @@
     var cible = ev.target.closest("button, a");
     if (!cible) { return; }
     if (cible.hasAttribute("data-reglage")) { changerReglage(); return; }
+    // Demande 010 : la réponse par lien.
+    if (cible.hasAttribute("data-voir-invite")) { ev.preventDefault(); basculerMenu(false); voirEnInvite(); return; }
+    if (cible.hasAttribute("data-lien-reponse")) { changerReponseInvite(cible); return; }
+    if (cible.hasAttribute("data-agenda-lien")) { ajouterAgendaInvite(cible.getAttribute("data-agenda-lien")); return; }
+    if (cible.hasAttribute("data-copier-lien")) { copierLien(cible); return; }
+    if (cible.hasAttribute("data-qr-lien")) { basculerQrLien(cible); return; }
+    if (cible.hasAttribute("data-partager-lien")) { partagerLien(cible.getAttribute("data-partager-lien")); return; }
+    if (cible.hasAttribute("data-retirer-lien")) { retirerReponseLien(cible); return; }
+    // « Répondre pour une autre personne » : le lien ouvre la page de réponse sans tenir compte de la mémoire du téléphone.
+    if (cible.hasAttribute("data-autre-personne")) { autrePersonne = cible.getAttribute("data-autre-personne"); }
     if (cible.hasAttribute("data-reponse")) { repondreQuestion(cible); return; }
+    // Demande 009 : « Bonne idée » (le bouton déjà coché ne fait rien : on retire sa réponse par le lien), « Vu », retenir, classer.
+    if (cible.hasAttribute("data-bonne-idee")) { if (cible.getAttribute("aria-pressed") !== "true") { direBonneIdee(cible.getAttribute("data-bonne-idee"), true); } return; }
+    if (cible.hasAttribute("data-retirer-idee")) { direBonneIdee(cible.getAttribute("data-retirer-idee"), false); return; }
+    if (cible.hasAttribute("data-vu")) { marquerVu(cible.getAttribute("data-vu")); return; }
+    if (cible.hasAttribute("data-decider")) { deciderIdee(cible); return; }
     if (cible.hasAttribute("data-clore")) { cloreQuestion(cible.getAttribute("data-clore")); return; }
     if (cible.hasAttribute("data-agenda-question")) { ajouterAgendaQuestion(cible.getAttribute("data-agenda-question")); return; }
     if (cible.hasAttribute("data-voir-suite")) { voirSuite(cible); return; }
+    if (cible.hasAttribute("data-voir-anciens")) { voirAnciens(cible); return; }
+    if (cible.hasAttribute("data-supprimer-commentaire")) { supprimerCommentaire(cible); return; }
+    // « Relancer ceux qui n'ont pas répondu » : la relance est notée dans « Ce qui serait envoyé », puis le lien ouvre son écran.
+    if (cible.hasAttribute("data-relancer")) {
+      if (Msg.noterRelance(G(), moi(), cible.getAttribute("data-relancer")).ok) { sauver(); }
+    }
     if (cible.classList.contains("statut")) { changerStatut(cible); return; }
     if (cible.hasAttribute("data-ouvrir")) { ouvrirFormulaire(cible.getAttribute("data-ouvrir")); return; }
     if (cible.hasAttribute("data-fermer")) { creneauOuvert = null; rendre({ garderDefilement: true }); return; }
@@ -2734,6 +3920,7 @@
     effacerErreur(c);
     // La phrase des 80 caractères n'est pas une erreur d'envoi : elle reste écrite tant que la limite est atteinte.
     if (c.id === "champ-question") { compterCaracteres(c); }
+    if (c.form && c.form.classList.contains("form-ecrire") && (c.name === "idee" || c.name === "explication" || c.name === "info")) { compterChamp(c); }
     if (c.id === "demo-groupe") {
       etat.groupeActif = c.value;
       sauver();
@@ -2756,6 +3943,10 @@
     } else if (c.form && c.form.classList.contains("form-question")) {
       if (c.name === "a-qui" || c.name === "jour" || c.name === "heure") { montrerZonesQuestion(c.form); }
       if (c.name === "personnes") { compterPersonnes(c.form); }
+    } else if (c.form && c.form.classList.contains("form-ecrire")) {
+      // Demande 009 : le même « À qui ? » sur « Nouvelle idée » et « Nouvelle info ».
+      if (c.name === "a-qui") { c.form.querySelector("#zone-personnes").hidden = valeurRadio(c.form, "a-qui") !== "personnes"; }
+      if (c.name === "personnes") { compterPersonnes(c.form); }
     }
   });
 
@@ -2763,8 +3954,9 @@
     // D'abord la phrase d'erreur du champ, puis le compteur de la question, qui peut écrire la sienne (« … pas plus longue »).
     effacerErreur(ev.target);
     if (ev.target.id === "champ-question") { compterCaracteres(ev.target); }
+    if (ev.target.id === "champ-commentaire") { compterCommentaire(ev.target); }
+    if (ev.target.form && ev.target.form.classList.contains("form-ecrire") && ["idee", "explication", "info"].indexOf(ev.target.name) >= 0) { compterChamp(ev.target); }
     if ((ev.target.name === "autre-date" || ev.target.name === "autre-heure") && ev.target.form && ev.target.form.classList.contains("form-question")) {
-      montrerAideAutreDate(ev.target.form);
       effacerErreursRendezVous(ev.target.form, ev.target.name);
     }
   });
@@ -2774,7 +3966,8 @@
     var envois = {
       formulaire: envoyerFormulaire, "form-personne": envoyerPersonne, "form-equipe": envoyerEquipe, "form-groupe": envoyerGroupe,
       "form-evenement": envoyerEvenement, "form-action": envoyerAction, "form-creneau": envoyerCreneau,
-      "form-question": envoyerQuestion
+      "form-question": envoyerQuestion, "form-commentaire": publierCommentaire, "form-ecrire": envoyerEcrit,
+      "form-invite": envoyerInvite
     };
     Object.keys(envois).forEach(function (classe) {
       if (f.classList.contains(classe)) { ev.preventDefault(); envois[classe](f); }
@@ -2785,6 +3978,13 @@
     creneauOuvert = null;
     qrVisible = false;
     reponseAccueil = null;
+    commentaireFait = null;
+    anciensDeplies = null;
+    qrLienVisible = false;
+    retraitFait = null;
+    // Demande 010 : « pour une autre personne » ne vaut que sur les écrans de réponse de ce lien ; « C'est noté » que sur l'écran de cette réponse.
+    if (autrePersonne && location.hash.indexOf("#reponse/" + autrePersonne) !== 0) { autrePersonne = null; }
+    if (vientDeRepondre && location.hash !== "#ma-reponse/" + vientDeRepondre) { vientDeRepondre = null; }
     rendre({ focus: true });
   });
 

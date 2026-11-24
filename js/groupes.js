@@ -258,6 +258,10 @@
   // un texte là où on attend un texte, un nombre là où on attend un nombre).
   // Un seul champ qui ne va pas fait refuser tout le fichier.
   function estTexte(v) { return typeof v === "string"; }
+  // L'initiale d'une réponse par lien : une lettre, une seule, comme à la saisie (décision du 2026-11-24).
+  // Un nom entier, un chiffre ou un signe glissé dans un fichier d'essai fait refuser le fichier.
+  var UNE_LETTRE = /^[A-Za-zÀ-ÖØ-öø-ÿ]$/;
+  function estInitiale(v) { return typeof v === "string" && UNE_LETTRE.test(v); }
   function texteOuRien(v) { return v === undefined || v === null || typeof v === "string"; }
   function estNombre(v) { return typeof v === "number" && isFinite(v); }
   function nombreOuRien(v) { return v === undefined || v === null || estNombre(v); }
@@ -293,7 +297,8 @@
       ? estNombre(e.dansJours)
       : estTexte(e.date) && DATE_VALIDE.test(e.date) && !isNaN(new Date(e.date + "T00:00:00").getTime()) && nombreOuRien(e.dansJours);
     // debut, fin : horaires d'un événement créé à la main (demande 006), "HH:MM" ou vide.
-    return estId(e.id) && estTexte(e.titre) && estTexte(e.lieu) && quand && heureOuRien(e.debut) && heureOuRien(e.fin) &&
+    // ideeId : l'idée d'où vient l'événement (demande 009).
+    return estId(e.id) && estTexte(e.titre) && estTexte(e.lieu) && quand && heureOuRien(e.debut) && heureOuRien(e.fin) && idOuRien(e.ideeId) &&
       liste(e.actions, actionValide) && liste(e.creneaux, creneauValide) &&
       (e.bilan === undefined || e.bilan === null || bilanValide(e.bilan));
   }
@@ -301,15 +306,46 @@
   // Une question (demande 007) : ses listes de personnes sont des identifiants, ses dates de vraies dates.
   var SORTES_A = ["tous", "gestion", "equipe", "personnes"];
   function listeIds(v) { return Array.isArray(v) && v.every(estId); }
+  // Demande 009 : trois sortes de messages, jamais une quatrième. Une idée garde son explication, ses « Bonne idée », son état
+  // et le jour où il a été décidé ; une info, les personnes qui ont touché « Vu ».
+  var SORTES_MESSAGE = ["question", "idee", "info"];
+  var ETATS_IDEE = ["retenue", "classee"];
+  function listeIdsOuRien(v) { return v === undefined || v === null || listeIds(v); }
   function messageValide(m) {
-    return estId(m.id) && m.sorte === "question" && estTexte(m.texte) && estId(m.auteurId) && texteOuRien(m.auteur) &&
+    return estId(m.id) && SORTES_MESSAGE.indexOf(m.sorte) >= 0 && estTexte(m.texte) && estId(m.auteurId) && texteOuRien(m.auteur) &&
+      texteOuRien(m.explication) && listeIdsOuRien(m.bonneIdee) && listeIdsOuRien(m.vu) &&
+      (m.etat === undefined || m.etat === null || ETATS_IDEE.indexOf(m.etat) >= 0) && dateOuRien(m.decideLe) && nombreOuRien(m.decideDansJours) &&
       dateOuRien(m.creeLe) && nombreOuRien(m.creeDansJours) && dateOuRien(m.closeLe) && nombreOuRien(m.closeDansJours) &&
       dateOuRien(m.jour) && nombreOuRien(m.jourDansJours) && nombreOuRien(m.jourSemaine) && heureOuRien(m.heure) &&
       dateOuRien(m.avantLe) && nombreOuRien(m.avantLeDansJours) && nombreOuRien(m.avantLeJoursAvant) &&
       (m.attendus === undefined || m.attendus === null || (estNombre(m.attendus) && m.attendus >= 1 && Math.floor(m.attendus) === m.attendus)) &&
       idOuRien(m.evenementId) &&
       !!m.a && typeof m.a === "object" && SORTES_A.indexOf(m.a.sorte) >= 0 && idOuRien(m.a.equipeId) && texteOuRien(m.a.nom) &&
-      listeIds(m.destinataires) && listeIds(m.oui) && listeIds(m.non);
+      listeIds(m.destinataires) && (m.sorte === "question" ? listeIds(m.oui) && listeIds(m.non) : listeIdsOuRien(m.oui) && listeIdsOuRien(m.non)) &&
+      // Commentaires (demande 008) : un texte, un numéro d'ordre, une date et une heure ; « vus » : un numéro par personne.
+      (m.commentaires === undefined || m.commentaires === null || liste(m.commentaires, commentaireValide)) &&
+      nombreOuRien(m.dernierCommentaire) && vusValides(m.vus) &&
+      // Réponses par lien (demande 010) : les réponses (un jeton, un prénom, une lettre, Oui ou Non, et la personne du groupe
+      // si la réponse lui est rattachée), les jetons des réponses retirées.
+      (m.parLien === undefined || m.parLien === null || liste(m.parLien, reponseLienValide)) && listeIdsOuRien(m.retires);
+  }
+  function reponseLienValide(r) {
+    return estId(r.jeton) && estTexte(r.prenom) && estInitiale(r.initiale) && (r.reponse === "oui" || r.reponse === "non") && idOuRien(r.personneId);
+  }
+  function commentaireValide(c) {
+    return estId(c.id) && estNombre(c.n) && estId(c.auteurId) && texteOuRien(c.auteur) && estTexte(c.texte) &&
+      dateOuRien(c.le) && nombreOuRien(c.dansJours) && heureOuRien(c.heure);
+  }
+  function vusValides(v) {
+    return v === undefined || v === null ||
+      (typeof v === "object" && !Array.isArray(v) && Object.keys(v).every(function (k) { return estId(k) && estNombre(v[k]); }));
+  }
+  // Ce qui serait envoyé (demande 008) : des identifiants, une date, une heure, et le texte du commentaire cité.
+  var SORTES_ENVOI = ["question", "relance", "commentaire", "idee", "info", "idee-retenue", "idee-classee"];
+  function envoiValide(e) {
+    return estId(e.id) && SORTES_ENVOI.indexOf(e.sorte) >= 0 && estId(e.messageId) && dateOuRien(e.le) && nombreOuRien(e.dansJours) &&
+      heureOuRien(e.heure) && texteOuRien(e.de) && listeIds(e.a) && idOuRien(e.commentaireId) && texteOuRien(e.commentaire) &&
+      (e.supprime === undefined || e.supprime === null || typeof e.supprime === "boolean");
   }
 
   function reglagesValides(r) {
@@ -327,8 +363,12 @@
       liste(g.equipes, function (e) { return estId(e.id) && estTexte(e.nom) && Array.isArray(e.personnes) && e.personnes.every(estId); }) &&
       (g.sorte === "simple" ? g.evenements === undefined || g.evenements === null || liste(g.evenements, evenementValide) : liste(g.evenements, evenementValide)) &&
       (g.messages === undefined || g.messages === null || liste(g.messages, messageValide)) && reglagesValides(g.reglages) &&
+      (g.envois === undefined || g.envois === null || liste(g.envois, envoiValide)) &&
       // jetonsSupprimes : jetons des inscrits d'un événement supprimé (demande 006b), des identifiants et rien d'autre.
       (g.jetonsSupprimes === undefined || g.jetonsSupprimes === null || listeIds(g.jetonsSupprimes)) &&
+      // liens : pour chaque question partagée par lien, son code secret (demande 010), des identifiants et rien d'autre.
+      (g.liens === undefined || g.liens === null || (typeof g.liens === "object" && !Array.isArray(g.liens) &&
+        Object.keys(g.liens).every(function (k) { return estId(k) && estId(g.liens[k]); }))) &&
       gestionnaires(g).length >= 1;
   }
 

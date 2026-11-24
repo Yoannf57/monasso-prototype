@@ -226,6 +226,13 @@
     return !!action.referentId && action.referentId === qui.id;
   }
 
+  // Cette personne a-t-elle au moins une action, faite ou à faire, à son nom ou par son équipe (demande 008) ?
+  function aDesActions(etat, personne) {
+    return ((etat && etat.evenements) || []).some(function (e) {
+      return (e.actions || []).some(function (a) { return estReferent(a, personne, etat); });
+    });
+  }
+
   // Actions à surveiller sur tous les événements à venir ; referent = null pour « toutes ».
   function actionsASurveiller(etat, referent, reference) {
     var r = { enRetard: [], cetteSemaine: [] };
@@ -501,6 +508,7 @@
     estReferent: estReferent,
     actionsASurveiller: actionsASurveiller,
     actionsAFaire: actionsAFaire,
+    aDesActions: aDesActions,
     LIBELLES_PREPARATION: LIBELLES_PREPARATION,
     etatPreparation: etatPreparation,
     grilleMois: grilleMois,

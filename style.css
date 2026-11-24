@@ -50,6 +50,7 @@
   --rayon-petit: 10px;
   --geste: 52px;                  /* hauteur minimale des zones tactiles */
   --barre-bas: 72px;
+  --bande: 79px;                  /* hauteur de la bande du bouton : 12 + 54 (un bouton) + 12, et 1 px de trait */
   --ombre: 0 1px 2px rgba(42, 33, 28, 0.06), 0 6px 18px -10px rgba(42, 33, 28, 0.25);
 }
 
@@ -494,6 +495,8 @@ p + .form-evenement { margin-top: 16px; }
   background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); box-shadow: var(--ombre);
 }
 .bloc-reponse .carte-etiquette { line-height: 1.5; }
+/* Le nombre du titre (« À répondre 2 ») est neutre, comme dans un titre de section : jamais la couleur du groupe. */
+.carte-etiquette .compte { color: var(--texte); }
 .bloc-reponse a.carte-titre {
   padding: 4px 0; color: var(--texte);
   text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px;
@@ -516,13 +519,62 @@ p + .form-evenement { margin-top: 16px; }
 .jour--rendez-vous { background: var(--accent-pale); border-color: var(--accent); }
 .rendez-vous { margin-bottom: 28px; }
 
-/* N5 · La case qui ne se coche plus. (Le choix sur deux colonnes est retiré par la demande 007b : le jour et l'heure sont en liste.) */
+/* N5 · La case qui ne se coche plus. (Le choix sur deux colonnes de la 007 est retiré depuis la 007b ; le jour et l'heure sont des cases, N13.) */
 .choix-option--bloquee { background: var(--surface-douce); color: var(--texte-doux); cursor: default; }
 /* La phrase de la limite reste sous les yeux pendant qu'on fait défiler la liste des personnes. */
 .limite-personnes:not(:empty) { position: sticky; top: 36px; z-index: 1; margin: 0 0 6px; padding: 6px 0; background: var(--fond); }
 
 /* N6 · Réglage allumé : l'aspect de « En cours ». Le mot change avec l'état, la couleur n'est jamais seule. */
 .statut[aria-pressed="true"] { background: var(--accent-pale); border-color: var(--accent); color: var(--accent); }
+
+/* N13 · La case à toucher, sans rond (demande 007d) : les jours en grille de deux colonnes (.choix--cases), les heures sur une
+   seule ligne (.choix--ligne). Le bouton radio est caché (.visuellement-cache), la case entière est son étiquette.
+   Texte de 16 px, jamais coupé. La case choisie se lit sans la couleur : trait foncé, et une coche dans un rond foncé,
+   à cheval sur le coin haut droit (elle ne prend aucune largeur au mot). */
+.quand > .choix { margin-bottom: 16px; }
+.quand > .choix--ligne { margin-bottom: 0; }
+.quand > div > .champ { margin: 12px 0 0; }
+.quand > #zone-autre-date > .champ { margin: 0 0 16px; }
+.choix--cases, .choix--ligne { display: grid; gap: 8px; }
+.choix--cases { grid-template-columns: 1fr 1fr; }
+.choix--ligne { grid-template-columns: repeat(4, 1fr) auto; gap: 6px; }
+.choix--cases .choix-option, .choix--ligne .choix-option {
+  position: relative; align-items: center; justify-content: center; gap: 0; min-width: 0; margin: 0; padding: 4px 8px;
+  font-size: var(--taille-petit); white-space: nowrap; text-align: center;
+}
+/* Le bouton radio caché ne garde pas les 24 px du rond de .choix-option. */
+.choix--cases .choix-option input, .choix--ligne .choix-option input { width: 1px; height: 1px; margin: -1px; }
+.choix--ligne .choix-option { padding: 4px; }
+.choix--ligne .choix-option:last-of-type { padding: 4px 6px; }
+.choix--cases .choix-titre, .choix--ligne .choix-titre { display: block; }
+.choix--cases .champ-erreur, .choix--ligne .champ-erreur { grid-column: 1 / -1; }
+.choix--cases .champ-erreur:empty, .choix--ligne .champ-erreur:empty { display: none; }
+.choix--cases .champ-erreur:not(:empty), .choix--ligne .champ-erreur:not(:empty) { margin-top: 0; }
+.choix--cases .choix-option:has(input:focus-visible), .choix--ligne .choix-option:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 3px; }
+.choix--cases .choix-option:has(input:checked)::after, .choix--ligne .choix-option:has(input:checked)::after {
+  content: ""; position: absolute; top: -8px; right: -8px; z-index: 1; width: 20px; height: 20px; border-radius: 50%; background: var(--texte);
+}
+.choix--cases .choix-option:has(input:checked)::before, .choix--ligne .choix-option:has(input:checked)::before {
+  content: ""; position: absolute; top: -2px; right: -3px; z-index: 2; width: 10px; height: 5px;
+  border-left: 2.5px solid var(--surface); border-bottom: 2.5px solid var(--surface); transform: rotate(-45deg);
+}
+/* Sur la ligne des heures, 6 px séparent deux cases : la coche dépasse de 4 px sur le côté, et non de 6, pour ne pas toucher la case voisine. */
+.choix--ligne .choix-option:has(input:checked)::after { right: -6px; }
+.choix--ligne .choix-option:has(input:checked)::before { right: -1px; }
+
+/* N14 · La bande du bouton (demande 007d) : fixe, juste au-dessus du menu, un seul bouton dedans. La page passe dessous ;
+   elle garde en bas une réserve de la hauteur de la bande (--bande), pour que rien ne reste caché. */
+.bande-action {
+  position: fixed; left: 0; right: 0; bottom: calc(var(--barre-bas) + env(safe-area-inset-bottom)); z-index: 8;
+  padding: 12px 16px; background: var(--fond); border-top: 1px solid var(--trait);
+  box-shadow: 0 -6px 18px -12px rgba(42, 33, 28, 0.3);
+}
+.bande-action .bouton { max-width: 528px; margin: 0 auto; }
+/* L'exemple de la page Charte, posé à plat dans la colonne : son bouton a la largeur de la colonne, 16 px avant l'exemple suivant. */
+.bande-action--exemple { position: static; padding-left: 0; padding-right: 0; margin-bottom: 16px; }
+.avec-bande .vue { padding-bottom: calc(var(--barre-bas) + 40px + var(--bande) + env(safe-area-inset-bottom)); }
+/* Un champ que l'on touche pour écrire s'arrête sous le bandeau du testeur et au-dessus de la bande. */
+html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--bande) + 8px + env(safe-area-inset-bottom)); }
 
 /* Nouvelle question, écran du message, listes */
 .form-question { margin-top: 4px; }
@@ -534,6 +586,59 @@ p + .form-evenement { margin-top: 16px; }
 .confirmation-quoi + .bouton { margin-top: 16px; }
 .calme + .bouton { margin-top: 16px; }
 .suite-liste[hidden] { display: none; }
+
+/* ---------- Commentaires, pastille du menu, ce qui serait envoyé (demande 008) ---------- */
+
+/* N7 · Zone de saisie sur plusieurs lignes : les règles de .champ input, mot pour mot. Trois lignes de haut pour le commentaire,
+   pleine largeur, pas de poignée d'agrandissement. Le compteur est dessous, en .discret ; il ne change jamais de couleur. */
+.champ textarea {
+  display: block; width: 100%; min-height: calc(4.5em + 24px); padding: 10px 14px; resize: none;
+  font: inherit; font-size: 1.1875rem; color: var(--texte);
+  background: var(--surface); border: 2px solid var(--texte-doux); border-radius: var(--rayon-petit);
+}
+.champ textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-pale); }
+.champ textarea[aria-invalid="true"] { border-color: var(--alerte); }
+.compte-commentaire { margin-top: 4px; }
+.form-commentaire { margin-top: 16px; }
+.form-commentaire .champ { margin-bottom: 12px; }
+#commentaires .personnes { margin-top: 0; }
+#commentaires .lien-bouton:not(.lien-bouton--ligne) { margin: 0 0 4px; }
+#commentaires > .calme + .message-ok { margin-top: 14px; }
+/* Message clos : la phrase est une autre partie de la section, 14 px sous la liste ou sous « Aucun commentaire pour l'instant. ». */
+#commentaires-clos { margin-top: 14px; }
+/* Commentaires plus anciens repliés : pas de trait au-dessus du premier commentaire visible. */
+.personnes li[hidden] + li:not([hidden]) { border-top: 0; }
+/* Un commentaire qui finit par son lien : les 48 px du lien tiennent lieu de marge basse. */
+.commentaire:has(> .lien-bouton--ligne) { padding-bottom: 0; }
+/* Un commentaire plus ancien, replié : .personne est un bloc, il faut le dire caché. */
+.personne[hidden] { display: none; }
+.commentaire-texte { overflow-wrap: anywhere; }
+.commentaire .personne-detail { margin-top: 2px; }
+
+/* N8 · Le lien sous un commentaire : la largeur de ses mots, aligné à gauche sous la signature, 48 px de haut. Gris souligné, pas rouge. */
+.lien-bouton--ligne { display: inline-flex; align-items: center; width: auto; margin-top: 0; padding: 0; text-align: left; }
+
+/* N9 · Le nombre posé sur l'icône « Messages » du menu : pilule de 24 px, chiffre de 16 px, foncée sur toutes les couleurs de groupe,
+   à cheval sur le coin haut droit de l'icône, avec un liseré clair. Elle ne couvre pas la bulle et ne touche ni le mot ni l'onglet voisin. */
+.onglets .icone { position: relative; }
+.onglet-nombre {
+  position: absolute; top: -6px; left: 38px; display: flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 24px; padding: 0 4px; border-radius: 999px;
+  background: var(--texte); color: var(--surface); box-shadow: 0 0 0 2px var(--surface);
+  font-size: 1rem; font-weight: 800; line-height: 1; letter-spacing: 0;
+}
+.onglet-nombre::after { content: attr(data-nombre); }
+/* L'exemple de la page Charte : le menu posé à plat dans la page. */
+.onglets--exemple { position: static; justify-content: flex-start; gap: 24px; padding: 0 12px; border: 1px solid var(--trait); border-radius: var(--rayon); box-shadow: none; }
+.onglets--exemple a { flex: 0 0 auto; padding-left: 12px; padding-right: 20px; }
+
+/* N10 · Lignes dans un bloc (« Prochains rendez-vous ») : chaque ligne est un lien entier, un trait entre deux lignes. */
+.lignes-bloc li + li { border-top: 1px solid var(--trait); }
+.bloc-reponse .lignes-bloc + .lien-suite { margin-top: 4px; }
+
+/* Démo › « Ce qui serait envoyé » : une entrée par envoi. */
+.envoi + .envoi, .suite-liste > .envoi:first-child { margin-top: 28px; }
+.envoi .repli { margin-bottom: 0; }
 
 /* ---------- Espace parent ---------- */
 
@@ -592,6 +697,65 @@ p + .form-evenement { margin-top: 16px; }
 .lien-details { margin-top: 14px; }
 .lien-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 800; }
 .lien-details .lien-adresse { margin-top: 8px; }
+
+/* ---------- Idée et info (demande 009) ---------- */
+
+/* N11 · Texte saisi sur plusieurs lignes (explication d'une idée) : la couleur, la taille et la graisse du texte courant,
+   les retours à la ligne gardés. Variante de titre, pour l'info qui n'a pas d'autre titre : la taille de .carte-titre,
+   la même dans la liste et sur l'écran, pour que « Vu » reste visible sans défiler. */
+.message-texte { margin-top: 10px; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
+.message-texte--titre { margin-top: 0; font-size: 1.25rem; line-height: 1.3; font-weight: 800; letter-spacing: 0; }
+.message-texte + .message-texte { margin-top: 10px; }
+/* Le texte de l'info et l'explication gardent leurs retours à la ligne dans « ce qui serait envoyé ». */
+.confirmation-quoi { white-space: pre-line; overflow-wrap: anywhere; }
+/* La pastille d'état suit le mot de sorte, au-dessus du titre du message. */
+.surtitre .etiquette { margin-left: 6px; vertical-align: 1px; }
+/* N1 · Le bouton de réponse seul (« Bonne idée », « Vu ») : pleine largeur, la phrase et le lien dessous. */
+.reponse-seule + .message-ok { margin: 12px 0 0; }
+.ma-reponse > .message-ok:first-child { margin: 0; }
+.ma-reponse .lien-bouton { margin-top: 4px; }
+.bloc-reponse .reponse-seule { margin-top: 0; }
+/* Compteur sous un champ de « Nouvelle idée » et de « Nouvelle info » ; la phrase qui dit que le bureau reçoit aussi l'idée. */
+.compte-champ { margin-top: 4px; }
+.form-ecrire { margin-top: 4px; }
+.form-ecrire .repli { margin-bottom: 16px; }
+.form-ecrire .astuce { margin-top: 4px; }
+.champ-note { margin-top: 4px; }
+/* Les lignes « Devenue l'événement… » et « Vient de l'idée… » : la phrase entière est le lien, elle peut tenir sur plusieurs lignes. */
+#idee-evenement, #vient-idee { overflow-wrap: anywhere; }
+#exemple-reponse-seule, #exemple-reponse-seule-choisie, #exemple-ligne-sorte, #exemple-message-texte { margin-bottom: 14px; }
+
+/* ---------- Réponse par lien (demande 010) ---------- */
+
+/* N15 · Le QR code de la question : 200 px de large, trait compris, seul sur sa ligne et centré ; les deux phrases dessous,
+   alignées à gauche. Le dessin des coups de main (88 px) est agrandi dans la même proportion. .qr-image ne change pas ailleurs. */
+.qr--grand { display: block; }
+.qr--grand .qr-image {
+  box-sizing: border-box; width: 200px; height: 200px; margin: 0 auto;
+  background:
+    linear-gradient(var(--texte), var(--texte)) 18px 18px / 50px 50px no-repeat,
+    linear-gradient(var(--texte), var(--texte)) 128px 18px / 50px 50px no-repeat,
+    linear-gradient(var(--texte), var(--texte)) 18px 128px / 50px 50px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 14px, rgba(42, 33, 28, 0.25) 14px 21px),
+    #fff;
+}
+.qr--grand p { margin-top: 12px; }
+.qr--grand p + p { margin-top: 6px; }
+/* Dans les listes « Oui » et « Non » : « Retirer cette réponse » sous le nom, aligné à gauche ; un nom très long se coupe. */
+.noms .personne-nom { min-width: 0; overflow-wrap: anywhere; }
+.noms .lien-bouton--alerte { margin-top: 0; padding: 0; text-align: left; }
+#retrait-fait { margin-bottom: 14px; }
+/* Pages ouvertes par lien : la phrase sous la paire, celle entre les champs et le bouton. */
+#sans-compte { margin-top: 10px; }
+.form-invite > .discret { margin-bottom: 16px; }
+.form-invite .retour { margin: -6px 0 10px; }
+.affiche h1, .confirmation h1, .confirmation-quoi { overflow-wrap: anywhere; }
+/* Page Charte : les exemples de la réponse par lien, hors de la section « Composants ». */
+.exemples-lien > * + * { margin-top: 14px; }
+.exemples-lien .partage { margin-bottom: 0; }
+.affiche-titre { margin-top: 2px; font-size: 2rem; line-height: 1.15; font-weight: 850; letter-spacing: -0.01em; }
+#exemple-page-lien > * + * { margin-top: 14px; }
+#exemple-page-lien .affiche { margin-bottom: 0; }
 
 /* ---------- Ordinateur ---------- */
 

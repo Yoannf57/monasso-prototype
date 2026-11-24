@@ -172,7 +172,7 @@
     });
     groupe.evenements.splice(groupe.evenements.indexOf(e), 1);
     if (jetons.length) { groupe.jetonsSupprimes = (groupe.jetonsSupprimes || []).concat(jetons); }
-    // Une question qui citait cet événement ne le cite plus.
+    // Une question qui citait cet événement ne le cite plus ; une idée devenue cet événement peut de nouveau en devenir un (demande 009).
     (groupe.messages || []).forEach(function (m) { if (m.evenementId === e.id) { delete m.evenementId; } });
     return { ok: true, titre: e.titre, pertes: { actions: e.actions.length, creneaux: e.creneaux.length, inscrits: jetons.length } };
   }
