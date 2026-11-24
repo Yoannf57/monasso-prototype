@@ -793,26 +793,27 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
   .espace-bureau .demo { margin-left: calc(-1 * var(--menu)); }
   #onglets {
     top: var(--bandeau); right: auto; bottom: 0; width: var(--menu);
-    flex-direction: column; justify-content: flex-start; gap: 4px; min-height: 0; padding: 0 12px 16px; overflow-y: auto;
+    flex-direction: column; justify-content: flex-start; gap: 4px; min-height: 0; padding: 0 8px 16px; overflow-y: auto;
     border-top: 0; border-right: 1px solid var(--trait); box-shadow: none;
   }
   #onglets .menu-groupe {
-    display: flex; align-items: center; gap: 10px; margin: 0 -12px 12px; padding: 18px 16px 16px;
+    display: flex; align-items: center; gap: 10px; margin: 0 -8px 12px; padding: 18px 16px 16px;
     border-top: 8px solid var(--principale); border-bottom: 1px solid var(--trait);
     font-weight: 800; line-height: 1.25; color: var(--texte); overflow-wrap: anywhere;
   }
   #onglets .menu-couleur { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--principale); border: 1px solid rgba(42, 33, 28, 0.25); }
   #onglets .menu-nom { min-width: 0; }
+  /* Essai 3 : l'icône, le mot, puis le nombre de messages qui attendent, sur une ligne. Chacun a sa place : le nombre est au bout
+     de la ligne et ne recouvre jamais le mot, à aucune largeur de menu ; le mot n'est jamais coupé. */
   #onglets a {
-    flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 52px; padding: 8px 12px 8px 4px;
+    flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: 8px; min-height: 52px; padding: 8px 8px 8px 4px;
     border-radius: var(--rayon-petit); font-size: var(--taille-texte); letter-spacing: 0;
   }
   #onglets a[aria-current="page"] { background: var(--principale-pale); }
-  #onglets a[aria-current="page"] .icone { background: none; }
-  /* Le nombre de messages qui attendent : au bout de la ligne, il ne touche ni l'icône ni le mot. */
-  #onglets a { position: relative; }
-  #onglets .icone { position: static; }
-  #onglets .onglet-nombre { top: 50%; left: auto; right: 12px; margin-top: -12px; box-shadow: none; }
+  #onglets .icone { display: contents; }
+  #onglets svg { flex-shrink: 0; margin: 0 8px; }
+  #onglets .onglet-mot { order: 1; white-space: nowrap; }
+  #onglets .onglet-nombre { position: static; order: 2; flex-shrink: 0; margin-left: auto; box-shadow: none; }
 
   /* Une colonne : formulaires et pages simples, 640 px de large, alignés à gauche du contenu. */
   .espace-bureau .vue { max-width: calc(640px + 2 * var(--marge-ordi)); margin: 0; padding: 36px var(--marge-ordi) 56px; }

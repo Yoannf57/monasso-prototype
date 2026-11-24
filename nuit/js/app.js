@@ -40,6 +40,10 @@
   var ORDI = window.matchMedia("screen and (min-width: 1024px)");
   var colonnes = null;        // écran à deux colonnes : { sorte, ici } pour la liste seule, { sorte, ouvert } à côté d'un détail ; sinon null
   var aReprendre = null;      // après Échap : l'adresse de l'élément qu'on vient de fermer, pour y reposer la sélection
+  // Essai 3 (règle commune du 2026-11-24) : à l'ordinateur, un texte en cours de frappe dans le détail ne se perd pas.
+  var adresseAffichee = null; // l'adresse de l'écran dessiné
+  var brouillons = {};        // par adresse de détail quitté : les textes commencés, { id du champ : texte } ; oubliés au changement de groupe
+  var quitteParEnvoi = false; // l'écran est quitté parce que son formulaire vient d'être enregistré : rien à garder
 
   // ---------- Mémoire du navigateur ----------
 
@@ -300,8 +304,12 @@
     sauver();
     // On remplace la ligne sur place : elle reste visible jusqu'au prochain écran.
     var li = document.getElementById("action-" + a.id);
+    var ouverte = !!li.querySelector('a[aria-current="true"]');
     li.outerHTML = ligneAction(a, e, li.getAttribute("data-contexte"));
-    document.querySelector("#action-" + esc(a.id) + " .statut").focus();
+    // Essai 3 : dans la colonne de gauche, la ligne de l'action ouverte reste marquée ; le curseur ne quitte pas un champ de la colonne de droite.
+    var lienAction = ouverte ? document.querySelector("#action-" + esc(a.id) + " a.action-texte--lien") : null;
+    if (lienAction) { lienAction.setAttribute("aria-current", "true"); }
+    if (!champDeTexteActif()) { document.querySelector("#action-" + esc(a.id) + " .statut").focus(); }
     var av = document.getElementById("avancement");
     if (av) {
       av.innerHTML = texteAvancement(e);
@@ -602,6 +610,14 @@
   function changerMois(delta) {
     var m = moisAffiche || moisDeDepart();
     moisAffiche = new Date(m.getFullYear(), m.getMonth() + delta, 1);
+    // Essai 3 : à côté d'un détail ouvert, seule la colonne de gauche est redessinée ; l'écran de droite n'est pas touché.
+    if (ORDI.matches && colonnes && !colonnes.ici) {
+      var auClavier = document.getElementById("liste").contains(document.activeElement);
+      remplirListe(colonnes);
+      var bouton = auClavier ? document.querySelector('#liste [data-mois="' + delta + '"]') : null;
+      if (bouton) { bouton.focus({ preventScroll: true }); }
+      return;
+    }
     rendre({ garderDefilement: true });
   }
 
@@ -958,7 +974,8 @@
 
   // Va à l'adresse ; si on y est déjà, redessine quand même l'écran.
   function aller(adresse) {
-    if (location.hash === adresse) { rendre({ focus: true }); } else { location.hash = adresse; }
+    // Essai 4 : redessiner la même adresse par ici, c'est demander un écran neuf (formulaire enregistré, démo réinitialisée…).
+    if (location.hash === adresse) { rendre({ focus: true, neuf: true }); } else { location.hash = adresse; }
   }
 
   // ---------- Demande 006 : créer un événement ; ajouter, modifier, supprimer une action ou un créneau ----------
@@ -1497,7 +1514,7 @@
 
   function voirSuite(bouton) {
     var suite = deplierSuite(bouton);
-    var premier = suite.querySelector("a");
+    var premier = champDeTexteActif() ? null : suite.querySelector("a");
     if (premier) { premier.focus({ preventScroll: true }); }
   }
 
@@ -2124,7 +2141,7 @@
     if (r.ok) { sauver(); }
     rendre({ garderDefilement: true, garderReplis: true });
     var suite = document.querySelector("#ma-reponse .reponse-seule");
-    if (suite) { suite.focus({ preventScroll: true }); }
+    if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
 
   // « Retenir l'idée », « Classer l'idée » : un toucher. L'auteur est prévenu (voir Démo › « Voir ce qui serait envoyé »).
@@ -2187,7 +2204,7 @@
     }
     rendre({ garderDefilement: true, garderReplis: true });
     var suite = document.querySelector(accueil ? "#bloc-repondre .message-ok" : "#ma-reponse .message-ok");
-    if (suite) { suite.focus({ preventScroll: true }); }
+    if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
 
   // ----- Demande 008 : les commentaires, sous le message -----
@@ -2300,7 +2317,8 @@
     if (!r.ok) { rendre({ garderDefilement: true, garderReplis: true }); return; }
     sauver();
     commentaireFait = { id: id, quoi: "publie" };
-    rendre({ garderDefilement: true, garderReplis: true });
+    // Le commentaire est envoyé : son champ se vide (essai 4 : c'est le seul cas, avec un texte effacé par la personne).
+    rendre({ garderDefilement: true, garderReplis: true, neuf: true });
     montrerStatutCommentaire();
   }
 
@@ -2350,7 +2368,7 @@
     }
     rendre({ garderDefilement: true, garderReplis: true });
     var suite = accueil ? document.querySelector("#bloc-repondre .message-ok") : document.querySelector('#ma-reponse [data-reponse="' + (valeur === "non" ? "non" : "oui") + '"]');
-    if (suite) { suite.focus({ preventScroll: true }); }
+    if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
 
   function cloreQuestion(id) {
@@ -3480,7 +3498,7 @@
     if (t && Msg.changerReponseLien(t.groupe, jeton, valeur).ok) { sauver(); }
     rendre({ garderDefilement: true });
     var suite = document.querySelector('#ma-reponse [data-lien-reponse="' + (valeur === "non" ? "non" : "oui") + '"]');
-    if (suite) { suite.focus({ preventScroll: true }); }
+    if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
 
   // L'agenda garde aussi le lien personnel.
@@ -3654,6 +3672,8 @@
   var ECRANS_ASSOCIATION = ["mes-actions", "rappels", "creneaux-manquants", "evenements", "evenement"];
 
   function rendre(options) {
+    garderBrouillon();
+    var saisie = options && options.neuf ? [] : garderSaisie();
     var morceaux = adresseActuelle().split("/").map(decodeURIComponent);
     var r;
     if (!estAsso() && ECRANS_ASSOCIATION.indexOf(morceaux[0]) >= 0) { morceaux = ["introuvable"]; }
@@ -3732,6 +3752,9 @@
       remplirListe(colonnes, aGauche ? r.html : undefined);
       if (aGauche) { poserRienChoisi(colonnes); }
     } else { viderListe(); }
+    if (!aGauche) { rendreBrouillon(); }
+    adresseAffichee = location.hash;
+    rendreSaisie(saisie);
     ouverts.forEach(function (id) { var d = document.getElementById(id); if (d && d.tagName === "DETAILS") { d.open = true; } });
     poserBande();
     poserPastille();
@@ -3760,6 +3783,76 @@
   // À partir de 1024 px, Messages et Événements s'affichent en deux colonnes : la liste à gauche (#liste), le détail à droite (#vue).
   // La feuille de style fait toute la mise en page. Ici, on remplit seulement la colonne de gauche quand la fenêtre est assez large,
   // et on la vide quand elle ne l'est plus : rien n'est rechargé, l'écran de droite n'est pas redessiné.
+
+  // Essai 4 (règle commune élargie du 2026-11-24) : « un texte en cours de frappe survit à toute action sur le même écran, au téléphone
+  // comme à l'ordinateur. Il ne disparaît que s'il est envoyé ou effacé par la personne. »
+  // Un champ où l'on écrit : une zone de plusieurs lignes, ou un champ de texte, de nombre, de date ou d'heure.
+  function estChampDeTexte(c) {
+    return !!c && (c.tagName === "TEXTAREA" || (c.tagName === "INPUT" && CHAMPS_DE_TEXTE.indexOf(c.type) >= 0));
+  }
+  // Le champ de l'écran où se trouve le curseur, s'il y en a un.
+  function champDeTexteActif() {
+    var c = document.activeElement;
+    return estChampDeTexte(c) && document.getElementById("vue").contains(c) ? c : null;
+  }
+  // Avant de redessiner le même écran : ce qui est écrit dans ses champs (seulement ce que la personne a changé), et où est le curseur.
+  // Rien n'est gardé ailleurs que dans cette variable, le temps de redessiner : rien n'est écrit dans le stockage du navigateur.
+  function garderSaisie() {
+    if (adresseAffichee === null || adresseAffichee !== location.hash) { return []; }
+    var actif = document.activeElement, liste = [];
+    Array.prototype.forEach.call(document.querySelectorAll("#vue textarea[id], #vue input[id]"), function (c) {
+      if (!estChampDeTexte(c) || (c.value === c.defaultValue && c !== actif)) { return; }
+      var x = { id: c.id, balise: c.tagName, texte: c.value, change: c.value !== c.defaultValue, actif: c === actif, haut: c.scrollTop };
+      try { x.debut = c.selectionStart; x.fin = c.selectionEnd; } catch (e) { x.debut = null; }
+      liste.push(x);
+    });
+    return liste;
+  }
+  // Après : le même champ (même identifiant) retrouve son texte, le curseur sa place ; le compteur du champ suit.
+  function rendreSaisie(liste) {
+    liste.forEach(function (x) {
+      var c = document.getElementById(x.id);
+      if (!c || c.tagName !== x.balise || !estChampDeTexte(c) || !document.getElementById("vue").contains(c)) { return; }
+      if (x.change && c.value !== x.texte) {
+        c.value = x.texte;
+        c.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      if (x.actif) {
+        c.focus({ preventScroll: true });
+        c.scrollTop = x.haut;
+        if (typeof x.debut === "number") { try { c.setSelectionRange(x.debut, x.fin); } catch (e) { /* champ de date ou de nombre : pas de curseur à poser */ } }
+      }
+    });
+  }
+
+  // Essai 3 · Les textes commencés dans un détail qu'on quitte (un autre élément choisi dans la liste, Échap, le menu…) sont gardés
+  // avec son adresse et retrouvés quand on y revient. Seuls les champs de texte, de nombre, de date et d'heure dont le contenu a changé.
+  // Rien n'est gardé quand l'écran est quitté parce que son formulaire vient d'être enregistré, ni au téléphone.
+  var CHAMPS_DE_TEXTE = ["text", "search", "tel", "email", "url", "number", "date", "time"];
+  function garderBrouillon() {
+    var adresse = adresseAffichee;
+    if (adresse === null || adresse === location.hash) { return; }
+    if (quitteParEnvoi) { quitteParEnvoi = false; delete brouillons[adresse]; return; }
+    if (!ORDI.matches || !colonnes || colonnes.ici) { return; }
+    var textes = {}, n = 0;
+    Array.prototype.forEach.call(document.querySelectorAll("#vue textarea[id], #vue input[id]"), function (c) {
+      if (!estChampDeTexte(c)) { return; }
+      if (c.value !== c.defaultValue) { textes[c.id] = c.value; n++; }
+    });
+    if (n) { brouillons[adresse] = textes; } else { delete brouillons[adresse]; }
+  }
+  function rendreBrouillon() {
+    var adresse = location.hash, textes = brouillons[adresse];
+    if (!textes || adresse === adresseAffichee) { return; }
+    delete brouillons[adresse];
+    Object.keys(textes).forEach(function (id) {
+      var c = document.getElementById(id);
+      if (!c || !document.getElementById("vue").contains(c) || (c.tagName !== "TEXTAREA" && c.tagName !== "INPUT")) { return; }
+      c.value = textes[id];
+      // Le compteur du champ et sa phrase d'erreur suivent, comme après une frappe.
+      c.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
 
   function cleListe(l) { return l.sorte + (l.evenement ? ":" + l.evenement : ""); }
 
@@ -3911,6 +4004,17 @@
     }
   });
 
+  // Essais 3 et 4 · Pendant qu'on écrit dans un champ, un clic sur un bouton ou un repli de l'écran (répondre Oui, Non, Bonne idée, Vu,
+  // ouvrir une liste, changer de mois, changer un état…) agit sans prendre le curseur : le champ reste actif, le curseur à sa place.
+  // Pas les liens (ils ouvrent un autre écran), ni le bouton qui envoie le formulaire.
+  document.addEventListener("mousedown", function (ev) {
+    var champ = champDeTexteActif();
+    // Seulement quand la personne a écrit dans le champ : un champ vide ou inchangé laisse partir le curseur, comme avant.
+    if (!champ || champ.value === champ.defaultValue || !ev.target.closest) { return; }
+    var cible = ev.target.closest("button, summary");
+    if (cible && cible.type !== "submit" && cible.closest("#vue, #liste")) { ev.preventDefault(); }
+  });
+
   // Impression : les replis fermés sont ouverts le temps d'imprimer, puis refermés.
   window.addEventListener("beforeprint", function () {
     Array.prototype.forEach.call(document.querySelectorAll("#vue details:not([open]), #liste details:not([open])"), function (d) {
@@ -3963,6 +4067,9 @@
   };
 
   function remplirOnglets() {
+    // Le groupe ou la démo change (autre groupe, essai ouvert, démo réinitialisée) : les textes commencés ailleurs sont oubliés.
+    brouillons = {};
+    adresseAffichee = null;
     var entrees = [["accueil", "#accueil", M("ongletAccueil")], ["messages", "#messages", M("ongletMessages")]];
     if (estAsso()) { entrees.push(["evenements", "#evenements", M("ongletEvenements")]); }
     entrees.push(["groupe", hrefGroupe(), M("ongletGroupe")]);
@@ -4176,6 +4283,8 @@
     Object.keys(envois).forEach(function (classe) {
       if (f.classList.contains(classe)) { ev.preventDefault(); envois[classe](f); }
     });
+    // Essai 3 : le formulaire est enregistré et l'écran quitté ; son texte n'est pas un brouillon à garder.
+    if (adresseAffichee !== null && location.hash !== adresseAffichee) { quitteParEnvoi = true; }
   });
 
   window.addEventListener("hashchange", function () {
