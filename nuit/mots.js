@@ -229,6 +229,8 @@ var MOTS = {
     msgComVide: "Aucun commentaire pour l'instant.",
     msgComErreurVide: "Écrivez votre commentaire.",
     msgComErreurLong: "Un commentaire tient en 300 caractères au plus.",
+    // Essai 5 de la demande 016 (journal du 2026-11-25) : clore, retenir ou classer est refusé tant qu'un commentaire est en cours de frappe
+    msgComPublierDAbord: "Publiez ou effacez d'abord votre commentaire.",
     msgComClos: "Ce message est clos : on ne peut plus commenter.",
     msgComErreurSupprimer: "Vous ne pouvez supprimer que vos commentaires.",
 

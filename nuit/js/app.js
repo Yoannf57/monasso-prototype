@@ -2145,7 +2145,23 @@
   }
 
   // « Retenir l'idée », « Classer l'idée » : un toucher. L'auteur est prévenu (voir Démo › « Voir ce qui serait envoyé »).
+  // Essai 5, « publier d'abord » (journal du 2026-11-25) : un geste qui ferait disparaître un champ en cours de frappe est refusé tant
+  // que le texte n'est ni publié ni effacé. Rend vrai si un commentaire est en cours sur l'écran : la phrase s'écrit sous le champ,
+  // comme une erreur de formulaire (elle s'efface dès que le champ change), le curseur revient dans le champ, à sa place, et le champ
+  // est amené à l'écran. Des espaces seuls ne sont pas un commentaire.
+  function commentaireEnCours() {
+    var zone = document.getElementById("champ-commentaire"), erreur = document.getElementById("erreur-commentaire");
+    if (!zone || !erreur || !zone.value.trim()) { return false; }
+    erreur.textContent = M("msgComPublierDAbord");
+    zone.setAttribute("aria-invalid", "true");
+    zone.focus({ preventScroll: true });
+    amenerALEcran(zone);
+    amenerALEcran(erreur);
+    return true;
+  }
+
   function deciderIdee(bouton) {
+    if (commentaireEnCours()) { return; }
     var r = Msg.deciderIdee(G(), moi(), bouton.getAttribute("data-message"), bouton.getAttribute("data-decider"));
     if (r.ok) { sauver(); }
     rendre({ focus: true });
@@ -2375,6 +2391,8 @@
     var g = G(), p = moi();
     var m = Msg.trouverVisible(g, p, id);
     if (!m || !Msg.peutGerer(g, p, m) || Msg.estClose(m)) { rendre({ focus: true }); return; }
+    // Essai 5 : pas de confirmation, rien n'est clos tant qu'un commentaire est en cours de frappe.
+    if (commentaireEnCours()) { return; }
     if (!window.confirm(M(Msg.sorte(m) === "info" ? "msgInfoConfirmerClore" : "msgConfirmerClore"))) { return; }
     if (Msg.clore(g, p, id).ok) { sauver(); }
     rendre({ focus: true });
