@@ -29,6 +29,16 @@
 
   <main id="vue" class="vue" tabindex="-1"></main>
 
+  <!-- Demande 017 : la fenêtre de confirmation de l'appli (remplace celle du navigateur). Sans titre : la phrase lui donne son nom
+       (la question) et sa description (la suite). Textes et boutons remplis par js/app.js, depuis mots.js. -->
+  <dialog class="fenetre" id="fenetre" aria-labelledby="fenetre-nom">
+    <p class="fenetre-phrase" id="fenetre-phrase"><span id="fenetre-nom"></span> <span id="fenetre-detail"></span></p>
+    <div class="fenetre-boutons">
+      <button type="button" class="bouton" id="fenetre-oui"></button>
+      <button type="button" class="bouton bouton--secondaire" id="fenetre-non"></button>
+    </div>
+  </dialog>
+
   <noscript><p class="vue">Ce prototype a besoin de JavaScript pour fonctionner.</p></noscript>
 
   <script src="mots.js"></script>

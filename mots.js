@@ -29,6 +29,9 @@
   coups de main gardent leurs textes.
   Demande 016 : deux phrases pour l'ordinateur (ordi…), celle des messages dans la liste commune, celle des événements dans la liste
   « association ».
+  Demande 017 : les boutons de la fenêtre de confirmation (fenetre…, msgComFenetre…, msgLienFenetre…), dans la liste commune sauf
+  ceux des actions et des créneaux ; les ajouts de la page Charte (charteFinition) ; les quatre textes du bloc « Mes actions à faire »
+  de l'accueil (accueil…), dans la liste « association ».
 */
 var MOTS = {
   commun: {
@@ -56,7 +59,8 @@ var MOTS = {
     ajouterLaPersonne: "Ajouter la personne",
     enregistrerLesChangements: "Enregistrer les changements",
     retirerLaPersonne: "Retirer cette personne",
-    confirmerRetrait: "Retirer {nom} de la liste ? Ses équipes la perdront aussi.",
+    // Demande 017 (ergonomie, ligne 6) : la phrase ne dit plus « la perdront », faux pour Thomas.
+    confirmerRetrait: "Retirer {nom} de la liste ? Cette personne quittera aussi ses équipes.",
     personneAjoutee: "{nom} est dans la liste. Ajoutez la suivante, ou revenez à la liste.",
     personneModifiee: "Changements enregistrés pour {nom}.",
     personneRetiree: "{nom} ne fait plus partie du groupe.",
@@ -526,7 +530,8 @@ var MOTS = {
     ouvrirTitre: "Ouvrir un essai",
     ouvrirTexte: "Choisissez le fichier reçu. Il remplace tout ce qui est sur ce téléphone.",
     choisirFichier: "Choisir le fichier de l'essai",
-    confirmerOuvrir: "Remplacer ce qui est sur ce téléphone par l'essai « {nom} » ?",
+    // Demande 017 (ergonomie, ligne 8) : la phrase dit ce qui sera effacé, et comment l'éviter.
+    confirmerOuvrir: "Ouvrir l'essai « {nom} » ? Les groupes et tout ce qui a été saisi sur ce téléphone seront effacés. Pour les garder, annulez et enregistrez d'abord votre essai.",
     essaiOuvert: "Essai ouvert : {groupes}, {personnes}.",
     essaiIllisible: "Ce fichier n'est pas un essai MonAsso. Choisissez le fichier enregistré avec « Enregistrer mon essai ».",
     // Demande 007c (journal du 2026-11-19) : la phrase de Yoann, mot pour mot.
@@ -551,7 +556,8 @@ var MOTS = {
       lienBouton: "Revenir à la liste",
       lienBoutonAlerte: "Supprimer cette équipe",
       actionLibelle: "Acheter les serviettes en papier",
-      actionMeta: "Le libellé souligné ouvre l'action"
+      // Demande 017 : le libellé n'est plus souligné, le chevron dit qu'il s'ouvre.
+      actionMeta: "Le libellé ouvre l'action, le chevron le montre"
     },
 
     // Exemples de la page Charte ajoutés par la demande 006b : confirmation d'une suppression, état qui se lit sans se toucher.
@@ -568,7 +574,79 @@ var MOTS = {
     pageIntrouvableAide: "Le lien est peut-être incomplet.",
 
     // Demande 016, à l'ordinateur : la colonne de droite tant qu'aucun message n'est choisi dans la liste
-    ordiChoisirMessage: "Choisissez un message dans la liste."
+    ordiChoisirMessage: "Choisissez un message dans la liste.",
+
+    // Demande 017 : la fenêtre de confirmation de l'appli (ergonomie, « Fenêtre de confirmation »). La phrase de chaque fenêtre
+    // garde sa clé (confirmer…) ; le bouton qui confirme reprend le verbe de la phrase et nomme l'objet ; « Annuler » pour toutes.
+    // Trois boutons reprennent un mot existant : msgClore, msgInfoClore, reinitialiser. Ceux des actions et des créneaux sont dans
+    // la liste « association ».
+    fenetreAnnuler: "Annuler",
+    msgComFenetreSupprimer: "Supprimer le commentaire",
+    fenetreRetirerPersonne: "Retirer la personne",
+    fenetreSupprimerEquipe: "Supprimer l'équipe",
+    fenetreOuvrirEssai: "Ouvrir l'essai",
+    msgLienFenetreRetirer: "Retirer la réponse",
+
+    // Demande 017 : ce que la page Charte ajoute (direction artistique, point 9). Les mêmes pour toutes les sortes de groupe.
+    charteFinition: {
+      regleSouligne: "Souligné : un lien posé dans une phrase. Chevron : ce qui s'ouvre, vers la droite pour un autre écran, vers le bas sur place.",
+      regleMouvements: "Mouvements courts, de 150 à 200 ms, à l'ouverture d'un détail, à la réponse et à la clôture. Aucun quand le téléphone demande de réduire les animations.",
+      principaleTexte: "Liens et mot de sorte des cartes : {blanc} sur blanc, {fond} sur le fond, {pale} sur la teinte pâle, {douce} sur une carte terminée",
+      contour: "Contour",
+      contourDetail: "Champs, boutons secondaires, cases : {blanc} sur blanc, {fond} sur le fond, {douce} sur une carte terminée",
+      voile: "Voile",
+      voileDetail: "Derrière la fenêtre de confirmation. La fenêtre blanche sur le voile : {ratio}",
+      textes: [
+        ["Titre de page", "32 px, 700"],
+        ["Titre de section", "20 px, 600"],
+        ["Titre de carte", "17 px, 600"],
+        ["Texte courant : phrases simples, mots du quotidien.", "17 px, 400"],
+        ["Texte secondaire", "16 px, 400, le minimum"]
+      ],
+      contoursTitre: "Contours et ombres",
+      contoursPrincipal: "Le bouton principal : une ombre douce, le seul bouton qui en a une.",
+      contoursSecondaire: "Le bouton secondaire : un contour gris fin.",
+      contoursCarte: "Une carte : un bord clair et une ombre légère.",
+      carteExemple: "Un résumé posé sur une carte",
+      champRepos: "Champ au repos",
+      champActif: "Champ actif",
+      champErreur: "Champ en erreur",
+      champErreurPhrase: "Indiquez le prénom.",
+      chevronsTitre: "Chevrons",
+      chevronCarte: "Vers la droite : ouvre un autre écran.",
+      chevronCarteTitre: "Une carte qui s'ouvre",
+      chevronRepli: "Vers le bas : déplie sur place ; vers le haut : replie.",
+      repliFerme: "Un repli fermé",
+      repliOuvert: "Un repli ouvert",
+      repliCorps: "Ce qui était replié.",
+      chevronRetour: "Vers la gauche : revient en arrière. Le lien de suite garde la couleur du groupe.",
+      retour: "Messages",
+      lienSuite: "Voir le détail",
+      fenetreTitre: "Fenêtre de confirmation",
+      fenetreTexte: "Au téléphone, collée en bas de l'écran ; à l'ordinateur, au centre. La phrase, puis le bouton qui confirme, puis « Annuler ». Rouge quand le geste efface, à la couleur du groupe sinon.",
+      fenetreEquipe: "Les verts",
+      carteDenseTitre: "Carte d'un message",
+      // Essai 2 (direction artistique, B1) : la phrase dit aussi l'écart propre à la liste des messages. Mots à valider par l'ergonomie.
+      carteDenseTexte: "La sorte et l'auteur, le titre, la date du rendez-vous, le compteur : quatre messages tiennent sur un écran de téléphone. Dans la liste des messages, les sections sont plus serrées : 12\u00A0px au-dessus du titre, 4\u00A0px dessous, 8\u00A0px en haut et en bas des cartes.",
+      carteDenseAuteur: "Thomas",
+      carteDenseQuestion: "Qui vient préparer les lots de la tombola ?",
+      carteDenseDate: "lundi 23 novembre à 18\u00A0h\u00A030",
+      carteDenseOui: 3,
+      carteDenseAttendus: 6,
+      mouvementsTitre: "Mouvements",
+      mouvementsEntetes: ["Moment", "Durée", "Courbe", "Réduire les animations"],
+      mouvements: [
+        // \u00A0 : le nombre et « ms » ne se séparent pas en fin de ligne.
+        ["Ouverture d'un détail", "180\u00A0ms"],
+        ["Repli qui s'ouvre, suite d'une liste", "150\u00A0ms"],
+        ["Réponse, changement d'avis", "150 à 180\u00A0ms"],
+        ["Clôture", "180\u00A0ms"],
+        ["Fenêtre de confirmation", "150 à 200\u00A0ms"],
+        ["Survol et appui", "150\u00A0ms"]
+      ],
+      courbe: "Départ vif, arrivée douce",
+      coupe: "Coupé"
+    }
   },
 
   simple: {
@@ -628,6 +706,16 @@ var MOTS = {
   association: {
     // Demande 016, à l'ordinateur : la colonne de droite tant qu'aucun événement n'est choisi dans la liste
     ordiChoisirEvenement: "Choisissez un événement dans la liste.",
+
+    // Demande 017 (journal du 2026-11-26) : le bloc « Mes actions à faire » de l'accueil, textes écrits jusque-là dans js/app.js, sans changer de mots.
+    accueilMesActions: "Mes actions à faire",
+    accueilDontEnRetard: "dont {n} en retard",
+    accueilRienEnRetard: "rien en retard",
+    accueilToutEstFait: "tout est fait",
+
+    // Demande 017 : les boutons de la fenêtre de confirmation qui nomment une action ou un créneau (liste « association » seulement).
+    fenetreSupprimerAction: "Supprimer l'action",
+    fenetreSupprimerCreneau: "Supprimer le créneau",
     ongletGroupe: "Association",
     surtitreGroupe: "Association",
     roleGestion: "bureau",

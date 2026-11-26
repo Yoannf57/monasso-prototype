@@ -361,9 +361,24 @@
     return "#000000";
   }
 
+  // Demande 017 : la teinte la plus claire qui reste lisible sur chacun des fonds donnés.
+  function teinteLisiblePartout(couleur, fonds, ratio) {
+    var r = ratio || 4.5;
+    for (var i = 0; i <= 20; i++) {
+      var c = melanger(couleur, "#000000", i / 20);
+      if (fonds.every(function (f) { return contraste(c, f) >= r; })) { return c; }
+    }
+    return "#000000";
+  }
+
+  // Les fonds sur lesquels on écrit en couleur, en plus du fond de la page et de la teinte pâle (même valeurs que style.css) :
+  // la surface des cartes (blanc) et celle des cartes « Terminés » (--surface-douce, demande 017, direction artistique, point 8).
+  var SURFACE = "#FFFFFF";
+  var SURFACE_DOUCE = "#F3E9DA";
+
   // principale : la couleur telle quelle (aplats, repères, illustrations) ;
   // principaleFond + surPrincipale : bouton principal lisible (texte foncé ou blanc) ;
-  // principaleTexte : pour écrire en couleur sur le fond crème ou la teinte pâle.
+  // principaleTexte : pour écrire en couleur sur le fond crème, la teinte pâle, le blanc des cartes et le fond des cartes terminées.
   function paletteAssociation(couleur, fond) {
     var principale = versRgb(couleur) ? versHex(versRgb(couleur)) : "#F2613F";
     var pale = melanger(principale, fond, 0.85);
@@ -377,7 +392,7 @@
       principale: principale,
       principaleFond: fondBouton,
       surPrincipale: sur,
-      principaleTexte: teinteLisible(principale, pale),
+      principaleTexte: teinteLisiblePartout(principale, [pale, fond, SURFACE, SURFACE_DOUCE]),
       principalePale: pale
     };
   }
@@ -520,6 +535,7 @@
     texteSur: texteSur,
     teinteLisible: teinteLisible,
     paletteAssociation: paletteAssociation,
+    SURFACE_DOUCE: SURFACE_DOUCE,
     creneauxEnManque: creneauxEnManque,
     compterInscrits: compterInscrits,
     compterPlaces: compterPlaces,
