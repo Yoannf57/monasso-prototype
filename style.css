@@ -677,6 +677,8 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
   background: var(--surface); border: 2px solid var(--texte-doux); border-radius: var(--rayon-petit);
 }
 .champ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-pale); }
+/* Demande 016, au clavier : le champ garde son halo quand la tabulation est sur son bouton de calendrier ou d'horloge. */
+.champ input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-pale); }
 .champ input.champ-court { width: 5.5rem; text-align: center; text-transform: uppercase; }
 /* Dates et heures : la largeur et la hauteur d'un champ de texte, vide comme rempli (iPhone compris). */
 .champ input[type="date"], .champ input[type="time"] {
@@ -757,12 +759,127 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 #exemple-page-lien > * + * { margin-top: 14px; }
 #exemple-page-lien .affiche { margin-bottom: 0; }
 
-/* ---------- Ordinateur ---------- */
+/* ---------- Trois paliers (demande 016) ----------
+   Moins de 640 px : le téléphone, rien ne change.
+   De 640 à 1024 px : une colonne élargie, la barre du bas reste.
+   À partir de 1024 px : l'ordinateur. Le menu passe sur le côté gauche, avec le nom et la couleur du groupe ; Messages et
+   Événements s'affichent en deux colonnes (la liste à gauche, le détail à droite) ; l'accueil aussi ; les formulaires
+   gardent une largeur lisible, alignés à gauche du contenu.
+   Tout se fait ici, dans la feuille de style : on passe d'un palier à l'autre en changeant la largeur de la fenêtre.
+   js/app.js ne fait que remplir la colonne de gauche (#liste) quand l'écran est assez large. */
+
+/* La colonne de gauche des écrans à deux colonnes, et le nom du groupe en tête du menu : absents sous 1024 px. */
+.liste, .menu-groupe { display: none; }
 
 @media (min-width: 640px) {
   .vue { padding-top: 36px; }
   h1 { font-size: 2.375rem; }
   .nuancier { grid-template-columns: 1fr 1fr; }
+  /* La colonne élargie de l'application ; les pages ouvertes par lien gardent leur largeur. */
+  .espace-bureau .vue { max-width: 720px; }
+  .bande-action .bouton { max-width: 688px; }
+}
+
+@media screen and (min-width: 1024px) {
+  :root {
+    --menu: clamp(200px, 17vw, 240px);          /* largeur du menu de gauche */
+    --colonne-liste: clamp(360px, 32vw, 440px); /* largeur de la liste, sur les écrans à deux colonnes */
+    --bandeau: 36px;                            /* hauteur du bandeau du testeur */
+    --marge-ordi: 40px;
+  }
+
+  /* Le menu, sur le côté gauche : les mêmes entrées que la barre du bas, le nom et la couleur du groupe en tête. */
+  .espace-bureau { padding-left: var(--menu); }
+  .espace-bureau .demo { margin-left: calc(-1 * var(--menu)); }
+  #onglets {
+    top: var(--bandeau); right: auto; bottom: 0; width: var(--menu);
+    flex-direction: column; justify-content: flex-start; gap: 4px; min-height: 0; padding: 0 8px 16px; overflow-y: auto;
+    border-top: 0; border-right: 1px solid var(--trait); box-shadow: none;
+  }
+  #onglets .menu-groupe {
+    display: flex; align-items: center; gap: 10px; margin: 0 -8px 12px; padding: 18px 16px 16px;
+    border-top: 8px solid var(--principale); border-bottom: 1px solid var(--trait);
+    font-weight: 800; line-height: 1.25; color: var(--texte); overflow-wrap: anywhere;
+  }
+  #onglets .menu-couleur { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--principale); border: 1px solid rgba(42, 33, 28, 0.25); }
+  #onglets .menu-nom { min-width: 0; }
+  /* Essai 3 : l'icône, le mot, puis le nombre de messages qui attendent, sur une ligne. Chacun a sa place : le nombre est au bout
+     de la ligne et ne recouvre jamais le mot, à aucune largeur de menu ; le mot n'est jamais coupé. */
+  #onglets a {
+    flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: 8px; min-height: 52px; padding: 8px 8px 8px 4px;
+    border-radius: var(--rayon-petit); font-size: var(--taille-texte); letter-spacing: 0;
+  }
+  #onglets a[aria-current="page"] { background: var(--principale-pale); }
+  #onglets .icone { display: contents; }
+  #onglets svg { flex-shrink: 0; margin: 0 8px; }
+  #onglets .onglet-mot { order: 1; white-space: nowrap; }
+  #onglets .onglet-nombre { position: static; order: 2; flex-shrink: 0; margin-left: auto; box-shadow: none; }
+
+  /* Une colonne : formulaires et pages simples, 640 px de large, alignés à gauche du contenu. */
+  .espace-bureau .vue { max-width: calc(640px + 2 * var(--marge-ordi)); margin: 0; padding: 36px var(--marge-ordi) 56px; }
+  .avec-bande .vue { padding-bottom: calc(var(--bande) + 40px); }
+  .espace-bureau .bande-action { left: var(--menu); bottom: 0; padding-left: var(--marge-ordi); padding-right: var(--marge-ordi); }
+  .espace-bureau .bande-action .bouton { max-width: 640px; margin: 0; }
+  .espace-bureau .bande-action--exemple { padding-left: 0; padding-right: 0; }
+  html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--bande) + 8px); }
+
+  /* Deux colonnes : la liste à gauche, dans sa propre colonne qui défile seule ; le détail à droite. */
+  .deux-colonnes .liste {
+    display: block; position: fixed; top: var(--bandeau); bottom: 0; left: var(--menu); width: var(--colonne-liste);
+    padding: 36px 24px 40px; overflow-y: auto; overscroll-behavior: contain; border-right: 1px solid var(--trait);
+  }
+  .deux-colonnes .liste h1 { font-size: 2rem; }
+  .deux-colonnes .vue { max-width: calc(720px + 2 * var(--marge-ordi)); margin-left: var(--colonne-liste); }
+  .deux-colonnes .bande-action { left: calc(var(--menu) + var(--colonne-liste)); }
+  .deux-colonnes .bande-action .bouton { max-width: 720px; }
+  /* L'élément ouvert à droite se reconnaît dans la liste : un trait foncé et une barre de la couleur du groupe, jamais la couleur seule. */
+  .liste .carte[aria-current="true"] { border-color: var(--texte); box-shadow: inset 6px 0 0 var(--principale), var(--ombre); }
+  .liste .action:has([aria-current="true"]) { box-shadow: inset 6px 0 0 var(--principale); margin: 0 -14px; padding-left: 14px; padding-right: 14px; background: var(--surface-douce); }
+  /* Essai 2 : dans la colonne de gauche d'Événements, « À venir » vient avant le calendrier (déplacé par js/app.js) ; les écarts suivent. */
+  .liste .bouton + #evenements-a-venir, .liste .bouton + .vide { margin-top: 24px; }
+  .liste #evenements-a-venir + .calendrier, .liste .vide + .calendrier { margin-top: 28px; }
+  .liste .calendrier + #evenements-passes, .liste .rendez-vous + #evenements-passes { margin-top: 0; }
+  /* Tant que rien n'est choisi : un texte court, rien d'autre. */
+  .rien-choisi { padding: 72px 0 0; color: var(--texte-doux); }
+
+  /* L'accueil, en deux colonnes : « À répondre » et « Mes actions » à gauche, le prochain événement ou les prochains rendez-vous à droite. */
+  .ecran-accueil .vue {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr; column-gap: 24px;
+    max-width: calc(1040px + 2 * var(--marge-ordi));
+  }
+  .ecran-accueil .vue > * { grid-column: 1; align-self: start; }
+  .ecran-accueil .vue > .entete, .ecran-accueil .vue > .message-ok { grid-column: 1 / -1; }
+  .ecran-accueil .vue > .entete { grid-row: 1; }
+  .ecran-accueil .vue > .message-ok { grid-row: 2; }
+  .ecran-accueil .vue > .lien-aide { grid-column: 2; grid-row: 1; justify-self: end; position: relative; z-index: 1; }
+  .ecran-accueil .vue > #bloc-repondre { grid-row: 3; }
+  .ecran-accueil .vue > #bloc-actions, .ecran-accueil .vue > .bloc-liens { grid-row: 4; }
+  .ecran-accueil .vue > #bloc-prochain, .ecran-accueil .vue > #bloc-rendez-vous { grid-column: 2; grid-row: 3 / -1; }
+}
+
+/* ---------- Impression (demande 016) : la page de liste ou le détail affiché, sans menu, sans bandeau du testeur,
+   sans boutons, en texte noir sur fond blanc. Les replis sont ouverts le temps de l'impression (js/app.js). ---------- */
+
+@media print {
+  html, body { background: #fff !important; }
+  body { padding: 0 !important; font-size: 12pt; }
+  *, *::before, *::after { color: #000 !important; background: transparent !important; box-shadow: none !important; text-shadow: none !important; }
+  .demo, #onglets, .bande-action, .lien-aide, .retour, .bouton, .lien-bouton, .lien-suite, .choix-couleur, .bascule, .sous-onglets,
+  .rien-choisi, .illustration, .calendrier-mois, .qr, .barre, .jauge, .note-bas, .avertissement, .copie-ok { display: none !important; }
+  .vue, .espace-bureau .vue, .avec-bande .vue { display: block; max-width: none; margin: 0; padding: 0; }
+  /* Sur une page de liste, la liste s'imprime, où qu'elle soit ; à côté d'un détail ouvert, seul le détail s'imprime. */
+  .liste { display: none; position: static; width: auto; padding: 0; border: 0; overflow: visible; }
+  .liste-ici .liste { display: block; }
+  /* « Voir les N autres messages » ne s'imprime pas : les messages qu'il cachait, si. */
+  .suite-liste[hidden] { display: block !important; }
+  /* L'état d'une action se lit, sans l'aspect d'un bouton. */
+  .statut { min-width: 0; min-height: 0; padding: 0; border: 0 !important; }
+  a, .action-texte--lien .action-libelle { text-decoration: none !important; }
+  .carte, .repli, .repli-corps, .actions, .action + .action, .bloc-reponse, .bloc-liens, .calendrier, .personnes, .personnes li + li, .fiche, .membres, .creneau { border-color: #999 !important; }
+  .carte { padding-right: 16px; }
+  .carte::after, .repli > summary::after, .personne--lien::after { display: none; }
+  .carte, .bloc-reponse, .bloc-liens, .repli, .action, .creneau, .personnes li, .membres li { break-inside: avoid; }
+  h1, h2, summary { break-after: avoid; }
 }
 
 @media (prefers-reduced-motion: reduce) {
