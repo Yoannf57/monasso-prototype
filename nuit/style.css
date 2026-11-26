@@ -51,7 +51,16 @@
   --geste: 52px;                  /* hauteur minimale des zones tactiles */
   --barre-bas: 72px;
   --bande: 79px;                  /* hauteur de la bande du bouton : 12 + 54 (un bouton) + 12, et 1 px de trait */
-  --ombre: 0 1px 2px rgba(42, 33, 28, 0.06), 0 6px 18px -10px rgba(42, 33, 28, 0.25);
+  /* Demande 017 (direction artistique) : contours fins et gris, ombres légères, mouvements courts. */
+  --contour: #8A7B70;             /* champs, boutons secondaires, cases : 4,1:1 sur blanc, 3,8:1 sur le fond, 3,4:1 sur --surface-douce */
+  --ombre: 0 1px 2px rgba(42, 33, 28, 0.05), 0 2px 6px rgba(42, 33, 28, 0.06);
+  --ombre-principale: 0 1px 2px rgba(42, 33, 28, 0.12), 0 4px 10px -4px rgba(42, 33, 28, 0.25); /* le bouton principal, seul bouton à en avoir */
+  --ombre-fenetre: 0 12px 40px rgba(42, 33, 28, 0.28);
+  --voile: rgba(42, 33, 28, 0.5);
+  --duree: 180ms;
+  --duree-courte: 150ms;
+  --courbe: cubic-bezier(.2, 0, 0, 1); /* départ vif, arrivée douce */
+  --rayon-fenetre: 20px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -63,16 +72,20 @@ body {
   color: var(--texte);
   font-family: var(--police);
   font-size: var(--taille-texte);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.5;
   overflow-wrap: break-word;
 }
 
-a { color: var(--principale-texte); font-weight: 700; }
+/* Demande 017 : souligné = un lien posé dans une phrase (et « Aide », les liens gris) ; ce qui s'ouvre porte un chevron, sans soulignement. */
+a { color: var(--principale-texte); font-weight: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 h1, h2, h3, p, figure { margin: 0; }
 ul, ol { margin: 0; padding: 0; list-style: none; }
-strong { font-weight: 800; }
+strong { font-weight: 600; }
+/* Demande 017 : trois graisses seulement, 400, 600 et 700 (700 pour le titre de page). */
+h3 { font-weight: 600; }
+th { font-weight: 600; }
 
 /* ---------- Outils de démo (hors interface) ---------- */
 
@@ -86,12 +99,12 @@ strong { font-weight: 800; }
   font: inherit; color: inherit; background: transparent;
   border: 1px solid #8C877D; border-radius: 6px; padding: 4px 12px; min-height: 30px; cursor: pointer;
 }
-.demo-retour { color: #F2EFE8; margin-left: auto; padding: 4px 0; font-weight: 500; }
+.demo-retour { color: #F2EFE8; margin-left: auto; padding: 4px 0; font-weight: 400; }
 .demo-menu { background: #2B2A28; color: #F2EFE8; padding: 4px 16px 12px; border-top: 1px solid #45433F; }
 .demo-ligne {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
   min-height: 48px; padding: 8px 0; border: 0; border-bottom: 1px solid #45433F;
-  font: inherit; color: #F2EFE8; text-decoration: none; text-align: left; background: none; font-weight: 500;
+  font: inherit; color: #F2EFE8; text-decoration: none; text-align: left; background: none; font-weight: 400;
 }
 .demo-ligne select { font: inherit; font-size: 1rem; padding: 6px 8px; border-radius: 6px; border: 1px solid #8C877D; background: #3A3936; color: #F2EFE8; }
 /* « Changer de groupe » et « Changer de personne » : le libellé au-dessus, la liste dessous,
@@ -105,74 +118,98 @@ strong { font-weight: 800; }
 
 /* ---------- Mise en page ---------- */
 
-.vue { max-width: 560px; margin: 0 auto; padding: 20px 16px 56px; outline: none; }
+.vue { max-width: 560px; margin: 0 auto; padding: 16px 16px 56px; outline: none; }
 .espace-bureau .vue { padding-bottom: calc(var(--barre-bas) + 40px + env(safe-area-inset-bottom)); }
 
-.entete { margin-bottom: 20px; }
-.surtitre { font-size: var(--taille-petit); font-weight: 700; color: var(--texte-doux); margin-bottom: 2px; }
-h1 { font-size: 2rem; line-height: 1.15; font-weight: 850; letter-spacing: -0.01em; }
+.entete { margin-bottom: 16px; }
+.surtitre { font-size: var(--taille-petit); font-weight: 400; color: var(--texte-doux); margin-bottom: 2px; }
+h1 { font-size: 2rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; }
 h1:focus { outline: none; }
-h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
+h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 600; }
 .sous-titre { margin-top: 6px; color: var(--texte-doux); }
 .discret { color: var(--texte-doux); font-size: var(--taille-petit); }
-.texte-alerte { color: var(--alerte); font-weight: 800; }
+.texte-alerte { color: var(--alerte); font-weight: 600; }
 
 .retour {
   display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin: -6px 0 6px;
   text-decoration: none;
 }
-.retour::before { content: ""; width: 9px; height: 9px; border-left: 3px solid currentColor; border-bottom: 3px solid currentColor; transform: rotate(45deg); border-radius: 1px; }
+/* Demande 017 : un seul chevron, 8 × 8 px, trait de 2 px ; vers la gauche pour revenir. */
+.retour::before { content: ""; flex-shrink: 0; width: 8px; height: 8px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); border-radius: 1px; }
 
-.section { margin-top: 28px; }
-.section-titre { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.section-titre .discret { font-weight: 600; }
+.section { margin-top: 24px; }
+.section-titre { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.section-titre .discret { font-weight: 400; }
 
 /* ---------- Boutons ---------- */
 
 .bouton {
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; min-height: var(--geste); padding: 12px 20px;
-  font: inherit; font-weight: 800; text-align: center; text-decoration: none;
-  border-radius: var(--rayon); cursor: pointer; border: 2px solid transparent;
+  /* Demande 017 : le contour passe de 2 à 1 px ; la marge intérieure gagne 1 px, la hauteur du bouton ne change pas (54 px avec une ligne). */
+  width: 100%; min-height: var(--geste); padding: 13px 20px;
+  font: inherit; font-weight: 600; text-align: center; text-decoration: none;
+  border-radius: var(--rayon); cursor: pointer; border: 1px solid transparent;
+  transition: background-color var(--duree-courte) var(--courbe), border-color var(--duree-courte) var(--courbe),
+    box-shadow var(--duree-courte) var(--courbe), color var(--duree-courte) var(--courbe), transform var(--duree-courte) var(--courbe);
 }
-.bouton--principal { background: var(--principale-fond); color: var(--sur-principale); box-shadow: 0 3px 0 rgba(42, 33, 28, 0.18); }
-.bouton--secondaire { background: var(--surface); color: var(--texte); border-color: var(--texte); }
+/* Demande 017 : le bouton principal, seul bouton à avoir une ombre (une ombre douce, sans arête) ; aucun contour. */
+.bouton--principal { background: var(--principale-fond); color: var(--sur-principale); box-shadow: var(--ombre-principale); }
+.bouton--secondaire { background: var(--surface); color: var(--texte); border-color: var(--contour); }
+.bouton--secondaire:hover { background: var(--surface-douce); }
 .bouton--alerte { background: var(--alerte); color: #fff; }
 .bouton--petit { width: auto; min-height: 48px; padding: 8px 16px; flex-shrink: 0; }
 .bouton + .bouton, .bouton + .boutons-ligne, .boutons-ligne + .bouton { margin-top: 12px; }
-.bouton:active { transform: translateY(2px); box-shadow: none; }
+.bouton:active { transform: translateY(1px); }
+.bouton--principal:active { box-shadow: 0 1px 2px rgba(42, 33, 28, 0.12); }
 /* Un bouton d'ajout placé avant une liste, ou après elle (demande 006). */
 .bouton + .calendrier, .bouton + .avancement, .bouton + .vide { margin-top: 16px; }
 .repli + .bouton { margin-top: 14px; }
 .vide .bouton { margin-top: 6px; }
 
-.lien-suite { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; margin-top: 8px; }
-.lien-suite::after { content: ""; width: 8px; height: 8px; border-right: 3px solid currentColor; border-top: 3px solid currentColor; transform: rotate(45deg); border-radius: 1px; }
+/* Demande 017 : le lien de suite se reconnaît à son chevron, pas à un soulignement. */
+.lien-suite { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; margin-top: 8px; font-weight: 600; text-decoration: none; }
+.lien-suite::after { content: ""; flex-shrink: 0; width: 8px; height: 8px; border-right: 2px solid currentColor; border-top: 2px solid currentColor; transform: rotate(45deg); border-radius: 1px; }
 .lien-bouton {
   display: block; width: 100%; min-height: 48px; margin-top: 4px;
-  font: inherit; font-weight: 700; color: var(--texte-doux); background: none; border: 0; text-decoration: underline; cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--texte-doux); background: none; border: 0;
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: pointer;
 }
 
 /* ---------- Cartes et blocs (un toucher ouvre le détail) ---------- */
 
 .carte {
-  position: relative; display: block; padding: 16px 44px 16px 16px; margin-bottom: 12px;
+  position: relative; display: block; padding: 12px 40px 12px 16px; margin-bottom: 8px;
   background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); box-shadow: var(--ombre);
-  color: var(--texte); text-decoration: none; font-weight: 500;
+  color: var(--texte); text-decoration: none; font-weight: 400;
+  transition: background-color var(--duree-courte) var(--courbe), border-color var(--duree-courte) var(--courbe),
+    box-shadow var(--duree-courte) var(--courbe), transform var(--duree-courte) var(--courbe);
 }
+/* Demande 017 : le chevron, le même partout (8 × 8 px, trait de 2 px, gris doux) ; vers la droite, à 16 px du bord, centré. */
 .carte::after {
-  content: ""; position: absolute; right: 20px; top: 50%; width: 10px; height: 10px; margin-top: -5px;
-  border-right: 3px solid var(--principale-texte); border-top: 3px solid var(--principale-texte); transform: rotate(45deg); border-radius: 1px;
+  content: ""; position: absolute; right: 16px; top: 50%; width: 8px; height: 8px; margin-top: -4px;
+  border-right: 2px solid var(--texte-doux); border-top: 2px solid var(--texte-doux); transform: rotate(45deg); border-radius: 1px;
 }
 .carte:active { transform: translateY(1px); }
-.carte-etiquette { display: block; font-size: var(--taille-petit); font-weight: 800; color: var(--principale-texte); margin-bottom: 4px; }
+.carte-etiquette { display: block; font-size: var(--taille-petit); line-height: 1.375; font-weight: 600; color: var(--principale-texte); margin-bottom: 2px; }
 .carte-ligne { display: flex; gap: 14px; align-items: center; }
-.carte-titre { display: block; font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
-.carte-quand { display: block; color: var(--texte-doux); }
-.carte-infos { display: block; margin-top: 10px; }
+.carte-titre { display: block; font-size: var(--taille-texte); line-height: 1.3; font-weight: 600; }
+.carte-quand { display: block; font-size: var(--taille-petit); line-height: 1.375; color: var(--texte-doux); }
+.carte-infos { display: block; font-size: var(--taille-petit); line-height: 1.375; margin-top: 2px; }
+/* Demande 017 : la carte d'un message, « Question · De Thomas » sur une ligne (la sorte à la couleur du groupe, l'auteur en gris). */
+.carte-auteur { color: var(--texte-doux); font-weight: 400; white-space: nowrap; } /* le point médian ne commence jamais une ligne */
+/* Demande 017, critère « quatre messages au moins visibles sans défiler à 375 × 812 » (écran Messages, bureau de l'APE) : les valeurs
+   de la direction artistique laissaient la 4e carte à 756 px (les titres de section n'étaient pas comptés). La liste des messages est donc
+   un peu plus serrée que les autres listes : sections à 12 px, cartes à 8 px de marge haute et basse, lignes à 1,25, sans écart entre
+   les lignes de la carte. Aucun texte sous 16 px. Choix à confirmer par la direction artistique (fiche de la demande 017). */
+.section--messages { margin-top: 12px; }
+.section--messages > .section-titre { margin-bottom: 4px; line-height: 1.2; }
+.carte--message { padding-top: 8px; padding-bottom: 8px; }
+.carte--message .carte-titre { line-height: 1.25; }
+.carte--message .carte-etiquette, .carte--message .carte-quand, .carte--message .carte-infos { line-height: 1.25; margin: 0; }
+.carte--message .etiquette { line-height: 1.25; padding-top: 1px; padding-bottom: 1px; }
 .carte--passee { background: var(--surface-douce); box-shadow: none; }
 
-.grand-nombre { font-size: 2.5rem; line-height: 1; font-weight: 900; color: var(--texte); }
+.grand-nombre { font-size: 2.5rem; line-height: 1; font-weight: 600; color: var(--texte); }
 .bloc-chiffre { display: flex; align-items: center; gap: 14px; }
 
 .pastille {
@@ -180,14 +217,14 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
   width: 58px; height: 62px; border-radius: var(--rayon-petit);
   background: var(--principale-pale); color: var(--texte); line-height: 1;
 }
-.pastille-jour { font-size: 1.5rem; font-weight: 900; }
-.pastille-mois { font-size: 1rem; font-weight: 800; margin-top: 4px; }
+.pastille-jour { font-size: 1.5rem; font-weight: 600; }
+.pastille-mois { font-size: 1rem; font-weight: 400; margin-top: 4px; }
 .carte--passee .pastille { background: var(--surface); }
 
 /* Étiquettes */
 .etiquette {
   display: inline-block; flex-shrink: 0; padding: 2px 10px; border-radius: 999px;
-  font-size: 1rem; font-weight: 800; white-space: nowrap;
+  font-size: 1rem; line-height: 1.375; font-weight: 600; white-space: nowrap;
   background: var(--surface-douce); color: var(--texte);
 }
 .etiquette--alerte { background: var(--alerte-pale); color: var(--alerte); }
@@ -201,17 +238,18 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
   display: flex; justify-content: space-around; gap: 2px;
   min-height: var(--barre-bas); padding: 0 6px env(safe-area-inset-bottom);
   background: var(--surface); border-top: 1px solid var(--trait);
-  box-shadow: 0 -6px 18px -12px rgba(42, 33, 28, 0.3);
+  box-shadow: 0 -1px 3px rgba(42, 33, 28, 0.06);
 }
 .onglets[hidden] { display: none; }
 .onglets a {
   flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 0;
-  padding: 8px 2px 6px; color: var(--texte-doux); text-decoration: none; font-size: 1rem; font-weight: 700; line-height: 1.1;
+  padding: 8px 2px 6px; color: var(--texte-doux); text-decoration: none; font-size: 1rem; font-weight: 400; line-height: 1.1;
   letter-spacing: -0.01em;
+  transition: background-color var(--duree-courte) var(--courbe), color var(--duree-courte) var(--courbe);
 }
 .onglets .icone { display: flex; align-items: center; justify-content: center; width: 52px; height: 30px; border-radius: 999px; }
 .onglets svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.onglets a[aria-current="page"] { color: var(--texte); font-weight: 850; }
+.onglets a[aria-current="page"] { color: var(--texte); font-weight: 600; }
 .onglets a[aria-current="page"] .icone { background: var(--principale-pale); }
 .onglets a[aria-current="page"] svg { stroke: var(--principale-texte); stroke-width: 2.4; }
 
@@ -221,31 +259,40 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 .bascule a {
   display: flex; align-items: center; justify-content: center; min-height: 46px; padding: 6px 8px;
   border-radius: var(--rayon-petit); color: var(--texte); text-decoration: none; text-align: center;
+  transition: background-color var(--duree-courte) var(--courbe), box-shadow var(--duree-courte) var(--courbe);
 }
-.bascule a[aria-current] { background: var(--surface); box-shadow: var(--ombre); font-weight: 850; }
+.bascule a[aria-current] { background: var(--surface); box-shadow: var(--ombre); font-weight: 600; }
 
 .actions { background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); padding: 0 14px; }
 .action { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; }
 .action + .action { border-top: 1px solid var(--trait); }
 .action-texte { min-width: 0; }
-.action-libelle { font-weight: 800; line-height: 1.3; }
+.action-libelle { font-weight: 600; line-height: 1.3; }
 .action-meta { color: var(--texte-doux); margin-top: 2px; }
-.action--retard .action-quand { color: var(--alerte); font-weight: 800; }
-.action--fait .action-libelle { color: var(--texte-doux); font-weight: 500; }
+.action--retard .action-quand { color: var(--alerte); font-weight: 600; }
+.action--fait .action-libelle { color: var(--texte-doux); font-weight: 400; }
 
-/* Libellé qui s'ouvre (demande 006, bureau) : tout le texte de l'action est la zone à toucher,
-   le libellé garde sa couleur et sa graisse et gagne un soulignement. */
+/* Libellé qui s'ouvre (demande 006, bureau) : tout le texte de l'action est la zone à toucher, le libellé garde sa couleur et sa graisse.
+   Demande 017 : plus de soulignement, un chevron vers la droite, à 4 px du texte, avant le bouton d'état. */
 .action-texte--lien {
-  display: flex; flex-direction: column; justify-content: center; flex: 1 1 auto; min-height: 44px;
+  position: relative; display: flex; flex-direction: column; justify-content: center; flex: 0 1 auto; min-height: 44px; padding-right: 12px;
   color: inherit; font-weight: inherit; text-decoration: none;
 }
-.action-texte--lien .action-libelle { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+/* Essai 2 (B2) : le chevron suit le dernier mot du libellé, à 8 px, dans sa ligne ; il ne passe jamais seul à la ligne et ne touche pas
+   le bouton d'état. La zone à toucher reste tout le texte de l'action (44 px de haut au moins). */
+.action-texte--lien .fin-libelle { white-space: nowrap; }
+.action-texte--lien .fin-libelle::after {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 8px; vertical-align: 2px;
+  border-right: 2px solid var(--texte-doux); border-top: 2px solid var(--texte-doux); transform: rotate(45deg); border-radius: 1px;
+}
 
 /* Statut d'une action : on touche pour le faire avancer */
 .statut {
   flex-shrink: 0; min-width: 104px; min-height: 48px; padding: 6px 12px;
-  font: inherit; font-size: 1rem; font-weight: 800; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 1rem; font-weight: 600; border-radius: 999px; cursor: pointer;
   border: 2px solid var(--texte); color: var(--texte); background: var(--surface);
+  transition: background-color var(--duree-courte) var(--courbe), border-color var(--duree-courte) var(--courbe),
+    color var(--duree-courte) var(--courbe), transform var(--duree-courte) var(--courbe);
 }
 .statut--en-cours { background: var(--accent-pale); border-color: var(--accent); color: var(--accent); }
 .statut--fait { border-color: transparent; background: transparent; color: var(--texte-doux); font-weight: 600; min-height: 44px; }
@@ -263,13 +310,15 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
   display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 10px 14px; cursor: pointer; list-style: none;
 }
 .repli > summary::-webkit-details-marker { display: none; }
+/* Demande 017 : le chevron du repli, vers le bas fermé, vers le haut ouvert ; il tourne en 150 ms. */
 .repli > summary::after {
-  content: ""; flex-shrink: 0; width: 9px; height: 9px; margin: 0 4px 4px 4px;
-  border-right: 3px solid var(--texte-doux); border-bottom: 3px solid var(--texte-doux); transform: rotate(45deg); border-radius: 1px;
+  content: ""; flex-shrink: 0; width: 8px; height: 8px; margin: 0 4px 4px 4px;
+  border-right: 2px solid var(--texte-doux); border-top: 2px solid var(--texte-doux); transform: rotate(135deg); border-radius: 1px;
+  transition: transform var(--duree-courte) var(--courbe);
 }
-.repli[open] > summary::after { transform: rotate(-135deg); margin-bottom: -4px; }
+.repli[open] > summary::after { transform: rotate(-45deg); margin-bottom: -4px; }
 .repli-titres { flex: 1; min-width: 0; }
-.repli-titre { display: block; font-weight: 800; }
+.repli-titre { display: block; font-weight: 600; }
 .repli-meta { display: block; color: var(--texte-doux); }
 .insecable { white-space: nowrap; }
 /* Suite de mentions séparées par un point médian : le point ouvre chaque mention et tombe hors du cadre
@@ -291,19 +340,20 @@ h2 { font-size: 1.25rem; line-height: 1.25; font-weight: 800; }
 .calendrier { margin-bottom: 28px; padding: 16px 12px 14px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); }
 .calendrier-titre { margin: 0 4px 10px; }
 .calendrier-grille { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; }
-.calendrier-grille th { font-size: 1rem; font-weight: 700; color: var(--texte-doux); padding-bottom: 4px; }
+.calendrier-grille th { font-size: 1rem; font-weight: 400; color: var(--texte-doux); padding-bottom: 4px; }
 .calendrier-grille td { padding: 0; text-align: center; }
 .jour {
   display: flex; align-items: center; justify-content: center; width: 100%; max-width: 46px; height: 44px; margin: 0 auto;
-  border-radius: 12px; color: var(--texte); font-weight: 600; text-decoration: none; border: 3px solid transparent;
+  border-radius: 12px; color: var(--texte); font-weight: 400; text-decoration: none; border: 3px solid transparent;
 }
-a.jour { font-weight: 900; }
+a.jour { font-weight: 600; }
 /* Trois formes en plus des couleurs, pour qui distingue mal le rouge du vert. */
 .jour--a-jour { background: var(--vert-pale); border-color: var(--vert); border-radius: 50%; }
 .jour--en-cours { background: var(--orange-pale); border-color: var(--orange); border-style: dashed; }
 .jour--retard { background: var(--alerte-pale); border-color: var(--alerte); border-style: double; border-width: 5px; }
 .jour--passe { background: var(--surface-douce); }
-.jour--aujourdhui { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 3px; font-weight: 900; }
+/* Le jour d'aujourd'hui garde son soulignement : c'est sa forme, ce n'est pas un lien (exception arbitrée, demande 017). */
+.jour--aujourdhui { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 3px; font-weight: 600; }
 .calendrier-mois { margin-top: 12px; }
 .calendrier-mois .bouton { width: 100%; }
 .legende { margin-top: 14px; }
@@ -321,9 +371,10 @@ a.jour { font-weight: 900; }
 .sous-onglets { display: flex; gap: 4px; padding: 4px; margin: 0 0 20px; background: var(--surface-douce); border-radius: var(--rayon); }
 .sous-onglets a {
   flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 6px;
-  border-radius: var(--rayon-petit); color: var(--texte); text-decoration: none; font-weight: 700; white-space: nowrap;
+  border-radius: var(--rayon-petit); color: var(--texte); text-decoration: none; font-weight: 400; white-space: nowrap;
+  transition: background-color var(--duree-courte) var(--courbe), box-shadow var(--duree-courte) var(--courbe);
 }
-.sous-onglets a[aria-current="page"] { background: var(--surface); box-shadow: var(--ombre); font-weight: 850; }
+.sous-onglets a[aria-current="page"] { background: var(--surface); box-shadow: var(--ombre); font-weight: 600; }
 
 /* Lien à envoyer aux parents */
 .partage { padding: 18px 16px; margin-bottom: 28px; background: var(--principale-pale); border-radius: var(--rayon); }
@@ -363,10 +414,10 @@ a.jour { font-weight: 900; }
   background: var(--surface); border-radius: var(--rayon); box-shadow: var(--ombre);
   border-top: 12px solid var(--principale);
 }
-.affichette-asso { font-weight: 800; color: var(--texte-doux); }
-.affichette-merci { font-size: 2.5rem; line-height: 1.1; font-weight: 900; margin: 4px 0 20px; }
-.nombre { font-weight: 900; }
-.chiffre-vedette { display: flex; align-items: center; gap: 14px; font-weight: 800; font-size: 1.1875rem; line-height: 1.25; margin-bottom: 16px; }
+.affichette-asso { font-weight: 600; color: var(--texte-doux); }
+.affichette-merci { font-size: 2.5rem; line-height: 1.1; font-weight: 700; margin: 4px 0 20px; }
+.nombre { font-weight: 600; }
+.chiffre-vedette { display: flex; align-items: center; gap: 14px; font-weight: 600; font-size: 1.1875rem; line-height: 1.25; margin-bottom: 16px; }
 .chiffre-vedette .nombre { font-size: 4rem; line-height: 1; padding: 4px 12px; background: var(--principale-pale); border-radius: var(--rayon); }
 .chiffres li { display: flex; align-items: baseline; gap: 10px; padding: 10px 0; border-top: 1px solid var(--trait); }
 .chiffres .nombre { font-size: 1.875rem; white-space: nowrap; color: var(--accent); }
@@ -385,24 +436,25 @@ a.jour { font-weight: 900; }
 .fiche, .membres { background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); padding: 4px 14px; }
 .membres li, .fiche li { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 12px 0; }
 .membres li + li, .fiche li + li { border-top: 1px solid var(--trait); }
-.membre-nom { font-weight: 800; }
+.membre-nom { font-weight: 600; }
 .membre-role, .fiche-cle { color: var(--texte-doux); }
 
-.questions .repli > summary { font-weight: 800; }
+.questions .repli > summary { font-weight: 600; }
 .questions .repli-corps { padding: 12px 14px 14px; }
 .questions .repli-corps p + p { margin-top: 8px; }
 
 .nuancier { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .nuance { display: flex; align-items: center; gap: 12px; padding: 10px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon-petit); }
 .nuance-carre { flex-shrink: 0; width: 52px; height: 52px; border-radius: var(--rayon-petit); border: 1px solid rgba(42, 33, 28, 0.15); }
-.nuance-nom { display: block; font-weight: 800; }
+.nuance-nom { display: block; font-weight: 600; }
 .nuance-detail { display: block; color: var(--texte-doux); }
 .choix-couleurs { display: flex; flex-wrap: wrap; gap: 8px; }
 .choix-couleur {
   display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 14px 6px 8px;
-  font: inherit; font-weight: 700; color: var(--texte); background: var(--surface); border: 2px solid var(--trait); border-radius: 999px; cursor: pointer;
+  font: inherit; font-weight: 400; color: var(--texte); background: var(--surface); border: 1px solid var(--contour); border-radius: 999px; cursor: pointer;
+  transition: border-color var(--duree-courte) var(--courbe), box-shadow var(--duree-courte) var(--courbe);
 }
-.choix-couleur[aria-pressed="true"] { border-color: var(--texte); font-weight: 850; }
+.choix-couleur[aria-pressed="true"] { border-color: var(--texte); box-shadow: inset 0 0 0 1px var(--texte); font-weight: 600; }
 .choix-couleur span { width: 30px; height: 30px; border-radius: 50%; }
 .echelle li { padding: 8px 0; border-bottom: 1px solid var(--trait); }
 .echelle .discret { display: block; }
@@ -414,46 +466,49 @@ a.jour { font-weight: 900; }
 
 .lien-aide {
   float: right; display: inline-flex; align-items: center; min-height: 44px; margin: -6px -4px 4px 12px; padding: 0 4px;
-  font-weight: 800; color: var(--principale-texte);
+  font-weight: 600; color: var(--principale-texte);
 }
 
 /* ---------- Groupes, personnes, équipes (demande 005) ---------- */
 
 .message-ok {
   margin: 0 0 16px; padding: 12px 14px; border-radius: var(--rayon-petit);
-  background: var(--accent-pale); color: var(--texte); font-weight: 700; border-left: 6px solid var(--accent);
+  background: var(--accent-pale); color: var(--texte); font-weight: 400; border-left: 6px solid var(--accent);
 }
 .message-ok[hidden] { display: none; }
 .section .message-ok { margin-top: 14px; }
 .avertissement {
   margin: -8px 0 18px; padding: 8px 12px; border-radius: var(--rayon-petit);
-  background: var(--surface-douce); color: var(--texte-doux); font-size: var(--taille-petit); font-weight: 700;
+  background: var(--surface-douce); color: var(--texte-doux); font-size: var(--taille-petit); font-weight: 400;
 }
 
 .personnes { margin-top: 16px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); padding: 0 14px; }
 .personnes li + li { border-top: 1px solid var(--trait); }
 .personne { display: block; padding: 12px 0; color: var(--texte); text-decoration: none; }
-.personne--lien { position: relative; padding-right: 28px; }
+/* Demande 017 : le chevron de la ligne de personne et de la ligne de rendez-vous, le même que celui des cartes, à 16 px du bord droit. */
+.personne--lien { position: relative; padding-right: 36px; }
 .personne--lien::after {
-  content: ""; position: absolute; right: 6px; top: 50%; width: 9px; height: 9px; margin-top: -5px;
-  border-right: 3px solid var(--texte-doux); border-top: 3px solid var(--texte-doux); transform: rotate(45deg); border-radius: 1px;
+  content: ""; position: absolute; right: 16px; top: 50%; width: 8px; height: 8px; margin-top: -4px;
+  border-right: 2px solid var(--texte-doux); border-top: 2px solid var(--texte-doux); transform: rotate(45deg); border-radius: 1px;
 }
-.personne-nom { display: block; font-weight: 800; }
-.personne-vous { color: var(--texte-doux); font-weight: 600; }
+.personne-nom { display: block; font-weight: 600; }
+.personne-vous { color: var(--texte-doux); font-weight: 400; }
 .personne-detail { display: block; color: var(--texte-doux); }
 .personne-contact { color: var(--texte); }
 
 .form-personne, .form-equipe, .form-groupe, .form-evenement, .form-action, .form-creneau { margin-top: 4px; }
 .choix { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; }
-.choix legend { font-weight: 800; margin-bottom: 6px; padding: 0; }
+.choix legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
+/* Demande 017 : un contour gris fin ; la case choisie, un trait foncé de 2 px visibles, sans que rien ne bouge. */
 .choix-option {
   display: flex; align-items: flex-start; gap: 12px; min-height: var(--geste); padding: 10px 12px; margin-bottom: 8px;
-  background: var(--surface); border: 2px solid var(--trait); border-radius: var(--rayon-petit); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--contour); border-radius: var(--rayon-petit); cursor: pointer;
+  transition: border-color var(--duree-courte) var(--courbe), box-shadow var(--duree-courte) var(--courbe), background-color var(--duree-courte) var(--courbe);
 }
-.choix-option:has(input:checked) { border-color: var(--texte); }
+.choix-option:has(input:checked) { border-color: var(--texte); box-shadow: inset 0 0 0 1px var(--texte); }
 .choix-option input { flex-shrink: 0; width: 24px; height: 24px; margin: 1px 0 0; accent-color: var(--accent); }
 .choix-texte { min-width: 0; }
-.choix-titre { display: flex; align-items: center; gap: 8px; font-weight: 800; }
+.choix-titre { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .choix-detail { display: block; color: var(--texte-doux); }
 .choix--couleurs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
 .choix--couleurs legend { grid-column: 1 / -1; }
@@ -497,9 +552,11 @@ p + .form-evenement { margin-top: 16px; }
 .bloc-reponse .carte-etiquette { line-height: 1.5; }
 /* Le nombre du titre (« À répondre 2 ») est neutre, comme dans un titre de section : jamais la couleur du groupe. */
 .carte-etiquette .compte { color: var(--texte); }
-.bloc-reponse a.carte-titre {
-  padding: 4px 0; color: var(--texte);
-  text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px;
+/* Demande 017 : le titre du bloc n'est plus souligné ; un chevron vers la droite, dans la ligne, après le dernier mot. */
+.bloc-reponse a.carte-titre { padding: 4px 0; color: var(--texte); text-decoration: none; }
+.bloc-reponse a.carte-titre::after {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 8px; vertical-align: 2px;
+  border-right: 2px solid var(--texte-doux); border-top: 2px solid var(--texte-doux); transform: rotate(45deg); border-radius: 1px;
 }
 .bloc-reponse .carte-quand { margin-bottom: 12px; }
 .bloc-reponse .calme { padding: 4px 0; }
@@ -513,7 +570,7 @@ p + .form-evenement { margin-top: 16px; }
    avec sa flèche ; un trait ; en bas, un lien sur toute la largeur, sa flèche sur le même axe. Deux liens au plus, jamais de bouton. */
 .bloc-liens { margin-bottom: 12px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); box-shadow: var(--ombre); }
 .bloc-liens .carte { margin-bottom: 0; background: none; border: 0; box-shadow: none; }
-.bloc-liens .lien-suite { display: flex; justify-content: space-between; min-height: var(--geste); margin-top: 0; padding: 8px 21px 8px 16px; border-top: 1px solid var(--trait); }
+.bloc-liens .lien-suite { display: flex; justify-content: space-between; min-height: var(--geste); margin-top: 0; padding: 8px 16px 8px 16px; border-top: 1px solid var(--trait); }
 
 /* N3 · Repère « Rendez-vous » d'un jour du calendrier : carré aux coins arrondis, trait plein. */
 .jour--rendez-vous { background: var(--accent-pale); border-color: var(--accent); }
@@ -567,7 +624,7 @@ p + .form-evenement { margin-top: 16px; }
 .bande-action {
   position: fixed; left: 0; right: 0; bottom: calc(var(--barre-bas) + env(safe-area-inset-bottom)); z-index: 8;
   padding: 12px 16px; background: var(--fond); border-top: 1px solid var(--trait);
-  box-shadow: 0 -6px 18px -12px rgba(42, 33, 28, 0.3);
+  box-shadow: 0 -1px 3px rgba(42, 33, 28, 0.06);
 }
 .bande-action .bouton { max-width: 528px; margin: 0 auto; }
 /* L'exemple de la page Charte, posé à plat dans la colonne : son bouton a la largeur de la colonne, 16 px avant l'exemple suivant. */
@@ -592,12 +649,12 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 /* N7 · Zone de saisie sur plusieurs lignes : les règles de .champ input, mot pour mot. Trois lignes de haut pour le commentaire,
    pleine largeur, pas de poignée d'agrandissement. Le compteur est dessous, en .discret ; il ne change jamais de couleur. */
 .champ textarea {
-  display: block; width: 100%; min-height: calc(4.5em + 24px); padding: 10px 14px; resize: none;
+  display: block; width: 100%; min-height: calc(4.5em + 24px); padding: 11px 15px; resize: none;
   font: inherit; font-size: 1.1875rem; color: var(--texte);
-  background: var(--surface); border: 2px solid var(--texte-doux); border-radius: var(--rayon-petit);
+  background: var(--surface); border: 1px solid var(--contour); border-radius: var(--rayon-petit);
 }
-.champ textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-pale); }
-.champ textarea[aria-invalid="true"] { border-color: var(--alerte); }
+.champ textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-pale); }
+.champ textarea[aria-invalid="true"] { border-color: var(--alerte); box-shadow: 0 0 0 1px var(--alerte); }
 .compte-commentaire { margin-top: 4px; }
 .form-commentaire { margin-top: 16px; }
 .form-commentaire .champ { margin-bottom: 12px; }
@@ -625,7 +682,7 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
   position: absolute; top: -6px; left: 38px; display: flex; align-items: center; justify-content: center;
   min-width: 24px; height: 24px; padding: 0 4px; border-radius: 999px;
   background: var(--texte); color: var(--surface); box-shadow: 0 0 0 2px var(--surface);
-  font-size: 1rem; font-weight: 800; line-height: 1; letter-spacing: 0;
+  font-size: 1rem; font-weight: 600; line-height: 1; letter-spacing: 0;
 }
 .onglet-nombre::after { content: attr(data-nombre); }
 /* L'exemple de la page Charte : le menu posé à plat dans la page. */
@@ -634,6 +691,7 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 
 /* N10 · Lignes dans un bloc (« Prochains rendez-vous ») : chaque ligne est un lien entier, un trait entre deux lignes. */
 .lignes-bloc li + li { border-top: 1px solid var(--trait); }
+.lignes-bloc a { text-decoration: none; }
 .bloc-reponse .lignes-bloc + .lien-suite { margin-top: 4px; }
 
 /* Démo › « Ce qui serait envoyé » : une entrée par envoi. */
@@ -647,7 +705,7 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
   background: var(--surface); border-radius: var(--rayon); box-shadow: var(--ombre); border-top: 12px solid var(--principale);
 }
 .affiche h1 { margin-top: 2px; }
-.affiche-date { margin-top: 6px; font-weight: 800; }
+.affiche-date { margin-top: 6px; font-weight: 600; }
 .affiche-texte { margin-top: 10px; }
 
 .creneaux > li + li { margin-top: 10px; }
@@ -655,8 +713,8 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 .creneau-haut { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .creneau-infos { min-width: 0; }
 .creneau-horaire { color: var(--texte-doux); }
-.creneau-titre { font-size: 1.1875rem; line-height: 1.25; font-weight: 800; }
-.creneau-places { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-weight: 700; }
+.creneau-titre { font-size: 1.1875rem; line-height: 1.25; font-weight: 600; }
+.creneau-places { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-weight: 400; }
 .creneau-noms { margin-top: 6px; color: var(--texte-doux); }
 .creneau--complet { background: var(--surface-douce); }
 .creneau--ouvert { border: 2px solid var(--principale); }
@@ -667,37 +725,38 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 .creneau--complet .jauge span { border-color: var(--texte-doux); background: var(--texte-doux); }
 
 .formulaire { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--trait); }
-.formulaire-titre { font-weight: 800; margin-bottom: 12px; }
+.formulaire-titre { font-weight: 600; margin-bottom: 12px; }
 .champ { margin-bottom: 16px; }
-.champ label { display: block; font-weight: 800; margin-bottom: 4px; }
+.champ label { display: block; font-weight: 600; margin-bottom: 4px; }
 .champ-aide { color: var(--texte-doux); margin-bottom: 6px; }
+/* Demande 017 : un contour gris fin (1 px) ; le texte ne bouge pas, la marge intérieure gagne le pixel. */
 .champ input {
-  display: block; width: 100%; min-height: var(--geste); padding: 10px 14px;
+  display: block; width: 100%; min-height: var(--geste); padding: 11px 15px;
   font: inherit; font-size: 1.1875rem; color: var(--texte);
-  background: var(--surface); border: 2px solid var(--texte-doux); border-radius: var(--rayon-petit);
+  background: var(--surface); border: 1px solid var(--contour); border-radius: var(--rayon-petit);
 }
-.champ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-pale); }
+.champ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-pale); }
 /* Demande 016, au clavier : le champ garde son halo quand la tabulation est sur son bouton de calendrier ou d'horloge. */
-.champ input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-pale); }
+.champ input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-pale); }
 .champ input.champ-court { width: 5.5rem; text-align: center; text-transform: uppercase; }
 /* Dates et heures : la largeur et la hauteur d'un champ de texte, vide comme rempli (iPhone compris). */
 .champ input[type="date"], .champ input[type="time"] {
   -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; height: calc(1.5em + 24px); text-align: left;
 }
 .champ input[type="date"]::-webkit-date-and-time-value, .champ input[type="time"]::-webkit-date-and-time-value { text-align: left; min-height: 1.5em; }
-.champ input[aria-invalid="true"] { border-color: var(--alerte); }
-.champ-erreur, .erreur-generale { color: var(--alerte); font-weight: 800; }
+.champ input[aria-invalid="true"] { border-color: var(--alerte); box-shadow: 0 0 0 1px var(--alerte); }
+.champ-erreur, .erreur-generale { color: var(--alerte); font-weight: 600; }
 .champ-erreur:not(:empty) { margin-top: 6px; }
 .erreur-generale:not(:empty) { margin-bottom: 12px; }
 .pied-affiche { margin-top: 20px; }
 
 .confirmation > * + * { margin-top: 14px; }
 .confirmation-quoi { padding: 14px 16px; background: var(--surface); border-radius: var(--rayon); border-left: 6px solid var(--principale); }
-.tampon-ok { display: inline-block; padding: 4px 14px; border-radius: 999px; background: var(--accent-pale); color: var(--accent); font-weight: 850; }
+.tampon-ok { display: inline-block; padding: 4px 14px; border-radius: 999px; background: var(--accent-pale); color: var(--accent); font-weight: 600; }
 .lien-perso { padding: 18px 16px; background: var(--principale-pale); border-radius: var(--rayon); }
 .lien-perso > .discret { color: var(--texte); margin: 4px 0 12px; }
 .lien-details { margin-top: 14px; }
-.lien-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 800; }
+.lien-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
 .lien-details .lien-adresse { margin-top: 8px; }
 
 /* ---------- Idée et info (demande 009) ---------- */
@@ -706,7 +765,8 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
    les retours à la ligne gardés. Variante de titre, pour l'info qui n'a pas d'autre titre : la taille de .carte-titre,
    la même dans la liste et sur l'écran, pour que « Vu » reste visible sans défiler. */
 .message-texte { margin-top: 10px; color: var(--texte); white-space: pre-line; overflow-wrap: anywhere; }
-.message-texte--titre { margin-top: 0; font-size: 1.25rem; line-height: 1.3; font-weight: 800; letter-spacing: 0; }
+/* Demande 017 : la variante de titre suit le titre de carte (17 px, 600). */
+.message-texte--titre { margin-top: 0; font-size: var(--taille-texte); line-height: 1.3; font-weight: 600; letter-spacing: 0; }
 .message-texte + .message-texte { margin-top: 10px; }
 /* Le texte de l'info et l'explication gardent leurs retours à la ligne dans « ce qui serait envoyé ». */
 .confirmation-quoi { white-space: pre-line; overflow-wrap: anywhere; }
@@ -755,9 +815,54 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
 /* Page Charte : les exemples de la réponse par lien, hors de la section « Composants ». */
 .exemples-lien > * + * { margin-top: 14px; }
 .exemples-lien .partage { margin-bottom: 0; }
-.affiche-titre { margin-top: 2px; font-size: 2rem; line-height: 1.15; font-weight: 850; letter-spacing: -0.01em; }
+.affiche-titre { margin-top: 2px; font-size: 2rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; }
 #exemple-page-lien > * + * { margin-top: 14px; }
 #exemple-page-lien .affiche { margin-bottom: 0; }
+
+/* ---------- Fenêtre de confirmation (demande 017) ----------
+   Au téléphone, collée en bas de l'écran (elle couvre la barre du bas) ; à partir de 640 px, au centre de la fenêtre du navigateur.
+   La phrase, puis le bouton qui confirme, puis « Annuler » : l'un sous l'autre au téléphone, côte à côte au-delà, même ordre au clavier.
+   Aucun contour ; une ombre ; un voile sur toute la page. Elle passe au-dessus de tout, bandeau du testeur compris. */
+.fenetre {
+  position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 30;
+  width: 100%; max-width: none; max-height: calc(100dvh - 48px); margin: 0; overflow-y: auto;
+  padding: 24px 16px calc(16px + env(safe-area-inset-bottom));
+  background: var(--surface); color: var(--texte); border: 0; border-radius: var(--rayon-fenetre) var(--rayon-fenetre) 0 0;
+  box-shadow: var(--ombre-fenetre);
+}
+.fenetre[open] { animation: monter 200ms var(--courbe); }
+.fenetre::backdrop { background: var(--voile); animation: fondre var(--duree-courte) var(--courbe); }
+/* Un nom de fichier ou un libellé long, sans espace, passe à la ligne : jamais de défilement de côté. */
+.fenetre-phrase { margin: 0 0 20px; font-size: var(--taille-texte); font-weight: 400; color: var(--texte); overflow-wrap: anywhere; }
+.fenetre-boutons { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.fenetre-boutons .bouton { margin: 0; }
+/* L'exemple de la page Charte : posé à plat sur un pavé de voile. */
+.voile-exemple { padding: 24px 12px 0; margin-bottom: 14px; background: var(--voile); border-radius: var(--rayon); overflow: hidden; }
+.fenetre--exemple { position: static; display: block; max-height: none; animation: none; }
+
+@media (min-width: 640px) {
+  .fenetre {
+    top: 50%; left: 50%; right: auto; bottom: auto; transform: translate(-50%, -50%);
+    width: min(440px, calc(100vw - 48px)); padding: 28px 28px 24px; border-radius: var(--rayon);
+  }
+  .fenetre[open] { animation: approcher var(--duree) var(--courbe); }
+  .fenetre-boutons { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .fenetre-boutons .bouton { min-width: 0; padding-left: 8px; padding-right: 8px; line-height: 1.2; }
+  .voile-exemple { padding: 32px 24px; }
+  .fenetre--exemple { transform: none; width: auto; max-width: 440px; margin: 0 auto; border-radius: var(--rayon); }
+}
+
+/* ---------- Page Charte (demande 017) : tableaux, exemples de champs et de chevrons ---------- */
+.tableau { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--trait); font-size: var(--taille-petit); line-height: 1.375; }
+.tableau th, .tableau td { padding: 8px 6px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--trait); }
+.tableau th:first-child, .tableau td:first-child { padding-left: 10px; }
+.tableau th { color: var(--texte); }
+.champ--exemple-actif input { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-pale); }
+.exemples-finition > * + * { margin-top: 14px; }
+.exemples-finition > * + h2.section-titre { margin-top: 28px; }
+/* Essai 2 (B1) : l'exemple de la liste des messages garde ses valeurs (12 px au-dessus du titre, 4 px dessous), titre à 20 px comme dans la liste. */
+.exemples-finition > .section--messages { margin-top: 12px; }
+.section--messages > h3.section-titre { font-size: 1.25rem; font-weight: 600; }
 
 /* ---------- Trois paliers (demande 016) ----------
    Moins de 640 px : le téléphone, rien ne change.
@@ -799,7 +904,7 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
   #onglets .menu-groupe {
     display: flex; align-items: center; gap: 10px; margin: 0 -8px 12px; padding: 18px 16px 16px;
     border-top: 8px solid var(--principale); border-bottom: 1px solid var(--trait);
-    font-weight: 800; line-height: 1.25; color: var(--texte); overflow-wrap: anywhere;
+    font-weight: 600; line-height: 1.25; color: var(--texte); overflow-wrap: anywhere;
   }
   #onglets .menu-couleur { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--principale); border: 1px solid rgba(42, 33, 28, 0.25); }
   #onglets .menu-nom { min-width: 0; }
@@ -840,7 +945,12 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
   .liste #evenements-a-venir + .calendrier, .liste .vide + .calendrier { margin-top: 28px; }
   .liste .calendrier + #evenements-passes, .liste .rendez-vous + #evenements-passes { margin-top: 0; }
   /* Tant que rien n'est choisi : un texte court, rien d'autre. */
-  .rien-choisi { padding: 72px 0 0; color: var(--texte-doux); }
+  /* Demande 017 : la phrase est au centre de la colonne de droite, en largeur et en hauteur (du bandeau du testeur au bas de l'écran). */
+  .rien-choisi {
+    position: fixed; top: var(--bandeau); bottom: 0; left: calc(var(--menu) + var(--colonne-liste)); right: 0;
+    display: flex; align-items: center; justify-content: center; padding: 0 var(--marge-ordi); text-align: center;
+    color: var(--texte-doux); pointer-events: none;
+  }
 
   /* L'accueil, en deux colonnes : « À répondre » et « Mes actions » à gauche, le prochain événement ou les prochains rendez-vous à droite. */
   .ecran-accueil .vue {
@@ -877,11 +987,32 @@ html:has(.avec-bande) { scroll-padding: 44px 0 calc(var(--barre-bas) + var(--ban
   a, .action-texte--lien .action-libelle { text-decoration: none !important; }
   .carte, .repli, .repli-corps, .actions, .action + .action, .bloc-reponse, .bloc-liens, .calendrier, .personnes, .personnes li + li, .fiche, .membres, .creneau { border-color: #999 !important; }
   .carte { padding-right: 16px; }
-  .carte::after, .repli > summary::after, .personne--lien::after { display: none; }
+  .carte::after, .repli > summary::after, .personne--lien::after, .action-texte--lien .fin-libelle::after, .bloc-reponse a.carte-titre::after { display: none; }
+  .fenetre { display: none !important; }
   .carte, .bloc-reponse, .bloc-liens, .repli, .action, .creneau, .personnes li, .membres li { break-inside: avoid; }
   h1, h2, summary { break-after: avoid; }
 }
 
+/* ---------- Mouvements (demande 017) : seulement l'opacité et la position, jamais la hauteur ; de 150 à 200 ms.
+   Les images clés n'ont pas d'état final : si le mouvement est coupé, l'élément est déjà à sa place. ---------- */
+
+@keyframes apparaitre { from { opacity: 0; transform: translateY(8px); } }
+@keyframes fondre { from { opacity: 0; } }
+@keyframes deplier { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes cocher { from { opacity: 0; transform: rotate(-45deg) scale(.5); } }
+@keyframes monter { from { opacity: 0; transform: translateY(24px); } }
+@keyframes approcher { from { opacity: 0; transform: translate(-50%, -50%) scale(.96); } }
+
+/* Un nouvel écran, ou le détail ouvert à droite (js/app.js pose .anime sur #vue quand l'adresse change). Ce qui contient un élément fixe
+   (la bande du bouton, la phrase du panneau vide) ne fait que s'éclaircir : un déplacement le détacherait du bas de l'écran. */
+.vue.anime > :not(.bande-action):not(.rien-choisi):not(:has(.bande-action)) { animation: apparaitre var(--duree) var(--courbe); }
+.vue.anime > :has(.bande-action) { animation: fondre var(--duree) var(--courbe); }
+/* Un repli que la personne ouvre, et « Voir les N autres messages ». */
+.repli.anime[open] > .repli-corps, .suite-liste.anime:not([hidden]) { animation: deplier var(--duree-courte) var(--courbe); }
+/* La réponse et la clôture : ce qui vient de changer. */
+.bouton--choisi.anime::before { animation: cocher var(--duree-courte) var(--courbe); }
+.message-ok.anime, .bloc-reponse.anime, .etiquette.anime, .astuce.anime { animation: apparaitre var(--duree) var(--courbe); }
+
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; scroll-behavior: auto !important; }
+  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

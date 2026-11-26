@@ -265,9 +265,9 @@
     if (contexte === "mes-actions" || contexte === "toutes") { meta.push(esc(e.titre)); }
     if (contexte !== "mes-actions" && nomReferent(a)) { meta.push(esc(nomReferent(a))); }
     meta.push('<span class="action-quand">' + esc(quandAction(a, e)) + "</span>");
-    var texte = '<p class="action-libelle">' + esc(a.libelle) + "</p>" + '<p class="action-meta">' + meta.join(" · ") + "</p>";
     // Dans l'événement, pour le bureau : le libellé (et la ligne dessous) ouvre l'action pour la modifier.
     var ouvre = contexte === "evenement" && peutModifier(e);
+    var texte = '<p class="action-libelle">' + (ouvre ? libelleAvecChevron(a.libelle) : esc(a.libelle)) + "</p>" + '<p class="action-meta">' + meta.join(" · ") + "</p>";
     return '<li class="action action--' + esc(a.statut) + (retard ? " action--retard" : "") + '" id="action-' + esc(a.id) + '" data-contexte="' + esc(contexte) + '">' +
       (ouvre
         ? '<a class="action-texte action-texte--lien" href="#evenement/' + esc(e.id) + "/action/" + esc(a.id) + '">' + texte + "</a>"
@@ -280,6 +280,14 @@
           esc(L.LIBELLES_STATUT[a.statut]) + "</button>"
         : '<span class="etiquette">' + esc(L.LIBELLES_STATUT[a.statut]) + "</span>") +
       "</li>";
+  }
+
+  // Demande 017, essai 2 (direction artistique, B2) : le chevron d'un libellé qui s'ouvre suit son dernier mot, à 8 px, et ne passe
+  // jamais seul à la ligne (le dernier mot et le chevron ne se séparent pas). Le texte saisi passe par esc().
+  function libelleAvecChevron(libelle) {
+    var t = String(libelle), i = t.replace(/\s+$/, "").search(/\S+$/);
+    if (i < 0) { return esc(t); }
+    return esc(t.slice(0, i)) + '<span class="fin-libelle">' + esc(t.slice(i)) + "</span>";
   }
 
   // Le prénom affiché sur une action : celui de sa personne aujourd'hui (elle a pu être renommée) ;
@@ -346,9 +354,10 @@
     var m = L.actionsAFaire(G(), p);
     var premiere = m.enRetard[0] || m.cetteSemaine[0] || m.plusTard[0];
     var blocActions = '<a class="carte" id="bloc-actions" href="#mes-actions">' +
-      '<span class="carte-etiquette">Mes actions à faire</span>' +
+      '<span class="carte-etiquette">' + esc(M("accueilMesActions")) + "</span>" +
       '<span class="bloc-chiffre"><span class="grand-nombre">' + m.total + "</span><span>" +
-      (m.total ? (m.enRetard.length ? '<span class="texte-alerte">dont ' + m.enRetard.length + " en retard</span>" : "rien en retard") : "tout est fait") +
+      // Demande 017 (journal du 2026-11-26) : les quatre textes de ce bloc viennent de mots.js, sans changer de mots.
+      (m.total ? (m.enRetard.length ? '<span class="texte-alerte">' + esc(M("accueilDontEnRetard", { n: m.enRetard.length })) + "</span>" : esc(M("accueilRienEnRetard"))) : esc(M("accueilToutEstFait"))) +
       "</span></span>" +
       (premiere ? '<span class="carte-infos">' + esc(premiere.action.libelle) + "</span>" : "") + "</a>";
     // Demande 007c : pour le bureau, la ligne des créneaux est un lien à elle, vers la liste des créneaux en manque ;
@@ -816,21 +825,21 @@
       g.fillStyle = FOND; g.fillRect(0, 0, W, H);
       g.fillStyle = p.principale; g.fillRect(0, 0, W, 32);
 
-      g.fillStyle = doux; g.font = "800 36px Nunito";
+      g.fillStyle = doux; g.font = "600 36px Nunito"; // demande 017 : les graisses de l'affichette (400, 600, 700 pour le titre)
       g.fillText(G().nom, M, 160);
-      g.fillStyle = texte; g.font = "900 120px Nunito";
+      g.fillStyle = texte; g.font = "700 120px Nunito";
       g.fillText("Merci à vous.", M, 300);
-      g.fillStyle = doux; g.font = "600 40px Nunito";
+      g.fillStyle = doux; g.font = "400 40px Nunito";
       g.fillText(e.titre + " · " + fmtLongAnnee.format(L.dateEvenement(e)).replace(/^\S+ /, ""), M, 370);
 
-      g.font = "900 200px Nunito";
+      g.font = "600 200px Nunito";
       var lv = g.measureText(String(b.benevoles)).width;
       g.fillStyle = p.principalePale; g.beginPath();
       if (g.roundRect) { g.roundRect(M - 20, 430, lv + 40, 200, 28); } else { g.rect(M - 20, 430, lv + 40, 200); }
       g.fill();
       g.fillStyle = texte;
       g.fillText(String(b.benevoles), M, 600);
-      g.font = "800 46px Nunito";
+      g.font = "600 46px Nunito";
       g.fillText("parents ont donné", M + lv + 48, 515);
       g.fillText("un coup de main", M + lv + 48, 575);
 
@@ -839,15 +848,15 @@
         .forEach(function (l) {
           g.strokeStyle = "#EADCC8"; g.lineWidth = 3;
           g.beginPath(); g.moveTo(M, y - 84); g.lineTo(W - M, y - 84); g.stroke();
-          g.fillStyle = accent; g.font = "900 88px Nunito";
+          g.fillStyle = accent; g.font = "600 88px Nunito";
           g.fillText(l[0], M, y + 10);
           var largeur = g.measureText(l[0]).width;
-          g.fillStyle = texte; g.font = "700 42px Nunito";
+          g.fillStyle = texte; g.font = "400 42px Nunito";
           g.fillText(l[1], M + largeur + 28, y);
           y += 140;
         });
 
-      g.fillStyle = texte; g.font = "600 40px Nunito";
+      g.fillStyle = texte; g.font = "400 40px Nunito";
       ecrireLignes(g, b.ceQueCaFinance, M, 1200, W - 2 * M, 56);
       telecharger("merci-" + esc(e.id) + ".png", c.toDataURL("image/png"));
     });
@@ -1252,11 +1261,12 @@
     var e = L.trouverEvenement(G(), eid);
     var a = e && Ev.trouverAction(e, bouton.getAttribute("data-supprimer-action"));
     if (!a || !peutModifier(e)) { rendre({ focus: true }); return; }
-    if (!window.confirm(M("confirmerSuppressionAction", { libelle: a.libelle }))) { return; }
-    if (!Ev.supprimerAction(G(), moi(), eid, a.id).ok) { rendre({ focus: true }); return; }
-    sauver();
-    message = M("actionSupprimee", { libelle: a.libelle });
-    aller("#evenement/" + eid + "/actions");
+    confirmer(M("confirmerSuppressionAction", { libelle: a.libelle }), M("fenetreSupprimerAction"), function () {
+      if (!Ev.supprimerAction(G(), moi(), eid, a.id).ok) { rendre({ focus: true }); return; }
+      sauver();
+      message = M("actionSupprimee", { libelle: a.libelle });
+      aller("#evenement/" + eid + "/actions");
+    });
   }
 
   // Écrans 7 et 8 : ajouter ou modifier un créneau. Il a lieu le jour de l'événement.
@@ -1319,11 +1329,12 @@
     if (!c || !peutModifier(e)) { rendre({ focus: true }); return; }
     var n = c.inscrits.length;
     var question = n ? Mn("confirmerSuppressionCreneauInscrits", n, { nom: c.titre }) : M("confirmerSuppressionCreneau", { nom: c.titre });
-    if (!window.confirm(question)) { return; }
-    if (!Ev.supprimerCreneau(G(), moi(), eid, c.id).ok) { rendre({ focus: true }); return; }
-    sauver();
-    message = M("creneauSupprime", { nom: c.titre });
-    aller("#evenement/" + eid + "/coups-de-main");
+    confirmer(question, M("fenetreSupprimerCreneau"), function () {
+      if (!Ev.supprimerCreneau(G(), moi(), eid, c.id).ok) { rendre({ focus: true }); return; }
+      sauver();
+      message = M("creneauSupprime", { nom: c.titre });
+      aller("#evenement/" + eid + "/coups-de-main");
+    });
   }
 
   // ---------- Demande 007 : demander qui est partant ----------
@@ -1481,19 +1492,28 @@
       var c = Msg.decompte(g, m);
       infos = esc(texteCompteur(c)) + (c.complet ? " " + etiquetteComplet() : "") + (close ? etiquette("msgClose") : "");
     }
-    return '<a class="carte' + (passee ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" data-sorte="' + esc(sorte) + '" href="#message/' + esc(m.id) + '">' +
-      '<span class="carte-etiquette sorte-message">' + esc(motSorte(m)) + "</span>" +
+    // Demande 017 (ergonomie, « Carte d'un message ») : la sorte et l'auteur sur la première ligne (« Question · De Thomas »), puis le titre,
+    // puis la date du rendez-vous seule (pas de ligne sans rendez-vous), puis le compteur. Aucun mot ne change.
+    var quand = quandRendezVous(m);
+    return '<a class="carte carte--message' + (passee ? " carte--passee" : "") + '" id="message-' + esc(m.id) + '" data-sorte="' + esc(sorte) + '" href="#message/' + esc(m.id) + '">' +
+      ligneSorteAuteur(motSorte(m), deQui(m)) +
       '<span class="carte-titre">' + esc(titreMessage(m)) + "</span>" +
-      '<span class="carte-quand">' + esc([deQui(m), quandRendezVous(m)].filter(Boolean).join(" · ")) + "</span>" +
+      (quand ? '<span class="carte-quand">' + esc(quand) + "</span>" : "") +
       (infos ? '<span class="carte-infos">' + infos + "</span>" : "") +
       // Demande 008 : les commentaires des autres publiés depuis ma dernière ouverture du message, en toutes lettres.
       (nouveaux ? '<span class="carte-statut nouveaux-commentaires"><span class="etiquette etiquette--ok">' + esc(Mn("msgComNouveaux", nouveaux)) + "</span></span>" : "") +
       "</a>";
   }
 
+  // La première ligne d'une carte de message : le mot de sorte (couleur du groupe, demi-gras), puis l'auteur (gris, normal),
+  // séparés par le point médian. Aussi pour les exemples de la page Charte.
+  function ligneSorteAuteur(sorte, auteur) {
+    return '<span class="carte-etiquette"><span class="sorte-message">' + esc(sorte) + '</span><span class="carte-auteur"> · ' + esc(auteur) + "</span></span>";
+  }
+
   // Trois messages au plus, puis « Voir les N autres messages » qui déplie le reste sur place.
   function sectionMessages(id, titre, liste, vide) {
-    var html = '<section class="section" id="liste-' + id + '"><h2 class="section-titre"><span>' + esc(titre) +
+    var html = '<section class="section section--messages" id="liste-' + id + '"><h2 class="section-titre"><span>' + esc(titre) +
       '</span><span class="compte">' + liste.length + "</span></h2>";
     if (!liste.length) { return html + '<p class="calme">' + esc(vide) + "</p></section>"; }
     var carte = function (m) { return carteMessage(m, id === "termines"); };
@@ -1514,6 +1534,7 @@
 
   function voirSuite(bouton) {
     var suite = deplierSuite(bouton);
+    suite.classList.add("anime"); // demande 017 : un mouvement court, seulement quand la personne déplie
     var premier = champDeTexteActif() ? null : suite.querySelector("a");
     if (premier) { premier.focus({ preventScroll: true }); }
   }
@@ -2140,6 +2161,7 @@
     var r = Msg.direBonneIdee(G(), moi(), id, dit);
     if (r.ok) { sauver(); }
     rendre({ garderDefilement: true, garderReplis: true });
+    if (r.ok) { animer("#ma-reponse .bouton--choisi, #ma-reponse .message-ok"); }
     var suite = document.querySelector("#ma-reponse .reponse-seule");
     if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
@@ -2165,6 +2187,7 @@
     var r = Msg.deciderIdee(G(), moi(), bouton.getAttribute("data-message"), bouton.getAttribute("data-decider"));
     if (r.ok) { sauver(); }
     rendre({ focus: true });
+    if (r.ok) { animer("#vue .entete .etiquette, #vue .message-ok"); }
   }
 
   // ----- Demande 009, écran 7 : le message, une info -----
@@ -2219,6 +2242,7 @@
       if (accueil) { reponseAccueil = { id: id, reponse: "vu" }; }
     }
     rendre({ garderDefilement: true, garderReplis: true });
+    if (r.ok) { animer(accueil ? "#bloc-repondre" : "#ma-reponse .message-ok"); }
     var suite = document.querySelector(accueil ? "#bloc-repondre .message-ok" : "#ma-reponse .message-ok");
     if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
@@ -2356,13 +2380,14 @@
       amenerALEcran(document.getElementById("erreur-supprimer-commentaire"));
       return;
     }
-    if (!window.confirm(M("msgComConfirmerSupprimer"))) { return; }
-    if (Msg.supprimerCommentaire(g, p, id, cid).ok) {
-      sauver();
-      commentaireFait = { id: id, quoi: "supprime" };
-    }
-    rendre({ garderDefilement: true, garderReplis: true });
-    montrerStatutCommentaire();
+    confirmer(M("msgComConfirmerSupprimer"), M("msgComFenetreSupprimer"), function () {
+      if (Msg.supprimerCommentaire(g, p, id, cid).ok) {
+        sauver();
+        commentaireFait = { id: id, quoi: "supprime" };
+      }
+      rendre({ garderDefilement: true, garderReplis: true });
+      montrerStatutCommentaire();
+    });
   }
 
   // « Voir les N commentaires plus anciens » : ils se déplient sur place, au-dessus des trois plus récents.
@@ -2383,6 +2408,7 @@
       if (accueil) { reponseAccueil = { id: id, reponse: valeur }; }
     }
     rendre({ garderDefilement: true, garderReplis: true });
+    if (r.ok) { animer(accueil ? "#bloc-repondre" : "#ma-reponse .bouton--choisi, #ma-reponse .message-ok"); }
     var suite = accueil ? document.querySelector("#bloc-repondre .message-ok") : document.querySelector('#ma-reponse [data-reponse="' + (valeur === "non" ? "non" : "oui") + '"]');
     if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
@@ -2391,11 +2417,15 @@
     var g = G(), p = moi();
     var m = Msg.trouverVisible(g, p, id);
     if (!m || !Msg.peutGerer(g, p, m) || Msg.estClose(m)) { rendre({ focus: true }); return; }
-    // Essai 5 : pas de confirmation, rien n'est clos tant qu'un commentaire est en cours de frappe.
+    // Essai 5 : pas de confirmation, rien n'est clos tant qu'un commentaire est en cours de frappe. Le refus vient avant la fenêtre.
     if (commentaireEnCours()) { return; }
-    if (!window.confirm(M(Msg.sorte(m) === "info" ? "msgInfoConfirmerClore" : "msgConfirmerClore"))) { return; }
-    if (Msg.clore(g, p, id).ok) { sauver(); }
-    rendre({ focus: true });
+    // Clore ne détruit rien : le bouton qui confirme est à la couleur du groupe, et il a le curseur (ergonomie, lignes 4 et 5).
+    var info = Msg.sorte(m) === "info";
+    confirmer(M(info ? "msgInfoConfirmerClore" : "msgConfirmerClore"), M(info ? "msgInfoClore" : "msgClore"), function () {
+      if (Msg.clore(g, p, id).ok) { sauver(); }
+      rendre({ focus: true });
+      animer("#vue .entete .etiquette, #vue #info-close, #vue .message-ok");
+    }, true);
   }
 
   function ajouterAgendaQuestion(id) {
@@ -2598,13 +2628,14 @@
     if (!x || !gere()) { return; }
     var form = bouton.closest("form");
     if (Gr.gestionnaires(g).length <= 1 && Gr.peutGerer(g, x)) { erreurGenerale(form, M("dernierGestionnaire")); return; }
-    if (!window.confirm(M("confirmerRetrait", { nom: Gr.nomComplet(x) }))) { return; }
-    var r = Gr.retirerPersonne(g, x.id);
-    if (!r.ok) { erreurGenerale(form, M("dernierGestionnaire")); return; }
-    sauver();
-    remplirDemo();
-    message = M("personneRetiree", { nom: Gr.nomComplet(x) });
-    aller(gere() ? "#personnes" : hrefGroupe());
+    confirmer(M("confirmerRetrait", { nom: Gr.nomComplet(x) }), M("fenetreRetirerPersonne"), function () {
+      var r = Gr.retirerPersonne(g, x.id);
+      if (!r.ok) { erreurGenerale(form, M("dernierGestionnaire")); return; }
+      sauver();
+      remplirDemo();
+      message = M("personneRetiree", { nom: Gr.nomComplet(x) });
+      aller(gere() ? "#personnes" : hrefGroupe());
+    });
   }
 
   // ---------- Équipes ----------
@@ -2688,11 +2719,12 @@
     var g = G();
     var e = Gr.trouverEquipe(g, bouton.getAttribute("data-supprimer-equipe"));
     if (!e || e.bureau || !gere()) { return; }
-    if (!window.confirm(M("confirmerSuppressionEquipe", { nom: e.nom }))) { return; }
-    Gr.supprimerEquipe(g, e.id);
-    sauver();
-    message = M("equipeSupprimee", { nom: e.nom });
-    aller("#equipes");
+    confirmer(M("confirmerSuppressionEquipe", { nom: e.nom }), M("fenetreSupprimerEquipe"), function () {
+      Gr.supprimerEquipe(g, e.id);
+      sauver();
+      message = M("equipeSupprimee", { nom: e.nom });
+      aller("#equipes");
+    });
   }
 
   // ---------- Charte (page interne) ----------
@@ -2700,16 +2732,22 @@
   function ecranCharte() {
     var p = L.paletteAssociation(G().couleur, FOND);
     function ratio(a, b) { return L.contraste(a, b).toFixed(1).replace(".", ",") + ":1"; }
+    // Demande 017 (direction artistique, points 8 et 9) : la principale pour écrire est mesurée sur ses quatre fonds ; le contour et le voile
+    // rejoignent le nuancier, avec leurs rapports calculés de la même façon.
+    var F = M("charteFinition");
+    var VOILE_SUR_FOND = L.melanger("#2A211C", FOND, 0.5); // le voile (texte à 50 %) posé sur le fond crème
     var nuances = [
       ["Couleur principale", p.principale, M("charteCouleurDetail")],
       ["Bouton principal", p.principaleFond, "Texte " + (p.surPrincipale === "#FFFFFF" ? "blanc" : "foncé") + " : contraste " + ratio(p.surPrincipale, p.principaleFond)],
-      ["Principale pour écrire", p.principaleTexte, "Liens et titres de carte : " + ratio(p.principaleTexte, p.principalePale) + " sur la teinte pâle"],
+      ["Principale pour écrire", p.principaleTexte, remplacer(F.principaleTexte, { blanc: ratio(p.principaleTexte, "#FFFFFF"), fond: ratio(p.principaleTexte, FOND), pale: ratio(p.principaleTexte, p.principalePale), douce: ratio(p.principaleTexte, L.SURFACE_DOUCE) })],
       ["Principale pâle", p.principalePale, "Fonds légers (encadrés, pastilles)"],
       ["Accent bleu canard", "#0B6E77", "« En cours », chiffres, informations : " + ratio("#0B6E77", FOND)],
       ["Alerte", "#B8322A", "Retards et annulation : " + ratio("#B8322A", FOND)],
       ["Fond crème", FOND, "Fond de toutes les pages"],
       ["Texte", "#2A211C", "Texte courant : " + ratio("#2A211C", FOND)],
-      ["Texte doux", "#6B5D52", "Informations secondaires : " + ratio("#6B5D52", FOND)]
+      ["Texte doux", "#6B5D52", "Informations secondaires : " + ratio("#6B5D52", FOND)],
+      [F.contour, "#8A7B70", remplacer(F.contourDetail, { blanc: ratio("#8A7B70", "#FFFFFF"), fond: ratio("#8A7B70", FOND), douce: ratio("#8A7B70", L.SURFACE_DOUCE) })],
+      [F.voile, "rgba(42, 33, 28, 0.5)", remplacer(F.voileDetail, { ratio: ratio("#FFFFFF", VOILE_SUR_FOND) })]
     ];
     var regleVocabulaire = M("charteRegleVocabulaire");
     var html = retour(hrefGroupe(), M("ongletGroupe")) + entete("Page interne", "Charte graphique", "Ce que chaque écran doit respecter") +
@@ -2720,6 +2758,8 @@
       "<li>Boutons nommés par un verbe et son objet, jamais une icône seule.</li>" +
       "<li>Texte de 16 px minimum, contraste AA (4,5:1).</li>" +
       "<li>Aucun défilement de côté sur un téléphone de 360 px.</li>" +
+      "<li>" + esc(F.regleSouligne) + "</li>" +
+      "<li>" + esc(F.regleMouvements) + "</li>" +
       (regleVocabulaire ? "<li>" + esc(regleVocabulaire) + "</li>" : "") + "</ul></section>" +
 
       '<section class="section"><h2 class="section-titre">Couleurs</h2><ul class="nuancier">' +
@@ -2738,11 +2778,12 @@
           }).join("") + "</div>"
         : '<p class="discret">' + esc(M("charteCouleurReservee")) + "</p>") + "</section>" +
 
+      // Demande 017 : l'échelle dit les graisses, 700 pour le titre de page seulement.
       '<section class="section"><h2 class="section-titre">Textes</h2><ul class="echelle">' +
-      '<li><span style="font-size:2rem;font-weight:850;line-height:1.15">Titre de page</span><span class="discret">32 px, Nunito très gras</span></li>' +
-      '<li><span style="font-size:1.25rem;font-weight:800">Titre de section</span><span class="discret">20 px, gras</span></li>' +
-      "<li><span>Texte courant : phrases simples, mots du quotidien.</span><span class=\"discret\">17 px, normal</span></li>" +
-      '<li><span class="discret" style="display:inline">Texte secondaire</span><span class="discret">16 px, le minimum</span></li></ul></section>' +
+      F.textes.map(function (x, i) {
+        var style = ["font-size:2rem;font-weight:700;line-height:1.15", "font-size:1.25rem;font-weight:600;line-height:1.25", "font-weight:600;line-height:1.3", "", ""][i];
+        return "<li><span" + (i === 4 ? ' class="discret" style="display:inline"' : style ? ' style="' + style + '"' : "") + ">" + esc(x[0]) + '</span><span class="discret">' + esc(x[1]) + "</span></li>";
+      }).join("") + "</ul></section>" +
 
       '<section class="section exemples"><h2 class="section-titre">Composants</h2>' +
       '<button type="button" class="bouton bouton--principal" data-exemple>' + esc(M("charteExemplePrincipal")) + "</button>" +
@@ -2759,8 +2800,67 @@
       etatVide("calme", "État vide", "Une petite illustration et une phrase qui dit quoi faire.") +
       exemplesFormulaire() +
       exemplesMessages() +
-      "</section>" + exemplesLien();
+      "</section>" + exemplesFinition() + exemplesLien();
     return { titre: "Charte graphique", onglet: "groupe", html: html };
+  }
+
+  // Demande 017 (direction artistique, point 9) : contours et ombres, chevrons, la fenêtre de confirmation (à plat sur un pavé de voile,
+  // une fois rouge, une fois à la couleur du groupe), la carte d'un message, le tableau des mouvements. Tous inertes.
+  function exemplesFinition() {
+    var F = M("charteFinition");
+    var fenetre = function (phrase, bouton, rouge) {
+      return '<div class="voile-exemple"><div class="fenetre fenetre--exemple" role="group" aria-label="' + esc(F.fenetreTitre) + '">' +
+        '<p class="fenetre-phrase">' + esc(phrase) + '</p><div class="fenetre-boutons">' +
+        '<button type="button" class="bouton ' + (rouge ? "bouton--alerte" : "bouton--principal") + '" data-exemple>' + esc(bouton) + "</button>" +
+        '<button type="button" class="bouton bouton--secondaire" data-exemple>' + esc(M("fenetreAnnuler")) + "</button></div></div></div>";
+    };
+    var compteur = Mn("msgCompteurAttendus", F.carteDenseAttendus, { oui: F.carteDenseOui });
+    return '<section class="section exemples-finition" id="charte-finition"><h2 class="section-titre">' + esc(F.contoursTitre) + "</h2>" +
+      '<p class="discret">' + esc(F.contoursPrincipal) + "</p>" +
+      '<button type="button" class="bouton bouton--principal" data-exemple>' + esc(M("charteExemplePrincipal")) + "</button>" +
+      '<p class="discret">' + esc(F.contoursSecondaire) + "</p>" +
+      '<button type="button" class="bouton bouton--secondaire" data-exemple>' + esc(M("charteExempleSecondaire")) + "</button>" +
+      '<p class="discret">' + esc(F.contoursCarte) + "</p>" +
+      '<div class="carte" id="exemple-carte-plate"><span class="carte-titre">' + esc(F.carteExemple) + "</span></div>" +
+      champ("exemple-repos", F.champRepos, 'autocomplete="off"', "") +
+      '<div class="champ--exemple-actif">' + champ("exemple-actif", F.champActif, 'autocomplete="off"', "") + "</div>" +
+      champ("exemple-en-erreur", F.champErreur, 'autocomplete="off" aria-invalid="true"', "", "text", F.champErreurPhrase) +
+
+      '<h2 class="section-titre" id="charte-chevrons">' + esc(F.chevronsTitre) + "</h2>" +
+      '<p class="discret">' + esc(F.chevronCarte) + "</p>" +
+      '<a class="carte" href="#charte"><span class="carte-titre">' + esc(F.chevronCarteTitre) + "</span></a>" +
+      '<p class="discret">' + esc(F.chevronRepli) + "</p>" +
+      '<details class="repli" id="exemple-repli-ferme"><summary><span class="repli-titres"><span class="repli-titre">' + esc(F.repliFerme) + "</span></span></summary>" +
+      '<div class="repli-corps"><p class="calme">' + esc(F.repliCorps) + "</p></div></details>" +
+      '<details class="repli" id="exemple-repli-ouvert" open><summary><span class="repli-titres"><span class="repli-titre">' + esc(F.repliOuvert) + "</span></span></summary>" +
+      '<div class="repli-corps"><p class="calme">' + esc(F.repliCorps) + "</p></div></details>" +
+      '<p class="discret">' + esc(F.chevronRetour) + "</p>" +
+      "<p>" + retour("#charte", F.retour) + "</p>" +
+      '<p><a class="lien-suite" href="#charte">' + esc(F.lienSuite) + "</a></p>" +
+
+      '<h2 class="section-titre" id="charte-fenetre">' + esc(F.fenetreTitre) + "</h2>" +
+      '<p class="discret">' + esc(F.fenetreTexte) + "</p>" +
+      fenetre(M("confirmerSuppressionEquipe", { nom: F.fenetreEquipe }), M("fenetreSupprimerEquipe"), true) +
+      fenetre(M("msgConfirmerClore"), M("msgClore"), false) +
+
+      '<h2 class="section-titre" id="charte-carte-message">' + esc(F.carteDenseTitre) + "</h2>" +
+      '<p class="discret">' + esc(F.carteDenseTexte) + "</p>" +
+      // Essai 2 (direction artistique, B1) : l'exemple posé comme dans la liste des messages, avec ses valeurs (.section--messages) :
+      // le titre de section et son compteur, puis deux cartes. La seconde reprend les mots de l'exemple de l'idée.
+      '<div class="section section--messages" id="exemple-liste-messages"><h3 class="section-titre"><span>' + esc(M("msgListeARepondre")) + '</span><span class="compte">2</span></h3>' +
+      '<a class="carte carte--message" href="#charte" id="exemple-carte-message">' + ligneSorteAuteur(M("msgSorteQuestion"), M("msgDe", { prenom: F.carteDenseAuteur })) +
+      '<span class="carte-titre">' + esc(F.carteDenseQuestion) + "</span>" +
+      '<span class="carte-quand">' + esc(F.carteDenseDate) + "</span>" +
+      '<span class="carte-infos">' + esc(compteur) + "</span></a>" +
+      '<a class="carte carte--message" href="#charte">' + ligneSorteAuteur(M("msgSorteIdee"), M("msgDe", { prenom: M("charteIdeeInfo").de })) +
+      '<span class="carte-titre">' + esc(M("charteIdeeInfo").idee) + "</span>" +
+      '<span class="carte-infos">' + esc(M("msgIdeeCompteur", { n: M("charteIdeeInfo").compte })) + "</span></a></div>" +
+
+      '<h2 class="section-titre" id="charte-mouvements">' + esc(F.mouvementsTitre) + "</h2>" +
+      '<table class="tableau"><thead><tr>' + F.mouvementsEntetes.map(function (t) { return '<th scope="col">' + esc(t) + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      F.mouvements.map(function (x) {
+        return '<tr><th scope="row">' + esc(x[0]) + "</th><td>" + esc(x[1]) + "</td><td>" + esc(F.courbe) + "</td><td>" + esc(F.coupe) + "</td></tr>";
+      }).join("") + "</tbody></table></section>";
   }
 
   // Confirmation d'une suppression (demande 006b, à la demande de la direction artistique) : la phrase qui dit quoi,
@@ -2787,7 +2887,7 @@
       '<button type="button" class="lien-bouton" data-exemple>' + esc(C.lienBouton) + "</button>" +
       '<button type="button" class="lien-bouton lien-bouton--alerte" data-exemple>' + esc(C.lienBoutonAlerte) + "</button>" +
       '<ul class="actions"><li class="action"><a class="action-texte action-texte--lien" href="#charte">' +
-      '<p class="action-libelle">' + esc(C.actionLibelle) + '</p><p class="action-meta">' + esc(C.actionMeta) + "</p></a>" +
+      '<p class="action-libelle">' + libelleAvecChevron(C.actionLibelle) + '</p><p class="action-meta">' + esc(C.actionMeta) + "</p></a>" +
       '<span class="statut" style="display:inline-flex;align-items:center;justify-content:center">' + esc(L.LIBELLES_STATUT["a-faire"]) + "</span></li></ul>";
   }
 
@@ -2834,10 +2934,10 @@
   function exemplesIdeeInfo() {
     var C = M("charteIdeeInfo");
     var ligne = function (titre, cleEtat, ok, passee) {
-      return '<a class="carte' + (passee ? " carte--passee" : "") + '" href="#charte">' +
-        '<span class="carte-etiquette sorte-message">' + esc(M("msgSorteIdee")) + "</span>" +
+      // Demande 017 : l'ordre de la carte de l'écran Messages (« Idée · De … », puis le titre).
+      return '<a class="carte carte--message' + (passee ? " carte--passee" : "") + '" href="#charte">' +
+        ligneSorteAuteur(M("msgSorteIdee"), M("msgDe", { prenom: C.de })) +
         '<span class="carte-titre">' + esc(titre) + "</span>" +
-        '<span class="carte-quand">' + esc(M("msgDe", { prenom: C.de })) + "</span>" +
         '<span class="carte-infos">' + esc(M("msgIdeeCompteur", { n: C.compte })) +
         ' <span class="etiquette' + (ok ? " etiquette--ok" : "") + '">' + esc(M(cleEtat)) + "</span></span></a>";
     };
@@ -3036,16 +3136,18 @@
     lecteur.onload = function () {
       var r = Gr.lireEssai(String(lecteur.result), DONNEES.version);
       if (!r.ok) { zone.textContent = M(r.raison === "ancien" ? "essaiAncien" : "essaiIllisible"); return; }
-      if (!window.confirm(M("confirmerOuvrir", { nom: fichier.name }))) { return; }
-      etat = Gr.rattacherActions(r.etat); // essais enregistrés avant la demande 005b
-      sauver();
-      creneauOuvert = null; annulationFaite = null; qrVisible = false; moisAffiche = null;
-      appliquerCouleur();
-      remplirOnglets();
-      remplirDemo();
-      var nb = etat.groupes.reduce(function (n, g) { return n + g.personnes.length; }, 0);
-      message = M("essaiOuvert", { groupes: Mn("nGroupes", etat.groupes.length), personnes: Mn("nPersonnes", nb) });
-      aller("#accueil");
+      // Demande 017 : ouvrir un essai efface ce qui est sur le téléphone ; bouton rouge, curseur sur « Annuler » (ergonomie, ligne 8).
+      confirmer(M("confirmerOuvrir", { nom: fichier.name }), M("fenetreOuvrirEssai"), function () {
+        etat = Gr.rattacherActions(r.etat); // essais enregistrés avant la demande 005b
+        sauver();
+        creneauOuvert = null; annulationFaite = null; qrVisible = false; moisAffiche = null;
+        appliquerCouleur();
+        remplirOnglets();
+        remplirDemo();
+        var nb = etat.groupes.reduce(function (n, g) { return n + g.personnes.length; }, 0);
+        message = M("essaiOuvert", { groupes: Mn("nGroupes", etat.groupes.length), personnes: Mn("nPersonnes", nb) });
+        aller("#accueil");
+      });
     };
     lecteur.onerror = function () { zone.textContent = M("essaiIllisible"); };
     lecteur.readAsText(fichier);
@@ -3513,8 +3615,10 @@
   function changerReponseInvite(bouton) {
     var jeton = bouton.getAttribute("data-jeton"), valeur = bouton.getAttribute("data-lien-reponse");
     var t = reponseLienPartout(jeton);
-    if (t && Msg.changerReponseLien(t.groupe, jeton, valeur).ok) { sauver(); }
+    var change = !!t && Msg.changerReponseLien(t.groupe, jeton, valeur).ok;
+    if (change) { sauver(); }
     rendre({ garderDefilement: true });
+    if (change) { animer("#ma-reponse .bouton--choisi, #ma-reponse .message-ok"); }
     var suite = document.querySelector('#ma-reponse [data-lien-reponse="' + (valeur === "non" ? "non" : "oui") + '"]');
     if (suite && !champDeTexteActif()) { suite.focus({ preventScroll: true }); }
   }
@@ -3613,11 +3717,12 @@
     if (Msg.estRetiree(m, jeton)) { dejaRetiree(); return; }
     var r = Msg.reponsesLien(m).filter(function (x) { return x.jeton === jeton; })[0];
     if (!r || Msg.estClose(m)) { rendre(garder); return; }
-    if (!window.confirm(M("msgLienConfirmerRetrait", { nom: Msg.nomLien(g, m, r) }))) { return; }
-    var fait = Msg.retirerReponseLien(g, p, id, jeton);
-    if (fait.ok) { sauver(); retraitFait = { id: m.id, texte: M("msgLienRetiree", { nom: fait.nom }) }; }
-    else if (fait.raison === "deja") { dejaRetiree(); return; }
-    rendre(garder);
+    confirmer(M("msgLienConfirmerRetrait", { nom: Msg.nomLien(g, m, r) }), M("msgLienFenetreRetirer"), function () {
+      var fait = Msg.retirerReponseLien(g, p, id, jeton);
+      if (fait.ok) { sauver(); retraitFait = { id: m.id, texte: M("msgLienRetiree", { nom: fait.nom }) }; }
+      else if (fait.raison === "deja") { dejaRetiree(); return; }
+      rendre(garder);
+    });
   }
 
   // Écran 6 : Démo › « Voir en invité ». La question affichée si l'on est sur un message ouvert, sinon la question ouverte
@@ -3670,6 +3775,82 @@
       html: '<section class="confirmation"><h1 tabindex="-1">' + esc(M("pageIntrouvable")) + "</h1>" +
         etatVide("chemin", M("pageIntrouvableAide"), "", '<a class="lien-suite" href="#accueil">' + esc(M("revenirAccueil")) + "</a>") + "</section>"
     };
+  }
+
+  // ---------- Demande 017 : la fenêtre de confirmation de l'appli ----------
+  // Une seule fenêtre (#fenetre, dans index.html) pour les neuf confirmations : plus aucune boîte de dialogue du navigateur.
+  // La phrase seule, puis deux boutons : celui qui confirme (le verbe de la phrase et son objet), puis « Annuler ».
+  // Rouge quand le geste efface ; à la couleur du groupe quand il ne détruit rien (clore). Le curseur va sur « Annuler » quand
+  // le bouton est rouge, sur le bouton qui confirme sinon (ergonomie, « Curseur à l'ouverture »). Échap fait comme « Annuler » ;
+  // Entrée appuie sur le bouton qui a le curseur ; la tabulation reste dans la fenêtre ; le fond ne réagit pas (fenêtre modale,
+  // un toucher sur le voile ne fait rien). À la fermeture, le curseur revient où il était : sur le bouton qui a ouvert la fenêtre,
+  // ou dans le champ où l'on écrivait (le texte en cours n'est jamais touché : Annuler ne redessine rien).
+  // Tout passe par textContent : un nom saisi (personne, action, fichier) s'affiche comme du texte, jamais comme du HTML.
+  var fenetreEnCours = null; // { retour : l'élément qui avait le curseur, oui : ce que fait le bouton qui confirme }
+
+  // phrase : la phrase de mots.js, déjà remplie ; bouton : le mot du bouton qui confirme ; oui : le geste confirmé ;
+  // sansDetruire : vrai pour clore (bouton à la couleur du groupe, curseur dessus).
+  function confirmer(phrase, bouton, oui, sansDetruire) {
+    var f = document.getElementById("fenetre");
+    if (!f || fenetreEnCours) { return; }
+    // Le nom de la fenêtre est la question, sa description la suite de la phrase (s'il y en a une).
+    var fin = phrase.indexOf("» ? ") >= 0 ? phrase.indexOf("» ? ") + 3 : phrase.indexOf("? ") >= 0 ? phrase.indexOf("? ") + 1 : phrase.length;
+    var detail = phrase.slice(fin).trim();
+    document.getElementById("fenetre-nom").textContent = phrase.slice(0, fin);
+    document.getElementById("fenetre-detail").textContent = detail;
+    if (detail) { f.setAttribute("aria-describedby", "fenetre-detail"); } else { f.removeAttribute("aria-describedby"); }
+    var bOui = document.getElementById("fenetre-oui"), bNon = document.getElementById("fenetre-non");
+    bOui.textContent = bouton;
+    bOui.className = "bouton " + (sansDetruire ? "bouton--principal" : "bouton--alerte");
+    bNon.textContent = M("fenetreAnnuler");
+    // Le curseur d'un champ où l'on écrivait est gardé à sa place (règle du texte en cours de frappe).
+    var actif = document.activeElement, place = null;
+    try { place = actif && (actif.tagName === "INPUT" || actif.tagName === "TEXTAREA") ? [actif.selectionStart, actif.selectionEnd, actif.scrollTop] : null; } catch (err) { place = null; }
+    fenetreEnCours = { retour: actif, place: place, oui: oui };
+    f.showModal();
+    (sansDetruire ? bOui : bNon).focus();
+  }
+
+  // confirme : vrai pour le bouton qui confirme ; faux pour « Annuler », Échap, ou un changement d'écran.
+  // apresNavigation : l'écran a changé pendant que la fenêtre était ouverte (retour du navigateur) ; on ne rend pas le curseur.
+  function fermerFenetre(confirme, apresNavigation) {
+    var f = document.getElementById("fenetre"), x = fenetreEnCours;
+    if (!x) { return; }
+    fenetreEnCours = null;
+    if (f.open) { f.close(); }
+    var r = x.retour;
+    if (!apresNavigation && r && r !== document.body && document.body.contains(r) && r.focus) {
+      r.focus({ preventScroll: true });
+      if (x.place && typeof x.place[0] === "number") { try { r.setSelectionRange(x.place[0], x.place[1]); r.scrollTop = x.place[2]; } catch (err) { /* champ sans curseur */ } }
+    }
+    if (confirme) { x.oui(); }
+  }
+
+  (function () {
+    var f = document.getElementById("fenetre");
+    if (!f) { return; }
+    f.addEventListener("click", function (ev) {
+      var b = ev.target.closest ? ev.target.closest("button") : null;
+      if (!b || !fenetreEnCours) { return; } // un toucher sur le voile ne fait rien
+      fermerFenetre(b.id === "fenetre-oui");
+    });
+    f.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); fermerFenetre(false); return; }
+      if (ev.key !== "Tab") { return; }
+      // Le curseur reste dans la fenêtre : après le dernier bouton, le premier, et dans l'autre sens.
+      var boutons = [document.getElementById("fenetre-oui"), document.getElementById("fenetre-non")];
+      var i = boutons.indexOf(document.activeElement);
+      ev.preventDefault();
+      boutons[i === 0 ? 1 : 0].focus(); // deux boutons : Tab et Maj + Tab passent à l'autre
+    });
+    // La touche « retour » d'Android et les autres demandes de fermeture du système : comme « Annuler ».
+    f.addEventListener("cancel", function (ev) { ev.preventDefault(); fermerFenetre(false); });
+  })();
+
+  // Demande 017 : ce qui vient de changer après une réponse ou une clôture porte la classe « anime », pour un seul affichage
+  // (la feuille de style le fait apparaître en 150 à 180 ms ; rien sous « réduire les animations »). Le prochain dessin l'efface.
+  function animer(selecteurs) {
+    Array.prototype.forEach.call(document.querySelectorAll(selecteurs), function (e) { e.classList.add("anime"); });
   }
 
   // ---------- Aiguillage ----------
@@ -3766,6 +3947,13 @@
     var liste = document.getElementById("liste");
     var aGauche = ORDI.matches && !!colonnes && !!colonnes.ici;
     vue.innerHTML = aide + (aGauche ? "" : r.html);
+    // Demande 017 : un nouvel écran (au téléphone), ou un détail ouvert à droite (à l'ordinateur, la liste ne bouge pas), apparaît
+    // en 180 ms. Jamais quand le même écran est redessiné après un geste. Rien sous « réduire les animations » (feuille de style).
+    if (adresseAffichee !== location.hash) {
+      vue.classList.remove("anime");
+      void vue.offsetWidth; // le mouvement repart de zéro
+      vue.classList.add("anime");
+    }
     if (ORDI.matches && colonnes) {
       remplirListe(colonnes, aGauche ? r.html : undefined);
       if (aGauche) { poserRienChoisi(colonnes); }
@@ -4178,6 +4366,11 @@
       choisirJourOuHeure(ev.target);
       return;
     }
+    // Demande 017 : les boutons de la fenêtre de confirmation ont leur propre écoute (plus haut).
+    if (ev.target.closest && ev.target.closest("#fenetre")) { return; }
+    // Demande 017 : un repli ouvert par la personne se déplie avec un mouvement court ; pas celui qu'un nouveau dessin rouvre.
+    var titreRepli = ev.target.closest("summary");
+    if (titreRepli && titreRepli.parentNode && titreRepli.parentNode.tagName === "DETAILS") { titreRepli.parentNode.classList.add("anime"); }
     var cible = ev.target.closest("button, a");
     if (!cible) { return; }
     if (cible.hasAttribute("data-reglage")) { changerReglage(); return; }
@@ -4232,13 +4425,13 @@
     }
     if (cible.id === "demo-ouvrir") { basculerMenu(); return; }
     if (cible.hasAttribute("data-reinitialiser")) {
-      if (window.confirm(M("confirmerReinitialiser"))) {
+      confirmer(M("confirmerReinitialiser"), M("reinitialiser"), function () {
         reinitialiser();
         remplirOnglets();
         remplirDemo();
         basculerMenu(false);
         aller("#accueil");
-      }
+      });
       return;
     }
     if (cible.closest("#demo-menu") && cible.tagName === "A") { basculerMenu(false); }
@@ -4306,6 +4499,8 @@
   });
 
   window.addEventListener("hashchange", function () {
+    // Demande 017 : l'écran change (retour du navigateur) pendant qu'une fenêtre de confirmation est ouverte : elle se ferme, sans rien faire.
+    fermerFenetre(false, true);
     creneauOuvert = null;
     qrVisible = false;
     reponseAccueil = null;
